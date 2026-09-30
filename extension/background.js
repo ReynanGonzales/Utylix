@@ -421,10 +421,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // ---------- messages from the video button on web pages (content.js) ----------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg && msg.type === 'pip-hover') return false;                     // (answered by the Picture in Picture code below)
+  if (msg && (msg.type === 'pip-hover' || msg.type === 'pip-log')) return false;     // (answered by the Picture in Picture code below)
   (async () => {
     try {
-      if (msg && msg.type === 'pip-hover') return;                       // (answered by the Picture in Picture code below)
+      if (msg && (msg.type === 'pip-hover' || msg.type === 'pip-log')) return;     // (answered by the Picture in Picture code below)
       const tabId = sender.tab?.id;
       if (tabId == null) return sendResponse({ error: 'no tab' });
 
@@ -573,6 +573,11 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
 });
 chrome.tabs.onRemoved.addListener(tabId => { for (const k of [...pipOver.keys()]) if (k.startsWith(tabId + ':')) pipOver.delete(k); });
 syncPipMenu();
+
+// what the page script did (floated, switched, closed): shown in the popup's log, so a failure can be explained
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg && msg.type === 'pip-log' && typeof msg.text === 'string') note({ url: sender.tab?.url || '', filename: 'Picture in Picture' }, 'pip', msg.text.slice(0, 120));
+});
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (!msg || msg.type !== 'pip-hover' || sender.tab?.id == null) return;

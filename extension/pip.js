@@ -87,6 +87,9 @@
 
   // ---- follow the feed: Reels, Shorts-like players and playlists swap to the next video; the floating window should follow ----
   let following = false, followTimer = 0, switchTimer = 0;
+  const log = text => { try { chrome.runtime.sendMessage({ type: 'pip-log', text }).catch(() => {}); } catch { /* extension reloaded */ } };
+  // Only where the page swaps videos by swiping (Reels, Shorts, TikTok): on ordinary pages a floating video stays what it is.
+  const feedLike = () => /\/(reels?|shorts)(\/|$)/i.test(location.pathname) || /(^|\.)tiktok\.com$/i.test(location.hostname);
 
   const inView = v => {
     const r = v.getBoundingClientRect();
@@ -97,10 +100,10 @@
   /** The floating video stopped (or was swiped away) and another one is playing on screen: float that one instead. */
   function maybeSwitch() {
     const cur = document.pictureInPictureElement;
-    if (!following || !cur) return;
+    if (!following || !cur || !feedLike()) return;
     if (!(cur.paused || cur.ended || !cur.isConnected || !inView(cur))) return;     // it still plays in view: leave it
     const next = [...document.querySelectorAll('video')].find(v => v !== cur && !v.paused && !v.ended && v.readyState > 0 && usable(v) && inView(v));
-    if (next) next.requestPictureInPicture().catch(() => {});                          // allowed without a click while a floating window exists
+    if (next) { log('following to the next video'); next.requestPictureInPicture().catch(e => log('could not follow: ' + (e && e.name))); }   // allowed without a click while a floating window exists
   }
 
   function startFollowing() {
@@ -112,9 +115,9 @@
   const soon = () => { clearTimeout(switchTimer); switchTimer = setTimeout(maybeSwitch, 180); };
   for (const type of ['play', 'playing', 'pause', 'ended', 'emptied']) document.addEventListener(type, soon, true);   // media events do not bubble
   document.addEventListener('leavepictureinpicture', () => {
-    setTimeout(() => { if (!document.pictureInPictureElement) { following = false; clearInterval(followTimer); } }, 400);    // (a switch leaves and enters at once)
+    setTimeout(() => { if (!document.pictureInPictureElement) { following = false; clearInterval(followTimer); log('floating window closed'); } }, 400);    // (a switch leaves and enters at once)
   }, true);
-  document.addEventListener('enterpictureinpicture', () => startFollowing(), true);
+  document.addEventListener('enterpictureinpicture', (e) => { log('floating: ' + (e.target.videoWidth || '?') + 'x' + (e.target.videoHeight || '?') + (feedLike() ? ', following the feed' : '')); startFollowing(); }, true);
 
   async function toggle(video) {
     if (!video) return { error: 'There is no video here.' };
