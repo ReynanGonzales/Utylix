@@ -225,6 +225,8 @@ public static class ShellMenu
         cmd.SetValue("", command);
     }
 
+    [System.Runtime.InteropServices.DllImport("shell32.dll")] private static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
+
     /// <summary>
     /// The player's and the archive's own logo for Explorer: copied out of the program into the data folder (Explorer needs a real
     /// .ico file for anything other than the program's main icon). Falls back to the main icon if that fails.
@@ -240,7 +242,11 @@ public static class ShellMenu
             using var src = res.Stream;
             using var ms = new MemoryStream();
             src.CopyTo(ms);
-            if (!File.Exists(path) || new FileInfo(path).Length != ms.Length) File.WriteAllBytes(path, ms.ToArray());
+            if (!File.Exists(path) || new FileInfo(path).Length != ms.Length)
+            {
+                File.WriteAllBytes(path, ms.ToArray());
+                SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);            // SHCNE_ASSOCCHANGED: Explorer shows the new icon now, not after a restart
+            }
             return path;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { return fallback; }
@@ -263,7 +269,11 @@ public static class ShellMenu
             using var src = res.Stream;
             using var ms = new MemoryStream();
             src.CopyTo(ms);
-            if (!File.Exists(path) || new FileInfo(path).Length != ms.Length) File.WriteAllBytes(path, ms.ToArray());
+            if (!File.Exists(path) || new FileInfo(path).Length != ms.Length)
+            {
+                File.WriteAllBytes(path, ms.ToArray());
+                SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);            // SHCNE_ASSOCCHANGED: Explorer shows the new icon now, not after a restart
+            }
             return path;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return ""; }
