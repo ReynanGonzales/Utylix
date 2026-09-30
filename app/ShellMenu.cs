@@ -237,15 +237,20 @@ public static class ShellMenu
         {
             string dir = Path.Combine(dataDir, "icons");
             Directory.CreateDirectory(dir);
-            string path = Path.Combine(dir, name + ".ico");
             var res = Application.GetResourceStream(new Uri($"pack://application:,,,/{name}.ico"));
             using var src = res.Stream;
             using var ms = new MemoryStream();
             src.CopyTo(ms);
-            if (!File.Exists(path) || new FileInfo(path).Length != ms.Length)
+            // The file name carries a fingerprint of the picture: a new logo gets a NEW path, so Explorer (which remembers icons by
+            // path, also in open menus) cannot keep showing the old one.
+            string tag = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(ms.ToArray()))[..8].ToLowerInvariant();
+            string path = Path.Combine(dir, $"{name}-{tag}.ico");
+            if (!File.Exists(path))
             {
                 File.WriteAllBytes(path, ms.ToArray());
-                SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);            // SHCNE_ASSOCCHANGED: Explorer shows the new icon now, not after a restart
+                foreach (var old in Directory.GetFiles(dir, name + "*.ico")) if (!string.Equals(old, path, StringComparison.OrdinalIgnoreCase)) { try { File.Delete(old); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
+                // SHCNE_ASSOCCHANGED, a moment later (after the registry entries that use this file are written)
+                _ = System.Threading.Tasks.Task.Delay(1500).ContinueWith(_ => SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero));
             }
             return path;
         }

@@ -41,7 +41,8 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
 
 ## Installing and uninstalling
 
-Double-click **`Install.bat`** (or run `Utylix-Setup.exe`; `build.bat` makes it, it is the same file as `Utylix.exe`). On a PC
+Run **`InstallerBuilder.bat`** to build the installer: `installer\Utylix-Setup.exe`, one file you can give to anyone (it is
+the same program as `Utylix.exe`, started under that name). Double-click it to run the wizard. On a PC
 where Utylix has never run, a plain `Utylix.exe` offers the same wizard. It has five pages:
 
 1. **Welcome** – what Utylix is. (*Just run it, don't install* keeps it portable.)

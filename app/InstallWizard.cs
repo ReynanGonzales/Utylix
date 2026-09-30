@@ -215,16 +215,16 @@ internal static partial class Installer
         features.Children.Add(Text("Uninstalling removes every one of these again. You can change the right-click menus later in Settings.", 12, muted: true, margin: new Thickness(0, 10, 0, 0)));
 
         // ---- page 4: extra downloads ----
-        string have = "  -  already on this PC";
-        var dYt = Check("Video sites: yt-dlp" + (Tools.HasYtDlp ? have : ""), "SetupYtDlp", !Tools.HasYtDlp, "Downloads videos from YouTube and hundreds of other sites. About 20 MB.", !Tools.HasYtDlp);
-        var dFf = Check("Convert, record and merge: ffmpeg" + (Tools.HasFfmpeg ? have : ""), "SetupFfmpeg", !Tools.HasFfmpeg, "Needed for video and music conversion, the screen recorder and best-quality video downloads. About 100 MB.", !Tools.HasFfmpeg);
-        var dVlc = Check("Video player engine" + (VlcEngine.Find() != null ? have : ""), "SetupVlc", VlcEngine.Find() == null, "The engine that lets the Utylix player play almost any file (the same one VLC is made of). About 80 MB.", VlcEngine.Find() == null);
-        var dAi = Check("Background remover: AI model" + (BackgroundRemover.HasModel ? have : ""), "SetupModel", false, "Runs on your PC; nothing is uploaded. About 170 MB, so it is off unless you want it now.", !BackgroundRemover.HasModel);
+        string have = "  -  already on this PC (tick to download it again)";
+        var dYt = Check("Video sites: yt-dlp" + (Tools.HasYtDlp ? have : ""), "SetupYtDlp", !Tools.HasYtDlp, "Downloads videos from YouTube and hundreds of other sites. About 20 MB.");
+        var dFf = Check("Convert, record and merge: ffmpeg" + (Tools.HasFfmpeg ? have : ""), "SetupFfmpeg", !Tools.HasFfmpeg, "Needed for video and music conversion, the screen recorder and best-quality video downloads. About 100 MB.");
+        var dVlc = Check("Video player engine" + (VlcEngine.Find() != null ? have : ""), "SetupVlc", VlcEngine.Find() == null, "The engine that lets the Utylix player play almost any file (the same one VLC is made of). About 80 MB.");
+        var dAi = Check("Background remover: AI model" + (BackgroundRemover.HasModel ? have : ""), "SetupModel", false, "Runs on your PC; nothing is uploaded. About 170 MB, so it is off unless you want it now.");
         if (start != null) { dYt.IsChecked = start.YtDlp; dFf.IsChecked = start.Ffmpeg; dVlc.IsChecked = start.Vlc; dAi.IsChecked = start.Model; }
         var total = Text("", 12.5, bold: true, margin: new Thickness(0, 18, 0, 0));
         void UpdateTotal()
         {
-            int mb = (dYt.IsChecked == true && dYt.IsEnabled ? 20 : 0) + (dFf.IsChecked == true && dFf.IsEnabled ? 100 : 0) + (dVlc.IsChecked == true && dVlc.IsEnabled ? 80 : 0) + (dAi.IsChecked == true && dAi.IsEnabled ? 170 : 0);
+            int mb = (dYt.IsChecked == true ? 20 : 0) + (dFf.IsChecked == true ? 100 : 0) + (dVlc.IsChecked == true ? 80 : 0) + (dAi.IsChecked == true ? 170 : 0);
             total.Text = mb == 0 ? "Nothing will be downloaded now. Utylix asks the first time a feature needs one of these." : $"About {mb} MB will be downloaded while installing.";
         }
         foreach (var b in new[] { dYt, dFf, dVlc, dAi }) { b.Checked += (_, _) => UpdateTotal(); b.Unchecked += (_, _) => UpdateTotal(); }
@@ -320,7 +320,7 @@ internal static partial class Installer
 
         Choices Current() => new(dirBox.Text.Trim(), scopeAll.IsChecked == true, cDesk.IsChecked == true, cAuto.IsChecked == true,
                                  cConvert.IsChecked == true, cArchive.IsChecked == true, cBg.IsChecked == true, cPlay.IsChecked == true,
-                                 dYt.IsChecked == true && dYt.IsEnabled, dFf.IsChecked == true && dFf.IsEnabled, dVlc.IsChecked == true && dVlc.IsEnabled, dAi.IsChecked == true && dAi.IsEnabled);
+                                 dYt.IsChecked == true, dFf.IsChecked == true, dVlc.IsChecked == true, dAi.IsChecked == true);
 
         async Task DoInstall(Choices c)
         {
