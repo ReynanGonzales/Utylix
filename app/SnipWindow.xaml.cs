@@ -86,11 +86,11 @@ public partial class SnipWindow : Window
 
     private void Mode_Click(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = ModeBtn, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        var menu = new ContextMenu { PlacementTarget = ModeBtn, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, Style = (Style)FindResource("SnipMenu") };
         foreach (var m in new[] { Mode.FreeForm, Mode.Rectangle, Mode.Window, Mode.Full, Mode.Text })
         {
-            if (m == Mode.Text) menu.Items.Add(new Separator());
-            var item = new MenuItem { Header = ModeName(m), IsCheckable = true, IsChecked = m == _mode };
+            if (m == Mode.Text) menu.Items.Add(new Separator { Style = (Style)FindResource("SnipSeparator") });
+            var item = new MenuItem { Header = ModeName(m), IsCheckable = true, IsChecked = m == _mode, Style = (Style)FindResource("SnipMenuItem") };
             var chosen = m;
             item.Click += (_, _) => { _mode = chosen; _ = CaptureAsync(); };            // choosing a mode starts the snip, like the Snipping Tool
             menu.Items.Add(item);
@@ -100,11 +100,11 @@ public partial class SnipWindow : Window
 
     private void Delay_Click(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = DelayBtn, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        var menu = new ContextMenu { PlacementTarget = DelayBtn, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, Style = (Style)FindResource("SnipMenu") };
         for (int s = 0; s <= 5; s++)
         {
             int seconds = s;
-            var item = new MenuItem { Header = s == 0 ? "No delay" : s == 1 ? "1 second" : $"{s} seconds", IsCheckable = true, IsChecked = s == _delaySeconds };
+            var item = new MenuItem { Header = s == 0 ? "No delay" : s == 1 ? "1 second" : $"{s} seconds", IsCheckable = true, IsChecked = s == _delaySeconds, Style = (Style)FindResource("SnipMenuItem") };
             item.Click += (_, _) => { _delaySeconds = seconds; };
             menu.Items.Add(item);
         }

@@ -5,6 +5,47 @@
         WindowStartupLocation="CenterScreen" Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}" FontFamily="Segoe UI" FontSize="13" AllowDrop="True"
         Drop="Window_Drop" DragOver="Window_DragOver" UseLayoutRounding="True">
     <Window.Resources>
+        <!-- the drop-down menus (Mode, Delay) in the app's colors: the stock menu is white -->
+        <ControlTemplate x:Key="MenuItemTemplate" TargetType="MenuItem">
+            <Border x:Name="Bd" Padding="8,6" Background="Transparent" CornerRadius="4" MinWidth="190">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="22" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="Check" Text="&#x2713;" Visibility="Collapsed" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold" />
+                    <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsChecked" Value="True"><Setter TargetName="Check" Property="Visibility" Value="Visible" /></Trigger>
+                <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgBrush}" /></Trigger>
+                <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45" /></Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+        <Style x:Key="SnipMenuItem" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Template" Value="{StaticResource MenuItemTemplate}" />
+        </Style>
+        <Style x:Key="SnipMenu" TargetType="ContextMenu">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Padding="4" CornerRadius="6">
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SnipSeparator" TargetType="Separator">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Separator"><Border Height="1" Margin="6,4" Background="{DynamicResource LineBrush}" /></ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <!-- flat toolbar button, like the classic Snipping Tool -->
         <Style x:Key="SnipButton" TargetType="ButtonBase">
