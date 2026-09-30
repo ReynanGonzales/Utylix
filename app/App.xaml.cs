@@ -69,6 +69,14 @@ public partial class App : Application
         Tools.Dir = toolsDir ?? Path.Combine(dataDir, "tools");
         DataDir = dataDir;
 
+        // the installed copy removes itself; a setup copy (Utylix-Setup.exe, --setup, first run on a PC) offers to install
+        if (e.Args.Contains("--uninstall")) { ApplyTheme(); Installer.Uninstall(); Shutdown(); return; }
+        if (Installer.WantsSetup(e.Args))
+        {
+            ApplyTheme();
+            if (!Installer.RunSetup()) { Shutdown(); return; }       // installed (or cancelled): done. "Just run it" falls through.
+        }
+
         // Started by the browser on behalf of the extension ("please start Utylix")? Do just that and leave.
         if (NativeHost.IsHostLaunch(e.Args))
         {
@@ -257,8 +265,37 @@ public partial class App : Application
         return files.Count == 0 ? null : (op, files);
     }
 
-    private void HandleArchive(string op, List<string> files)
+    // Explorer starts one Utylix process PER selected file; each hands its file over here. Wait until they have all arrived, so the
+    // whole selection ends up in ONE archive (the wait restarts with every arrival, and never lasts longer than a few seconds).
+    private readonly Dictionary<string, List<string>> _packBatch = new();
+    private System.Windows.Threading.DispatcherTimer? _packTimer;
+    private DateTime _packFirst;
+
+    private void BatchPack(string op, List<string> files)
     {
+        if (!_packBatch.TryGetValue(op, out var list)) _packBatch[op] = list = new List<string>();
+        foreach (var f in files) if (!list.Contains(f, StringComparer.OrdinalIgnoreCase)) list.Add(f);
+        if (_packTimer == null)
+        {
+            _packFirst = DateTime.UtcNow;
+            _packTimer = new System.Windows.Threading.DispatcherTimer();
+            _packTimer.Tick += (_, _) =>
+            {
+                _packTimer!.Stop();
+                var ready = _packBatch.ToList();
+                _packBatch.Clear();
+                _packTimer = null;
+                foreach (var (o, fs) in ready) HandleArchive(o, fs, batched: true);
+            };
+        }
+        _packTimer.Stop();
+        _packTimer.Interval = (DateTime.UtcNow - _packFirst).TotalSeconds > 5 ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromMilliseconds(1800);
+        _packTimer.Start();
+    }
+
+    private void HandleArchive(string op, List<string> files, bool batched = false)
+    {
+        if (!batched && op is "add" or "zip-add") { BatchPack(op, files); return; }
         if (op == "open") ArchiveWindow.OpenArchive(files[0]);            // its own window, like WinRAR: no main Utylix window
         else if (op == "add") ArchiveWindow.NewArchive(files);
         else if (op == "extract-ask") AskWhereToExtract(files);

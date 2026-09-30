@@ -6,7 +6,9 @@ cd /d "%~dp0app"
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "%~dp0app\publish"
 if errorlevel 1 (echo Build failed. & pause & exit /b 1)
 copy /y "%~dp0app\publish\Utylix.exe" "%~dp0Utylix.exe" >nul
+rem the same file under another name is the installer: started as Utylix-Setup.exe it offers to install Utylix
+copy /y "%~dp0app\publish\Utylix.exe" "%~dp0Utylix-Setup.exe" >nul
 rmdir /s /q "%~dp0app\publish"
 echo.
-echo Done: %~dp0Utylix.exe
+echo Done: %~dp0Utylix.exe  and the installer %~dp0Utylix-Setup.exe
 pause
