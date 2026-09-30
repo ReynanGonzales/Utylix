@@ -198,9 +198,10 @@
                         <TextBlock Text="?" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                 </Grid>
-                <ScrollViewer x:Name="PictureHost" Visibility="Collapsed" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="{DynamicResource BgBrush}">
-                    <Grid x:Name="Surface" HorizontalAlignment="Left" VerticalAlignment="Top">
-                        <Image x:Name="Preview" Stretch="Fill" />
+                <ScrollViewer x:Name="PictureHost" Visibility="Collapsed" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="White">
+                    <!-- like the Snipping Tool: the snip lies on a white sheet, and the pen can draw on all of it -->
+                    <Grid x:Name="Surface" HorizontalAlignment="Left" VerticalAlignment="Top" Background="White">
+                        <Image x:Name="Preview" Stretch="Fill" HorizontalAlignment="Left" VerticalAlignment="Top" AutomationProperties.AutomationId="SnipPicture" />
                         <InkCanvas x:Name="Ink" Background="Transparent" />
                     </Grid>
                 </ScrollViewer>

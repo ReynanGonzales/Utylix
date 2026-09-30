@@ -29,6 +29,7 @@ public partial class SnipWindow : Window
         ("Red", "#E5484D"), ("Yellow", "#FFD60A"), ("Green", "#30A46C"), ("Blue", "#3E63DD"), ("Black", "#111111"), ("White", "#FFFFFF"),
     };
     private static readonly (string Label, string Menu, double Size)[] Sizes = { ("S", "Thin", 2.5), ("M", "Medium", 4.0), ("L", "Thick", 8.0) };
+    private const double Margin = 50;                        // the white sheet around the snip (picture pixels)
     private const string DefaultMessage = "Select the snip mode using the Mode button or click the New button.";
 
     private static SnipWindow? _instance;
@@ -43,6 +44,7 @@ public partial class SnipWindow : Window
     private bool _busy;
     private CancellationTokenSource? _cts;
     private CaptureOverlay? _overlay;
+    private Int32Rect? _placeAt;                                // where on the screen the last snip was taken: the window opens there
 
     private SnipWindow(Manager manager)
     {
@@ -71,6 +73,21 @@ public partial class SnipWindow : Window
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         ScreenGrab.ForceForeground(new System.Windows.Interop.WindowInteropHelper(this).Handle);     // in front of whatever is open
         Activate();
+        PlaceOverSnip();
+    }
+
+    /// <summary>After a snip the window opens where the snip was taken: the picture lands on the spot it was cut from (kept on screen).</summary>
+    private void PlaceOverSnip()
+    {
+        if (_placeAt is not { } taken || _image == null) return;
+        _placeAt = null;
+        UpdateLayout();
+        var at = Preview.PointToScreen(new Point(0, 0));                              // device pixels
+        double scale = ScreenGrab.Scale;
+        var work = SystemParameters.WorkArea;
+        double left = Left + (taken.X - at.X) / scale, top = Top + (taken.Y - at.Y) / scale;
+        Left = Math.Max(work.Left, Math.Min(left, work.Right - ActualWidth));
+        Top = Math.Max(work.Top, Math.Min(top, work.Bottom - ActualHeight));
     }
 
     /// <summary>Take a snip now with the mode and delay that are set (Win + S, the tray icon).</summary>
@@ -151,6 +168,7 @@ public partial class SnipWindow : Window
                 _overlay = new CaptureOverlay(shot, area, kind);
                 _overlay.ShowDialog();
                 result = _overlay.Result;
+                if (_overlay.SelectedArea is { } taken) _placeAt = taken;
                 _overlay = null;
             }
             if (result == null) return;                                         // cancelled
@@ -191,8 +209,11 @@ public partial class SnipWindow : Window
     {
         _image = image;
         Preview.Source = image;
-        Surface.Width = image.PixelWidth;                                       // 1 unit = 1 picture pixel, so marks line up exactly
-        Surface.Height = image.PixelHeight;
+        Preview.Width = image.PixelWidth;                                       // 1 unit = 1 picture pixel, so marks line up exactly
+        Preview.Height = image.PixelHeight;
+        Preview.Margin = new Thickness(Margin);
+        Surface.Width = image.PixelWidth + 2 * Margin;
+        Surface.Height = image.PixelHeight + 2 * Margin;
         Ink.Strokes.Clear();
         Message.Visibility = Visibility.Collapsed;
         PictureHost.Visibility = Visibility.Visible;
@@ -202,8 +223,8 @@ public partial class SnipWindow : Window
         // like the Snipping Tool, the window grows to fit the snip (up to most of the screen)
         var work = SystemParameters.WorkArea;
         double scale = ScreenGrab.Scale;
-        double w = Math.Clamp(image.PixelWidth / scale + 40, 620, work.Width * 0.9);
-        double h = Math.Clamp(image.PixelHeight / scale + 200, 340, work.Height * 0.9);
+        double w = Math.Clamp((image.PixelWidth + 2 * Margin) / scale + 30, 620, work.Width * 0.9);
+        double h = Math.Clamp((image.PixelHeight + 2 * Margin) / scale + 150, 340, work.Height * 0.9);
         Width = w; Height = h;
         if (IsVisible) { Left = Math.Max(work.Left, Math.Min(Left, work.Right - w)); Top = Math.Max(work.Top, Math.Min(Top, work.Bottom - h)); }
     }
@@ -247,19 +268,28 @@ public partial class SnipWindow : Window
         if (Ink.Strokes.Count > 0) Ink.Strokes.RemoveAt(Ink.Strokes.Count - 1);
     }
 
-    /// <summary>The picture with the pen marks on it.</summary>
+    /// <summary>The picture with the pen marks on it. Marks drawn on the white sheet around it are kept too (the picture then sits on white).</summary>
     private BitmapSource Composite()
     {
         var image = _image ?? throw new InvalidOperationException("There is no picture yet.");
         if (Ink.Strokes.Count == 0) return image;
         int w = image.PixelWidth, h = image.PixelHeight;
+        var picture = new Rect(Margin, Margin, w, h);
+        var bounds = picture;
+        foreach (var stroke in Ink.Strokes) bounds.Union(stroke.GetBounds());
+        bool expanded = bounds != picture;
+        double left = expanded ? Math.Floor(bounds.Left) : picture.Left, top = expanded ? Math.Floor(bounds.Top) : picture.Top;
+        int outW = expanded ? (int)Math.Ceiling(bounds.Right - left) : w, outH = expanded ? (int)Math.Ceiling(bounds.Bottom - top) : h;
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
-            dc.DrawImage(image, new Rect(0, 0, w, h));
+            if (expanded) dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, outW, outH));
+            dc.DrawImage(image, new Rect(Margin - left, Margin - top, w, h));
+            dc.PushTransform(new TranslateTransform(-left, -top));
             foreach (var stroke in Ink.Strokes) stroke.Draw(dc);
+            dc.Pop();
         }
-        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        var rtb = new RenderTargetBitmap(outW, outH, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(visual);
         rtb.Freeze();
         return rtb;

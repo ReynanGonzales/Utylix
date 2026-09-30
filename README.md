@@ -130,7 +130,9 @@ snip), **Delay** (none, 1 to 5 seconds), **Cancel** and **Options** (the capture
 screen and dims it: drag over the part you want, draw around it, or click a window; Esc or right-click cancels. The snip
 shows in the window, where you can draw on it with the **Pen**, **Highlighter** (six colors, three thicknesses),
 **Eraser** and **Undo**, then **Copy** (Ctrl + C), **Save** or **Save as…** (Ctrl + S), or **Detect text**. Ctrl + N takes a
-new snip, Ctrl + O opens a picture, Ctrl + V pastes one, and you can drop a picture on the window.
+new snip, Ctrl + O opens a picture, Ctrl + V pastes one, and you can drop a picture on the window. The window opens where
+the snip was taken (the picture lands on the spot it was cut from), the snip lies on a white sheet like in the Snipping Tool,
+and the pen also draws on that sheet; such marks are kept when you copy or save (the picture then comes with white around it).
 
 - **Shortcuts, from anywhere:** **Win + S** and **Ctrl + Alt + S**. Windows keeps Win + S for Search, so while it is on
   Utylix takes that shortcut for itself (it swallows only that one combination, never records keys, and does not work
