@@ -39,6 +39,25 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
    **Developer mode**, click **Load unpacked** and select the `extension` folder.
 3. Download something in the browser – it shows up in Utylix. If Utylix isn't running, the extension starts it.
 
+## Installing and uninstalling
+
+Double-click **`Install.bat`** (or run `Utylix-Setup.exe`; `build.bat` makes it, it is the same file as `Utylix.exe`). On a PC
+where Utylix has never run, a plain `Utylix.exe` offers the same wizard. It has five pages:
+
+1. **Welcome** – what Utylix is. (*Just run it, don't install* keeps it portable.)
+2. **Where to install** – *Just for me* (no administrator rights; `%LOCALAPPDATA%\Programs\Utylix`) or *For all users of this
+   PC* (Windows asks for administrator permission; `C:\Program Files\Utylix`, shortcuts and startup for everyone), and the folder.
+3. **Right-click menus and startup** – Convert, Utylix Archive, Remove background, Play with Utylix, run Utylix when Windows
+   starts, desktop shortcut.
+4. **Extra parts to download** – yt-dlp, ffmpeg, the player engine, the background remover's AI model (each from its official
+   source, checked against its fingerprint; skipped ones are offered later when needed).
+5. **Installing** – a progress bar, then *Start Utylix now*.
+
+It adds Utylix to *Settings > Apps* and the Start menu. Uninstall from there, or with **`Uninstall.bat`**: it removes the
+program, its shortcuts, Start with Windows, the apps entry and **every right-click menu and file type Utylix added**, and asks
+whether to delete Utylix's own settings and downloaded tools too (your downloads, recordings and screenshots are never touched).
+For an "all users" install, updating or removing asks for administrator permission again.
+
 ## Downloads
 
 Works in every Chromium browser: Brave, Chrome, Edge, Opera, Vivaldi. The extension cancels the browser's own

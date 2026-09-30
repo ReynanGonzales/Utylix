@@ -74,7 +74,7 @@ public partial class App : Application
         if (Installer.WantsSetup(e.Args))
         {
             ApplyTheme();
-            if (!Installer.RunSetup()) { Shutdown(); return; }       // installed (or cancelled): done. "Just run it" falls through.
+            if (!Installer.RunSetup(e.Args)) { Shutdown(); return; }       // installed (or cancelled): done. "Just run it" falls through.
         }
 
         // Started by the browser on behalf of the extension ("please start Utylix")? Do just that and leave.

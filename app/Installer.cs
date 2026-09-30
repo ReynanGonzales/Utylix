@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -14,34 +15,56 @@ namespace IdmClone;
 
 /// <summary>
 /// Utylix installs itself: the setup program IS Utylix.exe (started as "Utylix-Setup.exe", with --setup, or the first time on a PC
-/// where Utylix has never run). It copies itself into the user's programs folder, adds Start menu / desktop shortcuts, Start with
-/// Windows and an entry in "Installed apps", and starts the installed copy. No administrator rights and no separate runtime needed.
-/// The installed copy removes everything again with --uninstall.
+/// where Utylix has never run). It copies itself into the programs folder, adds Start menu / desktop shortcuts, Start with Windows
+/// and an entry in "Installed apps", and starts the installed copy. "Just for me" needs no administrator rights; "All users" asks
+/// Windows for them (UAC). The installed copy removes everything again with --uninstall.
 /// </summary>
-internal static class Installer
+internal static partial class Installer
 {
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Utylix";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ExeName = "Utylix.exe";
 
-    public static string DefaultDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Utylix");
-    private static string StartMenuLink => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Utylix.lnk");
-    private static string DesktopLink => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Utylix.lnk");
+    public static string UserDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Utylix");
+    public static string AllUsersDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Utylix");
 
-    /// <summary>The folder Utylix was installed into, or null.</summary>
-    public static string? InstalledDir()
+    private static RegistryKey Root(bool allUsers) => allUsers ? Registry.LocalMachine : Registry.CurrentUser;
+    private static string StartMenuLink(bool allUsers) => Path.Combine(Environment.GetFolderPath(allUsers ? Environment.SpecialFolder.CommonPrograms : Environment.SpecialFolder.Programs), "Utylix.lnk");
+    private static string DesktopLink(bool allUsers) => Path.Combine(Environment.GetFolderPath(allUsers ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory), "Utylix.lnk");
+
+    public static bool IsAdmin
     {
-        try { using var k = Registry.CurrentUser.OpenSubKey(UninstallKey); return k?.GetValue("InstallLocation") as string; }
-        catch (Exception e) when (e is System.Security.SecurityException or IOException) { return null; }
+        get
+        {
+            using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+            return new System.Security.Principal.WindowsPrincipal(id).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
     }
 
-    private static bool IsInstalledCopy =>
-        InstalledDir() is { } dir && string.Equals(Path.GetFullPath(dir).TrimEnd('\\'), Path.GetDirectoryName(Environment.ProcessPath)?.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+    /// <summary>Where Utylix was installed (and for whom), or null.</summary>
+    public static (string Dir, bool AllUsers)? Installed()
+    {
+        foreach (bool all in new[] { false, true })
+        {
+            try
+            {
+                using var k = Root(all).OpenSubKey(UninstallKey);
+                if (k?.GetValue("InstallLocation") is string dir && dir.Length > 0) return (dir, all);
+            }
+            catch (Exception e) when (e is System.Security.SecurityException or IOException) { }
+        }
+        return null;
+    }
+
+    private static bool SameFolder(string a, string? b) =>
+        b != null && string.Equals(Path.GetFullPath(a).TrimEnd('\\'), Path.GetFullPath(b).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsInstalledCopy => Installed() is { } i && SameFolder(i.Dir, Path.GetDirectoryName(Environment.ProcessPath));
 
     /// <summary>Should this start show the installer instead of the program?</summary>
     public static bool WantsSetup(string[] args)
     {
-        if (args.Contains("--setup")) return true;
+        if (args.Contains("--setup") || args.Contains("--setup-auto")) return true;
         if (args.Length != 0 || IsInstalledCopy) return false;
         string name = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "");
         if (name.Contains("setup", StringComparison.OrdinalIgnoreCase)) return true;
@@ -52,116 +75,52 @@ internal static class Installer
 
     // ------------------------------------------------------------------------------------------------ setup window
 
-    /// <summary>Shows the setup window. Returns true when the app should carry on running from where it is (the "just run it" choice).</summary>
-    public static bool RunSetup()
+    /// <summary>
+    /// Copies this program into <paramref name="dir"/> and sets everything up; returns the path of the installed exe. The steps are
+    /// paced on purpose so the progress can be followed (copying alone takes a second or two).
+    /// </summary>
+    public static string Install(Choices c, IProgress<(double, string)> progress)
     {
-        bool runHere = false;
-        var dirBox = new TextBox { Text = InstalledDir() ?? DefaultDir, Style = (Style)Application.Current.FindResource("Field"), Margin = new Thickness(0, 6, 8, 0) };
-        var browse = new Button { Content = "Browse…", Style = (Style)Application.Current.FindResource("DialogButton"), Margin = new Thickness(0, 6, 0, 0) };
-        var desktop = new CheckBox { Content = "Put a Utylix shortcut on the desktop", Margin = new Thickness(0, 14, 0, 0), IsChecked = false };
-        var autostart = new CheckBox { Content = "Start Utylix with Windows (it waits quietly in the tray)", Margin = new Thickness(0, 8, 0, 0), IsChecked = true };
-        var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0) };
-        var install = new Button { Content = "Install", Style = (Style)Application.Current.FindResource("DialogPrimary"), IsDefault = true, MinWidth = 100 };
-        var portable = new Button { Content = "Just run it, don't install", Style = (Style)Application.Current.FindResource("DialogButton"), Margin = new Thickness(0, 0, 10, 0) };
-        var cancel = new Button { Content = "Cancel", Style = (Style)Application.Current.FindResource("DialogButton"), IsCancel = true, Margin = new Thickness(0, 0, 10, 0) };
-        System.Windows.Automation.AutomationProperties.SetAutomationId(dirBox, "SetupDir");
-        System.Windows.Automation.AutomationProperties.SetAutomationId(install, "SetupInstall");
-        System.Windows.Automation.AutomationProperties.SetAutomationId(status, "SetupStatus");
-        System.Windows.Automation.AutomationProperties.SetAutomationId(desktop, "SetupDesktop");
-        System.Windows.Automation.AutomationProperties.SetAutomationId(autostart, "SetupAutostart");
-        System.Windows.Automation.AutomationProperties.SetAutomationId(portable, "SetupPortable");
-
-        var pathRow = new Grid();
-        pathRow.ColumnDefinitions.Add(new ColumnDefinition());
-        pathRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        pathRow.Children.Add(dirBox);
-        Grid.SetColumn(browse, 1);
-        pathRow.Children.Add(browse);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 22, 0, 0) };
-        buttons.Children.Add(portable); buttons.Children.Add(cancel); buttons.Children.Add(install);
-
-        var head = new StackPanel { Orientation = Orientation.Horizontal };
-        head.Children.Add(new Image { Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/logo.png")), Width = 44, Height = 44, Margin = new Thickness(0, 0, 14, 0) });
-        head.Children.Add(new TextBlock { Text = "Install Utylix", FontSize = 22, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-
-        var panel = new StackPanel { Margin = new Thickness(26, 22, 26, 22) };
-        panel.Children.Add(head);
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Downloads, converter, screen capture and recorder, video player, archives, background remover and brightness - in one program. " +
-                   "It installs just for you: no administrator rights needed.",
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Foreground = (Brush)Application.Current.FindResource("MutedBrush"),
-        });
-        panel.Children.Add(new TextBlock { Text = "Install into", Margin = new Thickness(0, 18, 0, 0) });
-        panel.Children.Add(pathRow);
-        panel.Children.Add(desktop);
-        panel.Children.Add(autostart);
-        panel.Children.Add(status);
-        panel.Children.Add(buttons);
-
-        var window = new Window
-        {
-            Title = "Utylix Setup", Width = 560, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen, Content = panel, Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/logo.png")),
-            Background = (Brush)Application.Current.FindResource("BgBrush"), Foreground = (Brush)Application.Current.FindResource("TextBrush"),
-            FontFamily = new FontFamily("Segoe UI"), FontSize = 13.5,
-        };
-        string? installedExe = null;
-        browse.Click += (_, _) =>
-        {
-            using var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "Choose the folder to install Utylix into", UseDescriptionForTitle = true };
-            if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) dirBox.Text = Path.Combine(dlg.SelectedPath, "Utylix");
-        };
-        portable.Click += (_, _) => { runHere = true; window.Close(); };
-        install.Click += async (_, _) =>
-        {
-            if (installedExe != null) { Launch(installedExe); window.Close(); return; }
-            install.IsEnabled = portable.IsEnabled = cancel.IsEnabled = dirBox.IsEnabled = browse.IsEnabled = false;
-            status.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
-            status.Text = "Installing…";
-            string dir = dirBox.Text.Trim(); bool wantDesktop = desktop.IsChecked == true, wantAuto = autostart.IsChecked == true;
-            try
-            {
-                installedExe = await Task.Run(() => Install(dir, wantDesktop, wantAuto));
-                status.Text = "Utylix is installed. Explorer's right-click entries and file types are set up when it starts.";
-                install.Content = "Open Utylix"; install.IsEnabled = true; cancel.Content = "Close"; cancel.IsEnabled = true;
-                portable.Visibility = Visibility.Collapsed;
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-            {
-                status.SetResourceReference(TextBlock.ForegroundProperty, "ErrBrush");
-                status.Text = "Couldn't install: " + e.Message;
-                install.IsEnabled = portable.IsEnabled = cancel.IsEnabled = dirBox.IsEnabled = browse.IsEnabled = true;
-            }
-        };
-        window.ShowDialog();
-        return runHere;
-    }
-
-    /// <summary>Copies this program into <paramref name="dir"/> and sets everything up. Returns the path of the installed exe.</summary>
-    public static string Install(string dir, bool desktopShortcut, bool autoStart)
-    {
+        string dir = c.Dir; bool allUsers = c.AllUsers, desktopShortcut = c.Desktop, autoStart = c.AutoStart;
         if (string.IsNullOrWhiteSpace(dir)) throw new ArgumentException("Choose a folder.");
         dir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir)).TrimEnd('\\');
         string self = Environment.ProcessPath ?? throw new IOException("Utylix cannot tell where it is.");
         string exe = Path.Combine(dir, ExeName);
+
+        progress.Report((3, "Getting ready…")); Thread.Sleep(700);
+        progress.Report((8, "Creating the folder…"));
         Directory.CreateDirectory(dir);
+        Thread.Sleep(600);
 
         if (!string.Equals(Path.GetFullPath(self), exe, StringComparison.OrdinalIgnoreCase))
         {
+            progress.Report((12, "Closing the old copy, if one is running…"));
             StopRunning(exe);
+            Thread.Sleep(500);
             string tmp = exe + ".new";
-            File.Copy(self, tmp, true);
+            using (var src = new FileStream(self, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var dst = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+            {
+                var buf = new byte[1024 * 1024];
+                long done = 0; int n;
+                while ((n = src.Read(buf, 0, buf.Length)) > 0)
+                {
+                    dst.Write(buf, 0, n);
+                    done += n;
+                    progress.Report((12 + 58.0 * done / src.Length, $"Copying Utylix…  {done / 1048576} of {src.Length / 1048576} MB"));
+                    Thread.Sleep(35);
+                }
+            }
             File.Move(tmp, exe, true);
         }
 
-        MakeShortcut(StartMenuLink, exe);
-        if (desktopShortcut) MakeShortcut(DesktopLink, exe);
-        using (var run = Registry.CurrentUser.CreateSubKey(RunKey))
-        {
-            if (autoStart) run.SetValue("Utylix", $"\"{exe}\" --minimized"); else run.DeleteValue("Utylix", false);
-        }
-        using (var k = Registry.CurrentUser.CreateSubKey(UninstallKey))
+        progress.Report((74, "Creating shortcuts…")); Thread.Sleep(500);
+        MakeShortcut(StartMenuLink(allUsers), exe);
+        if (desktopShortcut) MakeShortcut(DesktopLink(allUsers), exe);
+        Thread.Sleep(400);
+
+        progress.Report((84, "Adding Utylix to Windows' list of apps…")); Thread.Sleep(500);
+        using (var k = Root(allUsers).CreateSubKey(UninstallKey))
         {
             k.SetValue("DisplayName", "Utylix");
             k.SetValue("DisplayVersion", AppUpdater.CurrentText);
@@ -173,12 +132,25 @@ internal static class Installer
             k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
             k.SetValue("EstimatedSize", (int)(new FileInfo(exe).Length / 1024), RegistryValueKind.DWord);
         }
+
+        progress.Report((92, autoStart ? "Setting Utylix to run when Windows starts…" : "Almost done…")); Thread.Sleep(600);
+        using (var run = Root(allUsers).CreateSubKey(RunKey))
+        {
+            if (autoStart) run.SetValue("Utylix", $"\"{exe}\" --minimized"); else run.DeleteValue("Utylix", false);
+        }
+        // a copy installed for this user replaces an older "all users" one's start entry, not the other way round
+        progress.Report((97, "Finishing…")); Thread.Sleep(700);
         return exe;
     }
 
+    /// <summary>Starts the installed program as the normal user (even from the administrator copy of this window).</summary>
     private static void Launch(string exe)
     {
-        try { Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe)! }); }
+        try
+        {
+            if (IsAdmin) Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { exe }, UseShellExecute = false });    // Explorer runs it without administrator rights
+            else Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe)! });
+        }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
     }
 
@@ -214,31 +186,90 @@ internal static class Installer
     /// <summary>Removes Utylix from this PC (asks first). Run by the installed copy with --uninstall.</summary>
     public static void Uninstall()
     {
+        string self = Environment.ProcessPath!;
+        bool allUsers = Installed() is { AllUsers: true } i && SameFolder(i.Dir, Path.GetDirectoryName(self));
+        if (allUsers && !IsAdmin)
+        {
+            // installed for everyone: removing it needs administrator rights
+            try { Process.Start(new ProcessStartInfo(self) { UseShellExecute = true, Verb = "runas", ArgumentList = { "--uninstall" } }); }
+            catch (System.ComponentModel.Win32Exception) { MessageBox.Show("Administrator permission was not given, so Utylix was not removed.", "Uninstall Utylix", MessageBoxButton.OK, MessageBoxImage.Information); }
+            return;
+        }
         if (MessageBox.Show("Remove Utylix from this PC?\n\nYour downloaded files, recordings and screenshots stay where they are.",
                 "Uninstall Utylix", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         bool wipe = MessageBox.Show("Also delete Utylix's own settings, download list and the video tools it downloaded (yt-dlp, ffmpeg, the player engine, the AI model)?\n\n" +
                                     "Choose No to keep them in case you install Utylix again.", "Uninstall Utylix", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
-        string self = Environment.ProcessPath!;
-        StopRunning(self);
+        // a progress window like the installer's, paced so each step can be followed
+        var bar = new ProgressBar { Height = 10, Minimum = 0, Maximum = 100, Margin = new Thickness(0, 18, 0, 0), Foreground = (Brush)Application.Current.FindResource("AccentBrush") };
+        var status = new TextBlock { Text = "Getting ready…", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0), MinHeight = 20 };
+        var close = new Button { Content = "Close", Style = (Style)Application.Current.FindResource("DialogPrimary"), IsDefault = true, IsCancel = true, MinWidth = 100, IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(status, "UninstallStatus");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(bar, "UninstallProgress");
+        var head = new StackPanel { Orientation = Orientation.Horizontal };
+        head.Children.Add(new Image { Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/logo.png")), Width = 44, Height = 44, Margin = new Thickness(0, 0, 14, 0) });
+        head.Children.Add(new TextBlock { Text = "Removing Utylix", FontSize = 22, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        var panel = new StackPanel { Margin = new Thickness(26, 22, 26, 22) };
+        panel.Children.Add(head); panel.Children.Add(bar); panel.Children.Add(status); panel.Children.Add(close);
+        var window = new Window
+        {
+            Title = "Uninstall Utylix", Width = 520, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Content = panel, Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/logo.png")),
+            Background = (Brush)Application.Current.FindResource("BgBrush"), Foreground = (Brush)Application.Current.FindResource("TextBrush"), FontFamily = new FontFamily("Segoe UI"), FontSize = 13.5,
+        };
+        close.Click += (_, _) => window.Close();
+        string? cleanup = null;
+        window.Loaded += async (_, _) =>
+        {
+            var progress = new Progress<(double Percent, string Text)>(p => { bar.Value = p.Percent; status.Text = p.Text; });
+            cleanup = await Task.Run(() => RemoveEverything(self, allUsers, wipe, progress));
+            bar.Value = 100;
+            status.Text = "Done. Utylix has been removed from this PC.";
+            close.IsEnabled = true;
+        };
+        window.ShowDialog();
+        // the program ends right after this: a helper waits a moment, then removes the exe and its folder (if empty)
+        if (cleanup != null) Process.Start(new ProcessStartInfo("cmd.exe", cleanup) { CreateNoWindow = true, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden });
+    }
+
+    /// <returns>The command that deletes this exe once the program has ended (started when the window is closed).</returns>
+    private static string RemoveEverything(string self, bool allUsers, bool wipe, IProgress<(double, string)> progress)
+    {
         string dataDir = App.DataDir;
+        progress.Report((5, "Closing Utylix…")); StopRunning(self); Thread.Sleep(700);
+        progress.Report((20, "Removing Explorer's right-click entries and file types…"));
         try
         {
             ShellMenu.Register(dataDir, false);
             ShellMenu.RegisterArchive(dataDir, false);
             ShellMenu.RegisterBackground(dataDir, false);
             ShellMenu.RegisterPlayer(dataDir, false);
-            NativeHost.Register(dataDir, false);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
-        try { using var run = Registry.CurrentUser.CreateSubKey(RunKey); run.DeleteValue("Utylix", false); run.DeleteValue("IDMClone", false); } catch (Exception) { }
-        try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false); } catch (Exception) { }
-        foreach (var link in new[] { StartMenuLink, DesktopLink }) try { File.Delete(link); } catch (Exception) { }
-        if (wipe) try { Directory.Delete(dataDir, true); } catch (Exception) { }
-
+        Thread.Sleep(800);
+        progress.Report((40, "Removing the browser link…"));
+        try { NativeHost.Register(dataDir, false); } catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
+        Thread.Sleep(700);
+        progress.Report((55, "Turning off Start with Windows…"));
+        try { using var run = Root(allUsers).CreateSubKey(RunKey); run.DeleteValue("Utylix", false); run.DeleteValue("IDMClone", false); } catch (Exception) { }
+        if (allUsers) try { using var userRun = Registry.CurrentUser.CreateSubKey(RunKey); userRun.DeleteValue("Utylix", false); } catch (Exception) { }
+        Thread.Sleep(700);
+        progress.Report((68, "Removing the shortcuts…"));
+        foreach (var link in new[] { StartMenuLink(allUsers), DesktopLink(allUsers) }) try { File.Delete(link); } catch (Exception) { }
+        Thread.Sleep(700);
+        progress.Report((80, "Removing Utylix from Windows' list of apps…"));
+        try { Root(allUsers).DeleteSubKeyTree(UninstallKey, false); } catch (Exception) { }
+        Thread.Sleep(600);
+        if (wipe)
+        {
+            progress.Report((88, "Deleting Utylix's settings and tools…"));
+            try { Directory.Delete(dataDir, true); } catch (Exception) { }
+            Thread.Sleep(600);
+        }
+        progress.Report((95, "Removing the program files…"));
         // this exe cannot delete itself while it runs: a helper waits a moment, removes it and the folder (only if empty)
         string dir = Path.GetDirectoryName(self)!;
         string cmd = $"/c ping -n 4 127.0.0.1 >nul & del /f /q \"{self}\" \"{self}.old\" \"{self}.update\" & rmdir \"{dir}\"";
-        Process.Start(new ProcessStartInfo("cmd.exe", cmd) { CreateNoWindow = true, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden });
-        MessageBox.Show("Utylix has been removed.", "Uninstall Utylix", MessageBoxButton.OK, MessageBoxImage.Information);
+        Thread.Sleep(700);
+        return cmd;
     }
 }
