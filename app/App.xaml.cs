@@ -206,6 +206,7 @@ public partial class App : Application
 
     private static (string Op, List<string> Files)? ParseTool(string[] args)
     {
+        if (args.Contains("--snip")) return ("snip", new List<string>());                  // opens the Snip window
         if (args.Contains("--brightness")) return ("brightness", new List<string>());       // opens the brightness panel
         int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play");
         if (i < 0) return null;
@@ -219,6 +220,7 @@ public partial class App : Application
         else if (op == "play") PlayerWindow.Open(files);
         else if (op == "brightness") BrightnessWindow.ShowPanel();
         else if (op == "update") AppUpdateWindow.ShowWindow(_manager!);
+        else if (op == "snip") SnipWindow.Get(_manager!).Open();
     }
 
     /// <summary>Asks before the one-time download of the AI model; true when the model is there.</summary>
@@ -625,7 +627,7 @@ public partial class App : Application
         menu.Items.Add("Open Utylix", null, (_, _) => Dispatcher.Invoke(() => ShowTab("downloads")));
         menu.Items.Add("Downloads", null, (_, _) => Dispatcher.Invoke(() => ShowTab("downloads")));
         menu.Items.Add("Multi Convert", null, (_, _) => Dispatcher.Invoke(() => ShowTab("converter")));
-        menu.Items.Add("Screen Capture", null, (_, _) => Dispatcher.Invoke(StartCaptureFromShortcut));
+        menu.Items.Add("Screen Capture", null, (_, _) => Dispatcher.Invoke(() => SnipWindow.Get(_manager!).Open()));      // opens the window like the Snipping Tool; Win + S snips at once
         menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
         menu.Items.Add("Screen Recorder", null, (_, _) => Dispatcher.Invoke(() => ShowTab("recorder")));
         menu.Items.Add("Brightness", null, (_, _) => Dispatcher.Invoke(BrightnessWindow.ShowPanel));

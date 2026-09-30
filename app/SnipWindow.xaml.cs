@@ -47,6 +47,7 @@ public partial class SnipWindow : Window
     private SnipWindow(Manager manager)
     {
         InitializeComponent();
+        WindowTheme.DarkTitleBar(this);
         _manager = manager;
         foreach (var (name, hex) in Colors)
         {
@@ -62,6 +63,15 @@ public partial class SnipWindow : Window
 
     /// <summary>The one snip window (made when first needed, not shown until there is something to show).</summary>
     public static SnipWindow Get(Manager manager) => _instance ??= new SnipWindow(manager);
+
+    /// <summary>Shows the window (with the picture of the last snip, or the "select the snip mode" message).</summary>
+    public void Open()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        ScreenGrab.ForceForeground(new System.Windows.Interop.WindowInteropHelper(this).Handle);     // in front of whatever is open
+        Activate();
+    }
 
     /// <summary>Take a snip now with the mode and delay that are set (Win + S, the tray icon).</summary>
     public static void StartCapture(Manager manager) => _ = Get(manager).CaptureAsync();
@@ -164,7 +174,7 @@ public partial class SnipWindow : Window
             CancelBtn.IsEnabled = false;
             if (_image == null) MessageText.Text = DefaultMessage;
             restore?.Invoke();
-            if (got || wasVisible) { Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate(); }
+            if (got || wasVisible) Open();
         }
     }
 

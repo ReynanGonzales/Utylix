@@ -122,8 +122,9 @@ browser used) to Utylix. If the app can't fetch the file, the browser gets it ba
 
 ## Screen Capture
 
-There is no tab for it in the main window: press **Win + S** (or use the tray icon → *Screen Capture*) and a snip starts at
-once. The small **Utylix Snip** window that comes up afterwards is laid out like the classic Windows Snipping Tool:
+There is no tab for it in the main window: press **Win + S** and a snip starts at once (the tray icon → *Screen Capture*
+opens the window instead). The small **Utylix Snip** window, in Utylix's own look, has its buttons where the classic Windows
+Snipping Tool has them:
 **New**, **Mode** (*Free-form*, *Rectangular*, *Window*, *Full-screen* snip, and *Text Detector*; choosing one starts the
 snip), **Delay** (none, 1 to 5 seconds), **Cancel** and **Options** (the capture settings). Utylix hides itself, freezes the
 screen and dims it: drag over the part you want, draw around it, or click a window; Esc or right-click cancels. The snip
