@@ -1,0 +1,287 @@
+# Utylix
+
+Your PC tools in one small Windows app: a fast download manager with browser capture, Multi Convert (pictures, videos and music), an archive manager (ZIP/RAR/7z), screen
+capture with a text detector, a screen recorder, and more tools on the way (QR maker, background remover).
+
+`Utylix.exe` is a single file. **Nothing else needs to be installed** – the .NET runtime is inside it – so after a
+fresh Windows install you just copy it back and run it. No admin rights needed.
+
+- **One window, one tab per tool** – Downloads, Multi Convert, Screen Capture, Screen Recorder. The window changes size to suit the
+  tool you pick (and remembers a size you dragged it to). Closing it keeps Utylix running in the tray (so the
+  browser can still hand it downloads and the capture shortcuts keep working); *Exit* in the tray menu quits it.
+  Light/dark theme follows Windows.
+- **Downloads** – up to 8 parallel connections per file (1–32 in Settings), pause/resume, survives restarts,
+  auto-retries; captures downloads from your browser; YouTube/Facebook and other video sites.
+- **Multi Convert** – pictures (PNG, JPG, WebP, BMP, GIF, TIFF, ICO), videos (MP4, MKV, WebM, MOV, AVI, animated GIF)
+  and music (MP3, M4A, WAV, FLAC, OGG); also from the Explorer right-click menu and while downloading a picture.
+- **Screen Capture** – like the Snipping Tool: rectangle, window or full screen, with a delay, pen/highlighter marks,
+  copy and save. Plus a **Text Detector** that reads text off the screen or out of a picture.
+- **Screen Recorder** – records the screen (all of it, one monitor, an area or one window) to MP4 or a GIF, with system
+  sound and/or microphone, pause and resume, a countdown, click highlights and hotkeys (**Ctrl + Alt + R** start / stop,
+  **Ctrl + Alt + P** pause).
+- **Video Player** – a VLC-style player in its own window that plays practically every video and music format, with
+  subtitles (a `.srt` with the same name next to a video turns on by itself), audio tracks, speed, full screen, a playlist
+  and "continue where you stopped". Right-click a video → **Play with Utylix**.
+- **Background Remover** – right-click a picture → **Remove background**: an AI model running on your PC saves a PNG with
+  a transparent background next to the picture.
+- **Brightness** – tray icon → **Brightness**: a small panel with a slider for every screen, like *Monitorian* (external
+  monitors over the cable, a laptop's own screen through Windows).
+- **Updates** – Utylix checks GitHub now and then for a newer version of itself and asks before installing it (tray icon →
+  **Check for updates…**, or Settings → *Updates*).
+- **Settings match the tab** – *Settings* opens with just the settings of the tool you are in (Downloads, Image
+  Converter or Screen Capture), with *Show all settings* to see the rest.
+- **Backup** – Settings → *Backup* exports your settings to a file and imports them again after a reinstall.
+
+## Use it
+
+1. Run `Utylix.exe`.
+2. For the browser features, in Chrome/Edge/Brave open `chrome://extensions` (`brave://extensions`), enable
+   **Developer mode**, click **Load unpacked** and select the `extension` folder.
+3. Download something in the browser – it shows up in Utylix. If Utylix isn't running, the extension starts it.
+
+## Downloads
+
+Works in every Chromium browser: Brave, Chrome, Edge, Opera, Vivaldi. The extension cancels the browser's own
+download before the browser saves anything and hands the link (plus the cookies, referrer and user-agent the
+browser used) to Utylix. If the app can't fetch the file, the browser gets it back, so nothing is lost.
+
+- **"New download" window** – shows the size, whether fast multi-connection download is possible, the file name,
+  a type (Compressed, Picture, Video, Music, Document, Application, Other) and where it will be saved; choose
+  *Start download*, *Download later* or *Cancel*. Turn the window off in Settings → *Browser capture*.
+- **When done** – the "New download" window has a *When done* row: *Just notify me*, *Open it* or *Show in folder*
+  (your last choice is remembered). Programs and scripts (.exe, .bat, .ps1 ...) are never opened by themselves; they
+  are shown in their folder instead.
+- **Pictures with the wrong name** – a photo that a site calls `photo.img` (which Windows shows as a "Disk Image")
+  is saved as a picture: Utylix trusts the picture type the server reports, and for files with no type it checks the
+  file's first bytes when the download finishes. Real disk images are left alone.
+- **Click the "Download complete" notice** – it opens the folder with the file selected.
+- **File icons** – the window and the list show the icon Windows uses for that file type.
+- **Folders by type** – downloads go to `Compressed`, `Picture`, `Video`, `Music`, `Document` and `Application`
+  inside your download folder (change or switch off in Settings). Pick a different folder for a type in the
+  window and it becomes the new default for that type.
+- **What gets captured** – every download, or only chosen file types, a minimum size, and sites to skip.
+- **Video download button** – hover a video and *Download this video* appears. It lists the video/audio files the
+  page loaded and, for YouTube/Facebook and similar sites, the qualities (2160p … 144p, or audio only). The
+  quality menu has **Video + sound / Video only / Sound only**; the default is always one file with both. The
+  button hides while a video is fullscreen and can be switched off in Settings (right-click → *Download with
+  Utylix* keeps working).
+- **YouTube, Facebook and other video sites** – uses two free open-source helpers, *yt-dlp* (finds the video) and
+  *ffmpeg* (joins picture and sound into ONE MP4). Install them once in Settings → *Video sites* (official GitHub
+  releases, checked against their published checksums; they live in `%APPDATA%\Utylix\tools`, so after a
+  reinstall just click Install again). Protected (DRM) video is not supported; only save videos you're allowed to keep.
+- **Vertical videos and good names** – reels, Shorts and other portrait videos are measured by their shorter side
+  (a 1080x1920 reel is "1080p") so the quality you pick is really what you get, instead of "Requested format is not
+  available". Facebook titles like "1.1M views · 8.1K reactions | caption | Page" are cleaned to just the caption
+  (or the post text when a site only says "Facebook"), and emoji are dropped, so the file is named after the video.
+- **Subtitles** – save as a separate `.srt` (default), inside the MP4, or skip; choose languages and whether
+  machine-made captions count.
+- **Keeping YouTube working** – Utylix checks for a newer yt-dlp every few days and *asks* before installing it;
+  a failed video download has an **Update yt-dlp & retry** button.
+- **Copied-link popup** – copy a link to a file or a video page and a small popup offers to download it.
+- **Starts itself when the browser needs it** – through the browser's "native messaging" (registered for the
+  current user only; it only answers the Utylix extension and can only start the app). Switch off in Settings.
+- **Picture in Picture** – right-click a video on any site except YouTube (which has its own button) → **Picture in
+  Picture** (under "Utylix Integration"): the video floats in a small window that stays on top; choose it again to put the
+  video back. There is just one entry, and it only appears while the pointer is over a video. It also finds videos that a
+  player covers with its own layer and works on sites that switch Picture in Picture off (where the browser's own entry
+  is missing or greyed out). If the browser insists on a click first, a note asks you to click the video once. After
+  updating, reload the extension in `brave://extensions` (and refresh open pages once).
+- **Pictures** – "Save image as" is captured like any file; for pictures that are only displayed, use right-click →
+  *Download with Utylix* or the extension popup's *Images on this page*.
+
+## Screen Capture
+
+Pick what to capture (**Rectangle**, **Window**, **Full screen** or **Text Detector**), optionally a delay of 3, 5 or
+10 seconds, and click **New capture**. Utylix hides itself, freezes the screen and dims it: drag over the part you want
+(or click a window); Esc or right-click cancels. The result shows in the tab, where you can draw on it with the **Pen**
+or **Highlighter** (five colors, three sizes, **Eraser**, **Undo**), then **Copy**, **Save** or **Save as…**.
+
+- **Shortcuts, from anywhere:** **Win + S** and **Ctrl + Alt + S**. Windows keeps Win + S for Search, so while it is on
+  Utylix takes that shortcut for itself (it swallows only that one combination, never records keys, and does not work
+  over programs running as administrator). Turn either off in Settings → *Screen Capture* to get Windows Search back.
+- **Settings → Screen Capture:** copy every capture to the clipboard (on by default), save every capture as a file
+  (off by default), the screenshot folder (default `Pictures\Screenshots`).
+- **Text Detector** – choose the mode and drag over any text on the screen: Utylix reads it with the text recognition
+  built into Windows (nothing to download), shows it in a box and copies it to the clipboard. After any capture,
+  **Detect text** reads that picture. You can also *Open image…*, *Paste image* or drop a picture on the tab. If Windows
+  has several recognition languages installed you can pick one; add more under Settings → Time & Language → Language.
+
+## Screen Recorder
+
+Choose what to record, then **Start recording** (or press **Ctrl + Alt + R** anywhere; press it again to stop;
+**Ctrl + Alt + P** pauses and continues):
+
+- **Record** – *Full screen* (with several monitors: all of them or one), *Area* (drag over the part you want) or
+  *Window*: a list of your open windows (with their program icons) appears, you click the one to record, and Utylix
+  brings it to the front (un-minimizing it) and records the area it covers. It does not follow if you move the window
+  afterwards. (Recording the screen area, not the window itself, is what makes browsers and games work: a window's own
+  picture comes out blank for programs that draw with the graphics card.)
+- **Sound** – *System sound* (everything you hear) and/or *Microphone* (the default one, or pick another). They are mixed
+  into one track. Windows sends nothing while the speakers are silent, so Utylix fills those gaps: sound and picture stay
+  in step. (A GIF has no sound.)
+- **Format, quality, frame rate** – MP4 video (Low / Normal / High, 15 / 30 / 60 fps) or an animated GIF (at most 15
+  pictures a second and 800 pixels wide, for short clips).
+- **Countdown** of 3, 5 or 10 seconds, and options to show the **mouse pointer** and to **highlight clicks** with a ring
+  (left click yellow, right click blue) that shows in the video.
+- **While recording** Utylix hides itself and shows a small bar with the Utylix logo, the time, **Pause / Resume** and
+  **Stop**, and a **red frame with a "REC" tag** around what is being recorded (amber and "PAUSED" while paused; switch
+  the frame off with *On screen* on the tab). The frame and tag sit just *outside* the recorded area, so they are never
+  in the video; where there is no room outside (full screen, an area at the screen edge) and for the bar and countdown,
+  Windows keeps them out of the video (Windows 10 version 2004 or later). The tray icon says it is recording and
+  its menu has *Stop recording*. Pausing leaves the pause out of the video.
+- **Saved** as `Utylix Record <date> <time>.mp4` (or `.gif`) in `Videos\Utylix` (change it in Settings → *Screen Recorder*); a notice appears, and clicking it opens the
+  folder. The tab shows the last recording with **Play**, **Show in folder** and **Delete** (moves it to the Recycle Bin, so
+  you can still get it back). If Utylix is closed while recording,
+  the recording is finished and saved first; if it is killed, Windows ends the recording program too (that half file
+  can't be played and is removed at the next start).
+- Uses **ffmpeg** (the same helper as Multi Convert; the tab offers to install it) for filming and encoding, and the NAudio
+  library (MIT, inside the exe) to listen to the sound. Tested at 100% display scaling. Protected video (Netflix and the
+  like) is shown black by Windows in every screen recorder.
+
+## Video Player
+
+The **Video Player** tab opens files and lists what you played recently (with "continue from 12:34"); the player itself
+is its own window, one for everything you open. Open it from the tab, by dropping files on it, or from Explorer:
+right-click a video or music file → **Play with Utylix**, or *Open with → Utylix* (tick *Always* to make it the default;
+the installer will do that for you later). If Utylix was started only to play a file, it quits when the player closes.
+
+- **Engine** – the player uses libvlc, the engine inside VLC (videolan.org), so it plays MP4, MKV, AVI, FLV, WMV, WebM,
+  MOV, TS, MP3, FLAC, OGG, M4A, Opus, WMA and many more. If VLC is installed on the PC Utylix uses that; otherwise it asks
+  once before downloading the engine (about 80 MB from videolan.org, checked against the checksum VideoLAN publishes) and
+  keeps its own copy in `%APPDATA%\Utylix\tools\vlc`. Settings → *Video Player* shows which one is in use.
+- **Subtitles** – a subtitle file next to the video with the same name (`Movie.srt` for `Movie.mkv`; also `.ass`, `.ssa`,
+  `.sub`, `.vtt`, `.smi`) is switched on automatically, like in VLC. Also found: `Movie.en.srt` / `Movie.English.srt`
+  (English first) and files in a `Subs` or `Subtitles` folder. *Subtitle → Add Subtitle File…*, track choice and delay
+  (G / H) are there too.
+- **Playing** – Space pause, double-click or **F** full screen (the controls appear on top of the picture while the mouse
+  moves), arrows seek 10 s (Shift 3 s, Ctrl 1 min), Up / Down or the wheel change the volume, **M** mute, **[** **]** speed
+  (0.25× – 4×), **E** next frame, **V** / **B** next subtitle / audio track, **A** aspect ratio, **Shift + S** snapshot
+  (`Pictures\Utylix Snapshots`). All of it is in the menu bar too (*Help → Keyboard Shortcuts*).
+- **Playlist** – open one file and the other videos of its folder follow it; *Open Folder…*, drag files in (hold Ctrl to add
+  instead of replace), repeat (playlist / one file), random, *Open Network Stream…*. **Ctrl + L** shows the list.
+- **Remembers** where you stopped in each file (not for files under a minute), the volume, the window size and a recent list.
+  The screen stays awake while a video plays.
+
+## Background Remover
+
+Right-click a picture (PNG, JPG, WebP, BMP, TIFF, HEIC, AVIF) → **Remove background**. A few seconds later a notice says
+it is done, and `name (no background).png` sits next to the original, with a transparent background; the original is never
+touched. Several pictures at once work too.
+
+- The AI model is **isnet-general-use** (Apache-2.0, from the rembg project), run on your PC with ONNX Runtime: nothing is
+  uploaded. The first time, Utylix asks before downloading it (about 170 MB from GitHub; checked against its fingerprint).
+- Switch the menu entry off, or download the model ahead of time, in Settings → *Multi Convert* (Tools).
+
+## Brightness
+
+Right-click the Utylix tray icon → **Brightness**. A panel opens by the taskbar with one slider per screen (drag it, click
+on the bar, or use the mouse wheel over it); it closes when you click somewhere else. With two or more screens, *Move all
+screens together* adjusts them at the same time.
+
+- External monitors are controlled with **DDC/CI**, the same way Windows-side tools like Monitorian do it. If a monitor is
+  listed as "does not answer brightness commands", switch *DDC/CI* on in the monitor's own menu (some TVs, docks and
+  adapters do not pass it on). A laptop's built-in screen is controlled through Windows itself.
+- Nothing is saved or changed at startup: the monitor keeps the brightness you set, and the panel always shows what the
+  monitor reports.
+
+## Updates
+
+Utylix updates itself from the **Releases** of its GitHub repository (`ReynanGonzales/Utylix`).
+
+- About once a day (and whenever you choose tray icon → **Check for updates…**) it asks GitHub for the newest release. If it
+  is newer than the version you run (Settings → *Updates* shows it), a notice appears; clicking it shows what is new.
+- **Update now** downloads `Utylix.exe` from that release, checks it against the SHA-256 checksum GitHub publishes for the
+  file (a file that does not match is thrown away), puts it in place of the running program, and restarts Utylix.
+  Downloads in progress are paused; a screen recording in progress has to be stopped first. Nothing is ever installed
+  without your click.
+- **Private repository:** GitHub shows nothing to a program that is not logged in. Create a *fine-grained personal access
+  token* on github.com for this repository with read-only permission for **Contents**, and paste it under Settings →
+  *Updates* → *GitHub access token…* (or in the window that explains it). It is stored encrypted for your Windows user.
+  If the repository is made public, no token is needed.
+
+### Publishing a new version (for the developer)
+
+1. Raise `<Version>` in `app/Utylix.csproj` (for example `1.2.0`) and run `build.bat`.
+2. On GitHub: *Releases → Draft a new release*, tag `v1.2.0`, write what is new, attach the built **`Utylix.exe`** (the file
+   must be called exactly that), and publish. The notes you write are what the update window shows.
+
+## Multi Convert
+
+Open the Multi Convert tab. Add files with the button or by dropping files/folders (mixing kinds is fine), choose
+**Images**, **Video** or **Audio** and a format, and click Convert. The window shows progress for each file and has a
+**Cancel** button (a cancelled file leaves nothing half-written). Originals are never changed; a taken name becomes
+`clip (1).mp4`. What can become what: pictures into pictures; videos into other video formats, an animated GIF, or just
+their sound (MP3, M4A, WAV, FLAC, OGG); music into other music formats. Anything that doesn't fit (a song into a video)
+is skipped with the reason shown.
+
+- **Pictures** – optional JPG/WebP quality and a maximum size for the longest side (never enlarged). Transparent areas
+  become white for JPG and BMP; ICO gets the sizes 16–256 px; phone photos keep their right way up.
+- **Video** – quality *High / Balanced / Small file* and a size limit (*Original / 1080p / 720p / 480p*, never enlarged).
+  MP4, MKV and MOV use H.264 + AAC (plays everywhere), WebM uses VP9 + Opus, AVI is for old players, GIF makes a short
+  silent animation.
+- **Audio** – a bit rate for MP3 / M4A / OGG (128–320 kbps); WAV and FLAC are lossless. Tags are kept.
+- **ffmpeg** – videos and music (and WebP) are converted with ffmpeg, the same free helper the video downloader uses.
+  If it isn't installed, the tab shows an **Install ffmpeg** button (about 100 MB, checked against its checksum).
+
+- **Right-click → Convert** – in Explorer, right-click a picture, video or music file → **Convert** → pick a format
+  (pictures: JPG / PNG / WebP / BMP / GIF / ICO; videos: MP4 / MP3 sound only / animated GIF; music: MP3 / M4A / WAV /
+  FLAC) and it converts in the background next to the original; a notice says when it is done (click it to open the
+  folder). *More options…* opens Multi Convert with the file in its list. Added for your Windows account only; **switch it
+  off in Settings → Tools**. (On Windows 11 it is under *Show more options*.)
+- **Convert while downloading** – for a picture in the "New download" window, *Convert to* downloads it and then
+  really converts it (not just renames). The original is removed unless you tick *Keep the original picture too*.
+
+## Archives (a small WinRAR)
+
+Archives are **not** a tab of the main window. Like WinRAR, they open in a window of their own: double-click a
+`.zip`, `.rar`, `.7z`, `.tar.gz` ... (after choosing Utylix under *Open with*), or right-click it. Only that window
+appears, one per archive, and if Utylix wasn't running it quits again when you close it.
+
+- **Open and browse** – folders, sizes, packed sizes, dates; double-click a folder to go in, *Up* to go back. Double-click a
+  file to open it (a program or script asks first). Formats it opens: ZIP, RAR, 7z, TAR, GZ, BZ2, XZ, TAR.GZ / TAR.BZ2 /
+  TAR.XZ, CBZ, CBR, JAR.
+- **Select and drag out** – click **Select all** (or Ctrl + A), Ctrl / Shift-click, or draw a box around files with the
+  mouse (start on empty space or beside a name; hold Ctrl to add). Then drag them onto any folder in Explorer, or the
+  desktop: they are extracted right there, with their subfolders. Nothing is unpacked until you let go. A file
+  dragged out of a subfolder arrives on its own, not inside its parent folders. If the archive has a password, it is
+  asked for when you start the drag.
+- **Extract** – everything or only what you select, to a new folder named after the archive (default), next to it, or
+  anywhere. If a file already exists: rename the new one (default), overwrite, or skip. Progress and Cancel; **Test
+  archive** checks it is not damaged. Passwords are asked for (a wrong one is refused and asked again) for encrypted ZIP,
+  RAR and 7z. Files can never be written outside the chosen folder, even by a booby-trapped archive.
+- **Create** – *Add to archive…* opens a window to build a **ZIP**, **TAR.GZ** or **TAR** (Store / Fast / Normal / Best),
+  with a name and folder of your choice. For a **ZIP** you can type an optional **password** (twice): the files are then
+  locked with AES-256 encryption and open in 7-Zip, WinRAR, WinZip and Utylix. File names stay visible in a ZIP, a password
+  can't be recovered, and a password-protected ZIP can't hold files over 4 GB. RAR is a closed format that only WinRAR can
+  write, and 7z can be opened but not yet created.
+- **Right-click, like WinRAR** – one **Utylix Archive** submenu. On an archive: *Open with Utylix*, *Extract files…* (asks for a folder), *Extract here*, *Extract to folder*, and also *Add to archive…* / *Add to ZIP*. On any other file or folder: *Add to archive…* and *Add to ZIP* (several
+  selected files become one ZIP named after their folder). Utylix is also listed under *Open with* for archives. Switch off
+  in Settings (with the other Explorer options); nothing is changed for other users, and no admin rights are needed. The logo in the menu is read from Utylix.exe itself.
+  (WinRAR writes the archive's own name into each entry; that needs a native Windows extension, so these say "folder".)
+- Folders in an archive are shown as yellow folders like in Explorer.
+- The installer (when there is one) can make Utylix the default program for these types; until then choose *Open with →
+  Utylix → Always* once for each type.
+
+## Coming from "IDM Clone"
+
+The first start of Utylix moves your old settings, history and tools from `%APPDATA%\IDMClone` to
+`%APPDATA%\Utylix` and updates "Start with Windows", the browser link and the right-click menu to the new file.
+
+## Build from source
+
+`build.bat` (needs the .NET 10 SDK) publishes a fresh single-file, self-contained `Utylix.exe` into this folder
+(about 70 MB, because the runtime is inside). Source is in `app/`. Branding files are in `branding/`.
+Settings and history live in `%APPDATA%\Utylix`.
+
+## Limits
+
+- Downloads: only direct HTTP(S) links and the video sites yt-dlp supports; one-time or POST-only links can't be replayed.
+- The speed-up only happens when the server allows Range requests.
+- Only download things you're allowed to download.
+
+## Security notes
+
+The extension talks to the app over `127.0.0.1:6800` only. The API rejects requests from web pages (Origin/Host
+checks), accepts only `http`/`https` URLs and existing local picture files, and cannot open or delete files.
+Downloaded files get the Windows "from the internet" mark so SmartScreen still checks them, and cookies are wiped
+from the saved state once a download finishes.

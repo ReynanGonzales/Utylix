@@ -1,0 +1,67 @@
+<Window x:Class="IdmClone.BrightnessWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Utylix Brightness" Width="340" SizeToContent="Height" WindowStyle="None" ResizeMode="NoResize"
+        ShowInTaskbar="False" Topmost="True" WindowStartupLocation="Manual"
+        Background="{DynamicResource CardBrush}" Foreground="{DynamicResource TextBrush}"
+        FontFamily="Segoe UI" FontSize="13" UseLayoutRounding="True">
+    <Window.Resources>
+        <Style x:Key="BrightSlider" TargetType="Slider">
+            <Setter Property="IsMoveToPointEnabled" Value="True" />
+            <Setter Property="Focusable" Value="True" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Minimum" Value="0" />
+            <Setter Property="Maximum" Value="100" />
+            <Setter Property="SmallChange" Value="1" />
+            <Setter Property="LargeChange" Value="10" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid Background="Transparent" VerticalAlignment="Center" Height="24">
+                            <Border Height="5" CornerRadius="2.5" Background="{DynamicResource LineBrush}" VerticalAlignment="Center" />
+                            <Track x:Name="PART_Track" VerticalAlignment="Center">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge" Focusable="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton"><Border Height="5" CornerRadius="2.5,0,0,2.5" Background="{DynamicResource AccentBrush}" VerticalAlignment="Center" /></ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge" Focusable="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" Height="24" /></ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Focusable="False" Width="16" Height="16">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb"><Ellipse Fill="White" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2.5" /></ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
+        <StackPanel Margin="18,14,18,14">
+            <Grid Margin="0,0,0,10">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE706;" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBlock Text="Brightness" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+            <StackPanel x:Name="Monitors" />
+            <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="BrightStatus" Text="Looking for screens…"
+                       Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,2,0,4" />
+            <CheckBox x:Name="Unison" AutomationProperties.AutomationId="BrightUnison" Content="Move all screens together"
+                      Margin="0,8,0,0" Visibility="Collapsed" />
+        </StackPanel>
+    </Border>
+</Window>

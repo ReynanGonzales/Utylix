@@ -1,0 +1,21 @@
+<Window x:Class="IdmClone.AppUpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Utylix - updates" Width="520" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen" Icon="app.ico" ShowInTaskbar="True" ShowActivated="True"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}"
+        FontFamily="Segoe UI" FontSize="13.5">
+    <StackPanel Margin="24,22,24,22">
+        <TextBlock x:Name="HeadText" AutomationProperties.AutomationId="UpdHead" Text="Checking for updates…" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <TextBlock x:Name="VersionText" AutomationProperties.AutomationId="UpdVersion" Margin="0,6,0,0" Foreground="{DynamicResource MutedBrush}" />
+        <TextBox x:Name="NotesBox" AutomationProperties.AutomationId="UpdNotes" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="170" VerticalScrollBarVisibility="Auto"
+                 Margin="0,12,0,0" Visibility="Collapsed" Style="{StaticResource Field}" />
+        <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="UpdStatus" TextWrapping="Wrap" Margin="0,12,0,0" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button x:Name="TokenBtn" AutomationProperties.AutomationId="UpdToken" Content="Access token…" Style="{StaticResource DialogButton}" Margin="0,0,10,0" Visibility="Collapsed" Click="Token_Click" />
+            <Button x:Name="LaterBtn" AutomationProperties.AutomationId="UpdClose" Content="Close" Style="{StaticResource DialogButton}" IsCancel="True" Margin="0,0,10,0" Click="Later_Click" />
+            <Button x:Name="UpdateBtn" AutomationProperties.AutomationId="UpdInstall" Content="Update now" Style="{StaticResource DialogPrimary}" IsDefault="True" Visibility="Collapsed" Click="Update_Click" />
+        </StackPanel>
+    </StackPanel>
+</Window>

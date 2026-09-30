@@ -1,0 +1,117 @@
+<UserControl x:Class="IdmClone.CapturePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AllowDrop="True" Background="Transparent" Drop="Page_Drop" DragOver="Page_DragOver">
+    <UserControl.Resources>
+        <!-- round colour swatch -->
+        <Style x:Key="Swatch" TargetType="RadioButton">
+            <Setter Property="Width" Value="24" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Margin" Value="0,0,7,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid>
+                            <Ellipse x:Name="Ring" Stroke="{DynamicResource TextBrush}" StrokeThickness="2" Opacity="0" />
+                            <Ellipse Fill="{TemplateBinding Background}" Margin="4" Stroke="{DynamicResource LineBrush}" StrokeThickness="1" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="Ring" Property="Opacity" Value="1" /></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Ring" Property="Opacity" Value="0.5" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="20,16,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <TextBlock Text="Screen Capture" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock x:Name="ShortcutHint" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" />
+        </Grid>
+
+        <!-- what to capture -->
+        <Border Grid.Row="1" Style="{StaticResource Section}" Margin="0,14,0,10" Padding="16,12">
+            <DockPanel>
+                <Button x:Name="NewBtn" DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="📷   New capture" Height="46" MinWidth="170"
+                        VerticalAlignment="Center" Margin="16,0,0,0" Click="New_Click" />
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Capture" Width="56" VerticalAlignment="Top" Margin="0,5,0,0" Foreground="{DynamicResource MutedBrush}" />
+                        <WrapPanel x:Name="ModeChips" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                        <TextBlock Text="Delay" Width="56" VerticalAlignment="Top" Margin="0,5,0,0" Foreground="{DynamicResource MutedBrush}" />
+                        <WrapPanel x:Name="DelayChips" />
+                        <Button Content="Open image…" Style="{StaticResource LinkButton}" Margin="14,4,0,0" VerticalAlignment="Top" Click="Open_Click" />
+                        <Button Content="Paste image" Style="{StaticResource LinkButton}" Margin="12,4,0,0" VerticalAlignment="Top" Click="Paste_Click" />
+                    </StackPanel>
+                    <TextBlock x:Name="ModeNote" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" Margin="56,4,0,0" TextWrapping="Wrap" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- mark up + actions (only when there is a picture) -->
+        <Border x:Name="ToolBar" Grid.Row="2" Style="{StaticResource Section}" Margin="0,0,0,10" Padding="14,10" Visibility="Collapsed">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="Copy" Style="{StaticResource DialogButton}" Click="Copy_Click" />
+                    <Button Content="Save" Style="{StaticResource DialogButton}" Margin="8,0,0,0" Click="Save_Click" />
+                    <Button Content="Save as…" Style="{StaticResource DialogButton}" Margin="8,0,0,0" Click="SaveAs_Click" />
+                    <Button Content="🔍  Detect text" Style="{StaticResource DialogPrimary}" Margin="8,0,0,0" Click="Detect_Click" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <WrapPanel x:Name="ToolChips" VerticalAlignment="Center" />
+                    <StackPanel x:Name="Swatches" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    <WrapPanel x:Name="SizeChips" Margin="6,0,0,0" VerticalAlignment="Center" />
+                    <Button Content="Undo" Style="{StaticResource LinkButton}" Margin="6,0,0,0" Click="Undo_Click" />
+                    <Button Content="Clear marks" Style="{StaticResource LinkButton}" Margin="10,0,0,0" Click="ClearMarks_Click" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- the picture -->
+        <Border Grid.Row="3" Style="{StaticResource Section}" Padding="10">
+            <Grid>
+                <StackPanel x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="📷" FontSize="40" HorizontalAlignment="Center" Foreground="{DynamicResource MutedBrush}" />
+                    <TextBlock x:Name="EmptyText" Foreground="{DynamicResource MutedBrush}" TextAlignment="Center" Margin="0,8,0,0" />
+                </StackPanel>
+                <Viewbox x:Name="PreviewBox" Stretch="Uniform" StretchDirection="DownOnly" Visibility="Collapsed">
+                    <Grid x:Name="Surface">
+                        <Image x:Name="Preview" Stretch="Fill" />
+                        <InkCanvas x:Name="Ink" Background="Transparent" />
+                    </Grid>
+                </Viewbox>
+            </Grid>
+        </Border>
+
+        <!-- detected text -->
+        <Border x:Name="TextPanel" Grid.Row="4" Style="{StaticResource Section}" Margin="0,10,0,0" Padding="14,10" Visibility="Collapsed">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,8">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button Content="Copy text" Style="{StaticResource DialogButton}" Click="CopyText_Click" />
+                        <Button Content="Hide" Style="{StaticResource DialogButton}" Margin="8,0,0,0" Click="HideText_Click" />
+                    </StackPanel>
+                    <TextBlock Text="Detected text" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock x:Name="TextStatus" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" />
+                </DockPanel>
+                <WrapPanel x:Name="LangChips" Margin="0,0,0,8" Visibility="Collapsed" />
+                <TextBox x:Name="Detected" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="110" MaxHeight="190" Padding="6,4"
+                         VerticalScrollBarVisibility="Auto" SpellCheck.IsEnabled="False" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

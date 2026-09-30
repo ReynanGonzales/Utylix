@@ -1,0 +1,42 @@
+<Window x:Class="IdmClone.ToastWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Utylix - copied link" Width="400" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" ShowActivated="False" Topmost="True" Focusable="False"
+        FontFamily="Segoe UI" FontSize="13.5">
+    <Border Margin="12" CornerRadius="12" Padding="16,14" Background="{DynamicResource CardBrush}"
+            BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.35" />
+        </Border.Effect>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Border x:Name="Tile" Width="44" Height="44" CornerRadius="10" Background="{DynamicResource AccentBrush}"
+                    BorderBrush="Transparent" BorderThickness="1" VerticalAlignment="Top">
+                <Grid>
+                    <TextBlock x:Name="GlyphText" FontSize="22" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <Image x:Name="IconImage" Width="30" Height="30" Visibility="Collapsed" RenderOptions.BitmapScalingMode="HighQuality" />
+                </Grid>
+            </Border>
+
+            <StackPanel Grid.Column="1" Margin="12,0,8,0">
+                <TextBlock Text="Download this link?" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                <TextBlock x:Name="TitleText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextBrush}" Margin="0,2,0,0" />
+                <TextBlock x:Name="SubText" TextTrimming="CharacterEllipsis" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" />
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button x:Name="YesBtn" Content="Download" Style="{StaticResource PrimaryButton}" Padding="16,5" Click="Yes_Click" />
+                    <Button Content="Not now" Padding="14,5" Margin="8,0,0,0" Click="No_Click" />
+                </StackPanel>
+            </StackPanel>
+
+            <Button Grid.Column="2" Content="✕" Padding="7,2" VerticalAlignment="Top" BorderThickness="0" Background="Transparent"
+                    Foreground="{DynamicResource MutedBrush}" ToolTip="Close" Click="No_Click" />
+        </Grid>
+    </Border>
+</Window>

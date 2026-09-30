@@ -1,0 +1,312 @@
+<Window x:Class="IdmClone.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings" Width="700" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}"
+        FontFamily="Segoe UI" FontSize="13.5">
+    <DockPanel>
+        <!-- footer stays visible while the content scrolls -->
+        <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0"
+                Background="{DynamicResource CardBrush}" Padding="22,12">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="Cancel" Style="{StaticResource DialogButton}" IsCancel="True" Margin="0,0,10,0" />
+                    <Button Content="Save" Style="{StaticResource DialogPrimary}" IsDefault="True" Click="Save_Click" />
+                </StackPanel>
+                <TextBlock x:Name="ErrorText" Foreground="{DynamicResource ErrBrush}" TextWrapping="Wrap"
+                           VerticalAlignment="Center" Margin="0,0,16,0" />
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="22,20,22,8">
+
+                <StackPanel x:Name="GroupDownloads">
+                <!-- ============ Browser capture ============ -->
+                <TextBlock Text="Browser capture" FontSize="16" FontWeight="SemiBold" Margin="2,0,0,2" />
+                <TextBlock Text="Applies to downloads caught by the browser extension (Brave, Chrome, Edge…)."
+                           Foreground="{DynamicResource MutedBrush}" Margin="2,0,0,8" TextWrapping="Wrap" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <CheckBox x:Name="ConfirmBox" Content="Show a confirmation window before a captured download starts" />
+                        <CheckBox x:Name="VideoButtonBox" Margin="0,10,0,0"
+                                  Content="Show the floating &quot;Download this video&quot; button on videos" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="Turn it off if you don't want a button over videos. Right-click on a video → Download with Utylix always keeps working." />
+                        <CheckBox x:Name="ClipboardBox" Margin="0,10,0,0" Content="Offer to download links I copy (a small popup appears)" />
+                        <CheckBox x:Name="BrowserStartBox" Margin="0,10,0,0" Content="Let the browser start Utylix when it is closed" />
+
+                        <TextBlock Text="What to capture" FontWeight="SemiBold" Margin="0,18,0,8" />
+                        <RadioButton x:Name="AllRadio" GroupName="mode" Foreground="{DynamicResource TextBrush}"
+                                     Content="Every download the browser makes" Checked="Mode_Changed" />
+                        <RadioButton x:Name="TypesRadio" GroupName="mode" Margin="0,8,0,0" Foreground="{DynamicResource TextBrush}"
+                                     Content="Only these file types" Checked="Mode_Changed" />
+
+                        <TextBox x:Name="TypesBox" Margin="24,10,0,0" Padding="10,8" MinHeight="84" TextWrapping="Wrap"
+                                 AcceptsReturn="True" VerticalScrollBarVisibility="Auto" SpellCheck.IsEnabled="False" />
+                        <DockPanel Margin="24,8,0,0">
+                            <Button DockPanel.Dock="Right" Content="Reset to defaults" Style="{StaticResource LinkButton}"
+                                    VerticalAlignment="Top" Margin="12,0,0,0" Click="ResetTypes_Click" />
+                            <TextBlock Text="Separate with commas, no dots. The default list covers pictures, video, music, archives, programs and documents."
+                                       Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" FontSize="12.5" />
+                        </DockPanel>
+
+                        <Grid Margin="0,20,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Skip files smaller than" VerticalAlignment="Center" />
+                            <TextBox x:Name="MinBox" Grid.Column="1" Style="{StaticResource Field}" Width="90" />
+                            <TextBlock Grid.Column="2" Text="KB   (0 = capture everything)" VerticalAlignment="Center"
+                                       Margin="12,0,0,0" Foreground="{DynamicResource MutedBrush}" />
+                        </Grid>
+
+                        <TextBlock Text="Never capture from these sites" Margin="0,18,0,8" />
+                        <TextBox x:Name="ExcludeBox" Style="{StaticResource Field}" SpellCheck.IsEnabled="False" />
+                        <TextBlock Text="Separate with commas, e.g. example.com, files.mysite.org" FontSize="12.5"
+                                   Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ============ Downloads ============ -->
+                <TextBlock Text="Downloads" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
+                <Border Style="{StaticResource Section}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="200" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Text="Download folder" VerticalAlignment="Center" />
+                        <TextBox x:Name="DirBox" Grid.Column="1" Style="{StaticResource Field}" />
+                        <Button Grid.Column="2" Content="Browse…" Style="{StaticResource DialogButton}" Margin="10,0,0,0" Click="Browse_Click" />
+
+                        <TextBlock Grid.Row="1" Text="Connections per file" VerticalAlignment="Center" Margin="0,14,0,0" />
+                        <TextBox x:Name="ConnBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource Field}"
+                                 Width="90" HorizontalAlignment="Left" Margin="0,14,0,0" />
+
+                        <TextBlock Grid.Row="2" Text="Simultaneous downloads" VerticalAlignment="Center" Margin="0,14,0,0" />
+                        <TextBox x:Name="MaxBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource Field}"
+                                 Width="90" HorizontalAlignment="Left" Margin="0,14,0,0" />
+
+                        <CheckBox x:Name="AutoStartBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,18,0,0"
+                                  Content="Start with Windows (minimized to the tray)" />
+
+                        <CheckBox x:Name="SortBox" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,14,0,0"
+                                  Content="Sort downloads into folders by type" Checked="Sort_Changed" Unchecked="Sort_Changed" />
+                        <StackPanel x:Name="CatRows" Grid.Row="5" Grid.ColumnSpan="3" Margin="0,4,0,0" />
+                    </Grid>
+                </Border>
+
+                <!-- ============ Video sites ============ -->
+                <TextBlock Text="Video sites (YouTube, Facebook…)" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,2" />
+                <TextBlock Text="Streaming sites send video in pieces. These two free open-source helpers find the video and join the pieces."
+                           Foreground="{DynamicResource MutedBrush}" Margin="2,0,0,8" TextWrapping="Wrap" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="yt-dlp" FontWeight="SemiBold" />
+                                <TextBlock Text="finds the video (needed)" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+                            </StackPanel>
+                            <TextBlock x:Name="YtStatus" Grid.Column="1" VerticalAlignment="Center" Text="Checking…" />
+                            <Button x:Name="YtBtn" Grid.Column="2" Content="Install" Style="{StaticResource DialogButton}" Click="YtBtn_Click" />
+                        </Grid>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="ffmpeg" FontWeight="SemiBold" />
+                                <TextBlock Text="joins video + audio for HD (about 100 MB)" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+                            </StackPanel>
+                            <TextBlock x:Name="FfStatus" Grid.Column="1" VerticalAlignment="Center" Text="Checking…" />
+                            <Button x:Name="FfBtn" Grid.Column="2" Content="Install" Style="{StaticResource DialogButton}" Click="FfBtn_Click" />
+                        </Grid>
+                        <TextBlock x:Name="ToolMessage" Margin="0,14,0,0" TextWrapping="Wrap" />
+                        <CheckBox x:Name="AutoUpdateBox" Margin="0,14,0,0" Content="Check for a newer yt-dlp now and then (it asks before installing)" />
+
+                        <TextBlock Text="Subtitles" FontWeight="SemiBold" Margin="0,20,0,8" />
+                        <RadioButton x:Name="SubOffRadio" GroupName="subs" Foreground="{DynamicResource TextBrush}" Content="Don't save subtitles" />
+                        <RadioButton x:Name="SubFileRadio" GroupName="subs" Margin="0,8,0,0" Foreground="{DynamicResource TextBrush}"
+                                     Content="Save them as a separate file next to the video (.srt)" />
+                        <RadioButton x:Name="SubEmbedRadio" GroupName="subs" Margin="0,8,0,0" Foreground="{DynamicResource TextBrush}"
+                                     Content="Put them inside the video file (needs ffmpeg)" />
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Languages" VerticalAlignment="Center" />
+                            <TextBox x:Name="SubLangsBox" Grid.Column="1" Style="{StaticResource Field}" Width="220" />
+                            <TextBlock Grid.Column="2" Text="e.g. en, es   (or: all)" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Foreground="{DynamicResource MutedBrush}" />
+                        </Grid>
+                        <CheckBox x:Name="SubAutoBox" Margin="0,12,0,0" Content="Also save automatic (machine-made) captions when a video has no real ones" />
+                        <TextBlock Margin="0,10,0,0" FontSize="12.5" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"
+                                   Text="Downloads come from the projects' official GitHub releases and are checked against their published checksums before use. If YouTube or Facebook stop working, click Update on yt-dlp. Only save videos you are allowed to keep; protected (DRM) videos are not supported." />
+                    </StackPanel>
+                </Border>
+
+                </StackPanel>
+
+                <StackPanel x:Name="GroupArchive">
+                <!-- ============ Archives ============ -->
+                <TextBlock Text="Archives" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <CheckBox x:Name="ArchiveMenuBox" Content="Show archive commands when I right-click files in Windows Explorer" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="On ZIP, RAR, 7z … files: Extract here, Extract to folder, Open with Utylix. On any file or folder: Add to archive…, Add to ZIP. Utylix is also listed under &quot;Open with&quot; for archives, so you can make it the default. Only for your Windows account; turning it off removes it again." />
+                    </StackPanel>
+                </Border>
+                </StackPanel>
+
+                <StackPanel x:Name="GroupCapture">
+                <!-- ============ Screen Capture ============ -->
+                <TextBlock Text="Screen Capture" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <CheckBox x:Name="ShotWinSBox" Content="Press Win + S to start a screen capture" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="Windows uses Win + S for Search. While this is ticked Utylix takes that shortcut for itself (untick it to get Search back). It only reacts to that one combination and never records what you type. Programs running as administrator don't pass keys to Utylix." />
+                        <CheckBox x:Name="ShotCtrlAltBox" Margin="0,12,0,0" Content="Press Ctrl + Alt + S to start a screen capture" />
+                        <CheckBox x:Name="ShotCopyBox" Margin="0,12,0,0" Content="Copy every capture to the clipboard" />
+                        <CheckBox x:Name="ShotAutoSaveBox" Margin="0,12,0,0" Content="Save every capture as a file" />
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Screenshot folder" VerticalAlignment="Center" />
+                            <TextBox x:Name="ShotDirBox" Grid.Column="1" Style="{StaticResource Field}" />
+                            <Button Grid.Column="2" Content="Browse…" Style="{StaticResource DialogButton}" Margin="10,0,0,0" Click="ShotBrowse_Click" />
+                        </Grid>
+                        <TextBlock Margin="0,6,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}"
+                                   Text="Leave empty for Pictures\Screenshots. Used by Save and by &quot;Save every capture&quot;." />
+                    </StackPanel>
+                </Border>
+
+                </StackPanel>
+
+                <StackPanel x:Name="GroupRecorder">
+                <!-- ============ Screen Recorder ============ -->
+                <TextBlock Text="Screen Recorder" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <CheckBox x:Name="RecHotkeyBox" Content="Press Ctrl + Alt + R to start and stop a recording (Ctrl + Alt + P pauses and continues)" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="Works from anywhere, even while Utylix is hidden in the tray. It uses whatever you chose on the Screen Recorder tab." />
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Recordings folder" VerticalAlignment="Center" />
+                            <TextBox x:Name="RecDirBox" Grid.Column="1" Style="{StaticResource Field}" />
+                            <Button Grid.Column="2" Content="Browse…" Style="{StaticResource DialogButton}" Margin="10,0,0,0" Click="RecBrowse_Click" />
+                        </Grid>
+                        <TextBlock Margin="0,6,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}"
+                                   Text="Leave empty for Videos\Utylix. Recording needs ffmpeg (Settings → Video sites, or the button on the Screen Recorder tab)." />
+                    </StackPanel>
+                </Border>
+
+                </StackPanel>
+
+                <StackPanel x:Name="GroupPlayer">
+                <!-- ============ Video Player ============ -->
+                <TextBlock Text="Video Player" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <CheckBox x:Name="PlayMenuBox" Content="Show &quot;Play with Utylix&quot; when I right-click a video or music file in Windows Explorer" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="Utylix is also added to the &quot;Open with&quot; list of video and music files, so you can choose it there and tick &quot;Always&quot; to make it the default player. Only for your Windows account; turning it off removes it again." />
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <TextBlock x:Name="PlayerEngineStatus" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" />
+                            <Button x:Name="PlayerEngineBtn" Content="Download the player engine" Style="{StaticResource DialogButton}" Margin="12,0,0,0" Click="PlayerEngine_Click" />
+                        </StackPanel>
+                        <TextBlock Margin="0,8,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="The player uses libvlc, the engine inside VLC. If VLC is installed on this PC Utylix uses that; otherwise the engine (about 80 MB) is downloaded once from videolan.org, after asking, and checked against its published checksum." />
+                    </StackPanel>
+                </Border>
+
+                </StackPanel>
+
+                <StackPanel x:Name="GroupConverter">
+                <!-- ============ Tools ============ -->
+                <TextBlock Text="Tools" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <CheckBox x:Name="ExplorerMenuBox" Content="Show &quot;Convert&quot; when I right-click a picture, video or music file in Windows Explorer" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="Right-click a PNG, MP4, MP3… → Convert → pick a format. Only added for your Windows account; turning it off removes it again." />
+                        <CheckBox x:Name="BgMenuBox" Margin="0,14,0,0" Content="Show &quot;Remove background&quot; when I right-click a picture in Windows Explorer" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="Saves a PNG with a transparent background next to the picture. The AI model (about 170 MB) is downloaded once, after asking, and everything runs on this PC: pictures are never uploaded." />
+                        <StackPanel Orientation="Horizontal" Margin="24,8,0,0">
+                            <TextBlock x:Name="BgModelStatus" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" />
+                            <Button x:Name="BgModelBtn" Content="Download model" Style="{StaticResource DialogButton}" Margin="12,0,0,0" Click="BgModel_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                </StackPanel>
+
+                <StackPanel x:Name="GroupUpdates">
+                <!-- ============ Updates ============ -->
+                <TextBlock Text="Updates" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <TextBlock x:Name="VersionLabel" Foreground="{DynamicResource MutedBrush}" />
+                        <CheckBox x:Name="AutoUpdateAppBox" Margin="0,10,0,0" Content="Check for a newer Utylix now and then (it asks before installing)" />
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button Content="Check for updates now" Style="{StaticResource DialogButton}" Click="CheckUpdates_Click" />
+                            <Button Content="GitHub access token…" Style="{StaticResource DialogButton}" Margin="10,0,0,0" Click="UpdateToken_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                </StackPanel>
+
+                <StackPanel x:Name="GroupBackup">
+                <!-- ============ Backup ============ -->
+                <TextBlock Text="Backup" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"
+                                   Text="Save all these settings to a file, and load them again after reinstalling Windows." />
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button Content="Export settings…" Style="{StaticResource DialogButton}" Click="Export_Click" />
+                            <Button Content="Import settings…" Style="{StaticResource DialogButton}" Margin="10,0,0,0" Click="Import_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                </StackPanel>
+
+                <Button x:Name="ShowAllBtn" Content="Show all settings" Style="{StaticResource LinkButton}" HorizontalAlignment="Left"
+                        Margin="2,2,0,14" Click="ShowAll_Click" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

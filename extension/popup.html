@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Utylix</title>
+<style>
+  :root { --bg:#fff; --text:#1c2333; --muted:#6b7280; --line:#e3e6ec; --accent:#2563eb; --ok:#16a34a; --err:#dc2626; --track:#e5e7eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1a1f2b; --text:#e6e9f0; --muted:#8b93a5; --line:#2a3142; --accent:#5b8def; --ok:#4ade80; --err:#f87171; --track:#2a3142; }
+  }
+  body { width:340px; margin:0; padding:12px; background:var(--bg); color:var(--text); font:13px/1.4 system-ui,"Segoe UI",sans-serif; }
+  .head { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .head b { flex:1; font-size:15px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--err); }
+  .dot.on { background:var(--ok); }
+  label.sw { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  h3 { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:14px 0 6px; }
+  .item { border:1px solid var(--line); border-radius:8px; padding:7px 9px; margin-bottom:6px; }
+  .item .n { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .item .m { color:var(--muted); font-size:12px; display:flex; justify-content:space-between; gap:8px; }
+  .track { height:5px; background:var(--track); border-radius:9px; overflow:hidden; margin:5px 0 3px; }
+  .fill { height:100%; background:var(--accent); }
+  .row { display:flex; gap:6px; }
+  input[type=text], input[type=number] { flex:1; min-width:0; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); font:inherit; }
+  input[type=number] { flex:none; width:80px; }
+  button { padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); font:inherit; cursor:pointer; }
+  button.p { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .none { color:var(--muted); padding:4px 0; }
+  .opt { margin:12px 0 0; }
+  .opt small { color:var(--muted); }
+  .offline { color:var(--err); margin:6px 0; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <span class="dot" id="dot"></span><b>Utylix <small id="ver" style="color:var(--muted);font-weight:400"></small></b>
+    <label class="sw"><input type="checkbox" id="enabled"> Capture</label>
+  </div>
+  <label class="sw" style="margin:-2px 0 8px"><input type="checkbox" id="videoPanel"> Show a download button on videos</label>
+  <div class="offline" id="offline" hidden>Utylix isn't running — open Utylix.exe. Downloads stay in the browser meanwhile.</div>
+
+  <h3>Videos &amp; audio on this page</h3>
+  <div id="media"><div class="none">None detected yet.</div></div>
+
+  <h3>Images on this page <small style="text-transform:none;letter-spacing:0">(100 KB and bigger)</small></h3>
+  <div id="images"><div class="none">None detected yet.</div></div>
+
+  <h3>Recent downloads</h3>
+  <div id="recent"><div class="none">Nothing yet.</div></div>
+
+  <h3>Add link</h3>
+  <div class="row"><input type="text" id="url" placeholder="https://…" spellcheck="false"><button class="p" id="add">Add</button></div>
+
+  <h3>Capture log</h3>
+  <div id="log"><div class="none">No downloads seen by the browser yet.</div></div>
+
+  <div class="opt"><small>Which file types, sizes and sites are captured is set in Utylix → Settings.</small></div>
+  <div class="row" style="margin-top:10px"><button id="dash" style="flex:1">Open Utylix</button></div>
+<script src="popup.js"></script>
+</body>
+</html>

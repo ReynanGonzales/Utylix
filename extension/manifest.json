@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "Utylix Integration",
+  "version": "1.8.1",
+  "description": "Sends your browser downloads to the local Utylix app for faster multi-connection downloading.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuQILZblqoq2j3+8gUZQAp1ifBxt2d7lya4O8R2sQzuoHwy6/0MwM4r4ssAqM5kPsPnyrJd9KdMhh2CZmKP+JtxGWaUGoOYDD41E+6Bb27be1Ua18doZe6EZx3+RI3igglBw5uS+hBxF1rkL9nv7VF+4nYEaBft/ConCsnYNerc3r7T/fhYVuLraC9Oo7Y8TfWQkwmo5EeNets/O4OFfWxkBhVO0NqOvk47lngfEooe/eiTevOxo0TDuHR/HLrJSPg/UIf9Piso9DBNpuZVq/aWZyiHsr06dtGzAri/oeXdLSmqMEplpqWrFVth+Ur1OckL6hRf5LtMWTf1z+9q48iQIDAQAB",
+  "permissions": [
+    "downloads",
+    "cookies",
+    "contextMenus",
+    "storage",
+    "webRequest",
+    "tabs",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "pip.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Utylix",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  }
+}

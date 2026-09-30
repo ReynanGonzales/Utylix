@@ -1,0 +1,11 @@
+# build output
+app/bin/
+app/obj/
+app/publish/
+*.user
+.vs/
+
+# the program itself goes in GitHub Releases (Utylix.exe is ~80 MB), not in the source
+Utylix.exe
+Utylix.exe.old
+Utylix.exe.update

@@ -1,0 +1,193 @@
+<UserControl x:Class="IdmClone.DownloadsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:IdmClone">
+    <Grid Margin="20,16,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0">
+            <TextBlock Text="Downloads" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock x:Name="StatsText" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
+                       HorizontalAlignment="Right" Text="0 B/s · 0 active" />
+        </Grid>
+
+        <!-- Add link -->
+        <Grid Grid.Row="1" Margin="0,16,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid>
+                <!-- one line high (40px, same as the Add button) and centered; grows only if you paste several links.
+                     (The app-wide TextBox template applies Padding twice, so 6,4 here is a real 12,8: the text lines up with the hint.) -->
+                <TextBox x:Name="UrlBox" AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="40" MaxHeight="120"
+                         Padding="6,4" VerticalContentAlignment="Center" FocusVisualStyle="{x:Null}"
+                         HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" SpellCheck.IsEnabled="False"
+                         TextChanged="UrlBox_TextChanged" PreviewKeyDown="UrlBox_PreviewKeyDown" />
+                <TextBlock x:Name="UrlHint" Text="Paste a download link and press Enter…   (Shift+Enter adds another line)" IsHitTestVisible="False"
+                           Foreground="{DynamicResource MutedBrush}" Margin="13,0,0,0" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+            </Grid>
+            <Button Grid.Column="1" Content="Add" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                    Height="40" MinWidth="88" Padding="24,0" VerticalAlignment="Top" Click="Add_Click" />
+        </Grid>
+        <TextBlock x:Name="MessageText" Grid.Row="2" Foreground="{DynamicResource ErrBrush}" Margin="2,0,0,0"
+                   Height="20" VerticalAlignment="Top" />
+
+        <!-- Body -->
+        <Grid Grid.Row="3" Margin="0,10,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <DockPanel Margin="0,0,0,12">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                    <Button Content="Pause all" Click="PauseAll_Click" Margin="0,0,6,0" />
+                    <Button Content="Resume all" Click="ResumeAll_Click" Margin="0,0,6,0" />
+                    <Button Content="Clear completed" Click="ClearCompleted_Click" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton Content="All" Style="{StaticResource TabButton}" IsChecked="True" Tag="all" Checked="Filter_Checked" />
+                    <RadioButton Content="Active" Style="{StaticResource TabButton}" Tag="active" Checked="Filter_Checked" />
+                    <RadioButton Content="Completed" Style="{StaticResource TabButton}" Tag="completed" Checked="Filter_Checked" />
+                </StackPanel>
+            </DockPanel>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <Grid>
+                    <ItemsControl x:Name="List">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}"
+                                        BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                                <Button Content="Pause" Style="{StaticResource SmallButton}" Click="Pause_Click"
+                                                        Visibility="{Binding CanPause, Converter={StaticResource BoolToVis}}" />
+                                                <Button Content="{Binding ResumeLabel}" Style="{StaticResource SmallButton}" Click="Resume_Click"
+                                                        Visibility="{Binding CanResume, Converter={StaticResource BoolToVis}}" />
+                                                <Button Content="Update yt-dlp &amp; retry" Style="{StaticResource SmallButton}" Click="UpdateRetry_Click"
+                                                        ToolTip="Video sites change often. This installs the newest yt-dlp and tries the download again."
+                                                        Visibility="{Binding CanUpdateRetry, Converter={StaticResource BoolToVis}}" />
+                                                <Button Content="Open" Style="{StaticResource SmallButton}" Click="Open_Click"
+                                                        Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVis}}" />
+                                                <Button Content="Folder" Style="{StaticResource SmallButton}" Click="Folder_Click"
+                                                        Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVis}}" />
+                                                <Button Content="Remove" Style="{StaticResource SmallButton}" Click="Remove_Click"
+                                                        Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVis}}" />
+                                                <Button Content="Delete" Style="{StaticResource SmallButton}" Click="Delete_Click"
+                                                        Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVis}}" />
+                                                <Button Content="Cancel" Style="{StaticResource SmallButton}" Click="Cancel_Click"
+                                                        Visibility="{Binding IsActive, Converter={StaticResource BoolToVis}}" />
+                                            </StackPanel>
+                                            <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="24" Height="24" Margin="0,0,10,0"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Center"
+                                                   Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}" />
+                                            <TextBlock Text="{Binding FileName}" ToolTip="{Binding Url}" FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                        </DockPanel>
+                                        <ProgressBar Value="{Binding Percent, Mode=OneWay}" Foreground="{Binding ProgressBrush}"
+                                                     Margin="0,10,0,7" />
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Content="{Binding ToggleLabel}" Style="{StaticResource LinkButton}"
+                                                    VerticalAlignment="Top" Margin="12,1,0,0" Click="Details_Click" />
+                                            <WrapPanel>
+                                                <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusBrush}"
+                                                           FontWeight="SemiBold" Margin="0,0,14,0" />
+                                                <TextBlock Text="{Binding Details}" Foreground="{DynamicResource MutedBrush}" />
+                                            </WrapPanel>
+                                        </DockPanel>
+
+                                        <!-- expanded details -->
+                                        <Border Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}"
+                                                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0"
+                                                Margin="0,12,0,0" Padding="0,12,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="Connections — each block is one connection's part of the file"
+                                                           Foreground="{DynamicResource MutedBrush}" FontSize="12" />
+                                                <local:SegmentBar Height="14" Margin="0,6,0,14" Data="{Binding SegmentData}"
+                                                                  Total="{Binding TotalBytes}" Complete="{Binding Complete}"
+                                                                  Fill="{Binding ConnBrush}" />
+
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="112" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="112" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                                    </Grid.RowDefinitions>
+                                                    <Grid.Resources>
+                                                        <Style x:Key="DetLabel" TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+                                                            <Setter Property="Margin" Value="0,0,0,7" />
+                                                        </Style>
+                                                        <Style x:Key="DetValue" TargetType="TextBlock">
+                                                            <Setter Property="Margin" Value="0,0,12,7" />
+                                                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                                        </Style>
+                                                    </Grid.Resources>
+
+                                                    <TextBlock Grid.Row="0" Text="Downloaded" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding DetDownloaded}" Style="{StaticResource DetValue}" />
+                                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Transfer rate" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding DetSpeed}" Style="{StaticResource DetValue}" />
+
+                                                    <TextBlock Grid.Row="1" Text="File size" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DetSize}" Style="{StaticResource DetValue}" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="2" Text="Average rate" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding DetAvg}" Style="{StaticResource DetValue}" />
+
+                                                    <TextBlock Grid.Row="2" Text="Time left" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DetEta}" Style="{StaticResource DetValue}" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="2" Text="Connections" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding DetConnections}" Style="{StaticResource DetValue}" />
+
+                                                    <TextBlock Grid.Row="3" Text="Retries" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DetRetries}" Style="{StaticResource DetValue}" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="2" Text="File type" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="3" Text="{Binding DetType}" Style="{StaticResource DetValue}" />
+
+                                                    <TextBlock Grid.Row="4" Text="Added" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding DetAdded}" Style="{StaticResource DetValue}" />
+                                                    <TextBlock Grid.Row="4" Grid.Column="2" Text="Resume" Style="{StaticResource DetLabel}" />
+                                                    <TextBlock Grid.Row="4" Grid.Column="3" Text="{Binding DetResume}" Style="{StaticResource DetValue}" ToolTip="{Binding DetResume}" />
+
+                                                    <TextBlock Grid.Row="5" Text="Link" Style="{StaticResource DetLabel}" />
+                                                    <DockPanel Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,7">
+                                                        <Button DockPanel.Dock="Right" Content="Copy" Style="{StaticResource LinkButton}" Margin="12,0,0,0" Click="CopyLink_Click" />
+                                                        <TextBlock Text="{Binding DetAddress}" ToolTip="{Binding DetAddress}" TextTrimming="CharacterEllipsis" />
+                                                    </DockPanel>
+                                                </Grid>
+
+                                                <DockPanel Margin="0,0,0,2">
+                                                    <TextBlock Text="Save to" Foreground="{DynamicResource MutedBrush}" Width="112" DockPanel.Dock="Left" />
+                                                    <Button DockPanel.Dock="Right" Content="Open folder" Style="{StaticResource LinkButton}" Margin="12,0,0,0" Click="OpenSaveFolder_Click" />
+                                                    <TextBlock Text="{Binding DetSavePath}" ToolTip="{Binding DetSavePath}" TextTrimming="CharacterEllipsis" />
+                                                </DockPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="EmptyText" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center"
+                               VerticalAlignment="Top" Margin="0,50,0,0" TextAlignment="Center"
+                               Text="No downloads yet.&#x0a;Paste a link above, or use the browser extension." />
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>
