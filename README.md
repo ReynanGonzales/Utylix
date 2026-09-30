@@ -122,11 +122,14 @@ browser used) to Utylix. If the app can't fetch the file, the browser gets it ba
 
 ## Screen Capture
 
-Pick what to capture (**Rectangle**, **Window**, **Full screen** or **Text Detector**), optionally a delay of 3, 5 or
-10 seconds, and click **New capture** (clicking a mode itself starts that capture right away too). **Ctrl + S** on this tab
-opens **Save as…** for the picture. Utylix hides itself, freezes the screen and dims it: drag over the part you want
-(or click a window); Esc or right-click cancels. The result shows in the tab, where you can draw on it with the **Pen**
-or **Highlighter** (five colors, three sizes, **Eraser**, **Undo**), then **Copy**, **Save** or **Save as…**.
+There is no tab for it in the main window: press **Win + S** (or use the tray icon → *Screen Capture*) and a snip starts at
+once. The small **Utylix Snip** window that comes up afterwards is laid out like the classic Windows Snipping Tool:
+**New**, **Mode** (*Free-form*, *Rectangular*, *Window*, *Full-screen* snip, and *Text Detector*; choosing one starts the
+snip), **Delay** (none, 1 to 5 seconds), **Cancel** and **Options** (the capture settings). Utylix hides itself, freezes the
+screen and dims it: drag over the part you want, draw around it, or click a window; Esc or right-click cancels. The snip
+shows in the window, where you can draw on it with the **Pen**, **Highlighter** (six colors, three thicknesses),
+**Eraser** and **Undo**, then **Copy** (Ctrl + C), **Save** or **Save as…** (Ctrl + S), or **Detect text**. Ctrl + N takes a
+new snip, Ctrl + O opens a picture, Ctrl + V pastes one, and you can drop a picture on the window.
 
 - **Shortcuts, from anywhere:** **Win + S** and **Ctrl + Alt + S**. Windows keeps Win + S for Search, so while it is on
   Utylix takes that shortcut for itself (it swallows only that one combination, never records keys, and does not work

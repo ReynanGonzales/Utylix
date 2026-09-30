@@ -45,7 +45,6 @@ public partial class ShellWindow : Window
         //          key          tab text            page                                              size (w x h)   smallest allowed
         Add(new("downloads", "Downloads", () => new DownloadsPage(manager), 960, 680, 810, 440));
         Add(new("converter", "Multi Convert", () => new ConverterPage(), 820, 820, 810, 720));
-        Add(new("capture", "Screen Capture", () => new CapturePage(manager), 900, 720, 810, 560));
         Add(new("player", "Video Player", () => new PlayerPage(manager), 820, 640, 810, 480));
         Add(new("recorder", "Screen Recorder", () => new RecorderPage(manager), 860, 760, 810, 560));
 
@@ -55,11 +54,6 @@ public partial class ShellWindow : Window
                 _userSizes[_current] = new Size(ActualWidth, ActualHeight);     // remember what you dragged it to
         };
         ElevatedBar.Visibility = IsElevated() ? Visibility.Visible : Visibility.Collapsed;
-        // Ctrl + S on the Screen Capture tab: "Save as…" for the picture (wherever the keyboard focus is inside the window)
-        PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key == Key.S && _current == "capture" && _pages.TryGetValue("capture", out var page) && page is CapturePage capture && capture.TrySaveAs()) e.Handled = true;
-        };
         _timer.Tick += (_, _) => RefreshBadge();
         _timer.Start();
         SelectTab("downloads");

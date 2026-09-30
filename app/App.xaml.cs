@@ -510,11 +510,19 @@ public partial class App : Application
         if (app._tray != null) app._tray.Text = recording ? "Utylix - recording…" : "Utylix";
     }
 
-    /// <summary>Bring Utylix forward on the Screen Capture tab and take a capture.</summary>
+    /// <summary>Win + S / Ctrl + Alt + S / the tray entry: take a snip (the Snip window comes up afterwards with the picture).</summary>
     private void StartCaptureFromShortcut()
     {
-        if (_shell == null || Capturing) return;
-        _ = _shell.Page<CapturePage>("capture").CaptureAsync();
+        if (_manager == null || Capturing) return;
+        SnipWindow.StartCapture(_manager);
+    }
+
+    /// <summary>Hides every Utylix window that is showing (so a capture never contains Utylix); the returned action shows them again.</summary>
+    public static Action HideForCapture()
+    {
+        var shown = Current.Windows.Cast<Window>().Where(w => w.IsVisible && w is not CaptureOverlay).ToList();
+        foreach (var w in shown) w.Hide();
+        return () => { foreach (var w in shown) { try { w.Show(); } catch (InvalidOperationException) { /* closed meanwhile */ } } };
     }
 
     /// <summary>Bring the window forward on the given tool ("downloads", "converter", "capture", "recorder", "player").</summary>
@@ -617,7 +625,7 @@ public partial class App : Application
         menu.Items.Add("Open Utylix", null, (_, _) => Dispatcher.Invoke(() => ShowTab("downloads")));
         menu.Items.Add("Downloads", null, (_, _) => Dispatcher.Invoke(() => ShowTab("downloads")));
         menu.Items.Add("Multi Convert", null, (_, _) => Dispatcher.Invoke(() => ShowTab("converter")));
-        menu.Items.Add("Screen Capture", null, (_, _) => Dispatcher.Invoke(() => { ShowTab("capture"); _ = _shell!.Page<CapturePage>("capture").CaptureAsync(); }));
+        menu.Items.Add("Screen Capture", null, (_, _) => Dispatcher.Invoke(StartCaptureFromShortcut));
         menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
         menu.Items.Add("Screen Recorder", null, (_, _) => Dispatcher.Invoke(() => ShowTab("recorder")));
         menu.Items.Add("Brightness", null, (_, _) => Dispatcher.Invoke(BrightnessWindow.ShowPanel));

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,44 +14,40 @@ using IdmClone.Engine;
 
 namespace IdmClone;
 
-/// <summary>Screen capture like the Snipping Tool (rectangle, window, full screen, delay, pen/highlighter) plus a Text Detector.</summary>
-public partial class CapturePage : UserControl
+/// <summary>
+/// The screen capture tool, laid out like the classic Windows Snipping Tool: New, Mode, Delay, Cancel, Options. Win + S (or
+/// Ctrl + Alt + S) takes a snip from anywhere; the window comes up afterwards with the picture, where you can mark it up
+/// (pen, highlighter, eraser), copy, save, or read the text in it.
+/// </summary>
+public partial class SnipWindow : Window
 {
-    private enum Mode { Rectangle, Window, Full, Text }
+    private enum Mode { FreeForm, Rectangle, Window, Full, Text }
     private enum Tool { Pen, Highlighter, Eraser }
 
     private static readonly (string Name, string Hex)[] Colors =
     {
         ("Red", "#E5484D"), ("Yellow", "#FFD60A"), ("Green", "#30A46C"), ("Blue", "#3E63DD"), ("Black", "#111111"), ("White", "#FFFFFF"),
     };
+    private static readonly (string Label, string Menu, double Size)[] Sizes = { ("S", "Thin", 2.5), ("M", "Medium", 4.0), ("L", "Thick", 8.0) };
+    private const string DefaultMessage = "Select the snip mode using the Mode button or click the New button.";
+
+    private static SnipWindow? _instance;
+    private static Mode _mode = Mode.Rectangle;              // remembered while Utylix runs
+    private static int _delaySeconds;
 
     private readonly Manager _manager;
-    private Mode _mode = Mode.Rectangle;
-    private int _delaySeconds;
     private Tool _tool = Tool.Pen;
     private Color _color = (Color)ColorConverter.ConvertFromString("#E5484D");
-    private double _size = 4;
+    private int _sizeIndex = 1;
     private BitmapSource? _image;
     private bool _busy;
-    private string? _language;                 // null = the languages of the Windows profile
-    private bool _languagesBuilt;
+    private CancellationTokenSource? _cts;
+    private CaptureOverlay? _overlay;
 
-    public CapturePage(Manager manager)
+    private SnipWindow(Manager manager)
     {
         InitializeComponent();
         _manager = manager;
-
-        // clicking a mode starts that capture at once, like pressing the capture button
-        AddChip(ModeChips, "Rectangle", "mode", () => SetMode(Mode.Rectangle), true, () => _ = CaptureAsync());
-        AddChip(ModeChips, "Window", "mode", () => SetMode(Mode.Window), onClicked: () => _ = CaptureAsync());
-        AddChip(ModeChips, "Full screen", "mode", () => SetMode(Mode.Full), onClicked: () => _ = CaptureAsync());
-        AddChip(ModeChips, "Text Detector", "mode", () => SetMode(Mode.Text), onClicked: () => _ = CaptureAsync());
-        foreach (var (label, seconds) in new[] { ("No delay", 0), ("3 s", 3), ("5 s", 5), ("10 s", 10) })
-            AddChip(DelayChips, label, "delay", () => _delaySeconds = seconds, seconds == 0);
-
-        AddChip(ToolChips, "Pen", "tool", () => SetTool(Tool.Pen), true);
-        AddChip(ToolChips, "Highlighter", "tool", () => SetTool(Tool.Highlighter));
-        AddChip(ToolChips, "Eraser", "tool", () => SetTool(Tool.Eraser));
         foreach (var (name, hex) in Colors)
         {
             var color = (Color)ColorConverter.ConvertFromString(hex);
@@ -58,87 +55,102 @@ public partial class CapturePage : UserControl
             swatch.Checked += (_, _) => { _color = color; ApplyTool(); };
             Swatches.Children.Add(swatch);
         }
-        foreach (var (label, size) in new[] { ("S", 2.5), ("M", 4.0), ("L", 8.0) })
-            AddChip(SizeChips, label, "size", () => { _size = size; ApplyTool(); }, size == 4.0);
-
-        SetMode(Mode.Rectangle);
-        // Ctrl + S while this tab is in use and there is a picture: "Save as…"
-        PreviewKeyDown += (_, e) => { if (e.Key == Key.S && TrySaveAs()) e.Handled = true; };
-        IsVisibleChanged += (_, _) => { if (IsVisible) RefreshShortcutHint(); };
+        ApplyTool();
+        PreviewKeyDown += OnKey;
+        Closed += (_, _) => { if (_instance == this) _instance = null; };
     }
 
-    private void AddChip(WrapPanel host, string text, string group, Action onChecked, bool isChecked = false, Action? onClicked = null)
-    {
-        var chip = new RadioButton { Content = text, GroupName = group, Style = (Style)FindResource("ChipButton"), IsChecked = isChecked };
-        chip.Checked += (_, _) => onChecked();
-        if (onClicked != null) chip.Click += (_, _) => onClicked();
-        host.Children.Add(chip);
-    }
+    /// <summary>The one snip window (made when first needed, not shown until there is something to show).</summary>
+    public static SnipWindow Get(Manager manager) => _instance ??= new SnipWindow(manager);
 
-    // ---------- mode / shortcuts ----------
-    private void SetMode(Mode mode)
-    {
-        _mode = mode;
-        ModeNote.Text = mode switch
-        {
-            Mode.Rectangle => "Drag over the part of the screen you want.",
-            Mode.Window => "Click the window you want.",
-            Mode.Full => "Everything on all your screens.",
-            _ => "Drag over some text on the screen: Utylix reads it and copies it for you. You can also open or paste a picture.",
-        };
-        if (NewBtn != null) NewBtn.Content = mode == Mode.Text ? "🔍   Detect text" : "📷   New capture";
-        RefreshEmptyText();
-    }
+    /// <summary>Take a snip now with the mode and delay that are set (Win + S, the tray icon).</summary>
+    public static void StartCapture(Manager manager) => _ = Get(manager).CaptureAsync();
 
-    public void RefreshShortcutHint()
-    {
-        var c = _manager.Config;
-        var keys = new List<string>();
-        if (c.ShotWinS) keys.Add("Win + S");
-        if (c.ShotCtrlAltS) keys.Add("Ctrl + Alt + S");
-        ShortcutHint.Text = keys.Count > 0 ? "Shortcut:  " + string.Join("   ·   ", keys) : "Shortcuts are off (Settings → Screen Capture)";
-        RefreshEmptyText();
-    }
-
-    private void RefreshEmptyText()
-    {
-        if (EmptyText == null) return;
-        var c = _manager.Config;
-        string key = c.ShotWinS ? "Win + S" : c.ShotCtrlAltS ? "Ctrl + Alt + S" : "";
-        EmptyText.Text = (_mode == Mode.Text ? "Click Detect text" : "Click New capture") + (key.Length > 0 ? $", or press {key} anywhere." : ".") +
-                         "\nYou can also drop a picture here.";
-    }
-
-    // ---------- capturing ----------
+    // ---------- the buttons ----------
     private void New_Click(object sender, RoutedEventArgs e) => _ = CaptureAsync();
 
-    /// <summary>Starts a capture with the chosen mode and delay (also called by the keyboard shortcuts).</summary>
+    private static string ModeName(Mode m) => m switch
+    {
+        Mode.FreeForm => "Free-form Snip", Mode.Rectangle => "Rectangular Snip", Mode.Window => "Window Snip", Mode.Full => "Full-screen Snip", _ => "Text Detector",
+    };
+
+    private void Mode_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = ModeBtn, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        foreach (var m in new[] { Mode.FreeForm, Mode.Rectangle, Mode.Window, Mode.Full, Mode.Text })
+        {
+            if (m == Mode.Text) menu.Items.Add(new Separator());
+            var item = new MenuItem { Header = ModeName(m), IsCheckable = true, IsChecked = m == _mode };
+            var chosen = m;
+            item.Click += (_, _) => { _mode = chosen; _ = CaptureAsync(); };            // choosing a mode starts the snip, like the Snipping Tool
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
+    private void Delay_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = DelayBtn, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        for (int s = 0; s <= 5; s++)
+        {
+            int seconds = s;
+            var item = new MenuItem { Header = s == 0 ? "No delay" : s == 1 ? "1 second" : $"{s} seconds", IsCheckable = true, IsChecked = s == _delaySeconds };
+            item.Click += (_, _) => { _delaySeconds = seconds; };
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
+    private void Cancel_Click(object sender, RoutedEventArgs e)
+    {
+        _cts?.Cancel();
+        _overlay?.Close();
+    }
+
+    private void Options_Click(object sender, RoutedEventArgs e) => new SettingsWindow(_manager, "capture") { Owner = this }.ShowDialog();
+
+    // ---------- capturing ----------
+    /// <summary>Starts a snip with the chosen mode and delay.</summary>
     public async Task CaptureAsync()
     {
         if (_busy) return;
         _busy = true;
         App.Capturing = true;
-        var shell = Window.GetWindow(this);
+        bool wasVisible = IsVisible;
+        _cts = new CancellationTokenSource();
+        Action? restore = null;
+        bool got = false;
         try
         {
-            shell?.Hide();                                                      // never capture ourselves
-            await Task.Delay(260 + _delaySeconds * 1000);
+            // a delay: the window stays in view (with a count-down and a working Cancel) until the last moment
+            for (int left = _delaySeconds; left > 0; left--)
+            {
+                if (IsVisible) { CancelBtn.IsEnabled = true; if (_image == null) MessageText.Text = $"Snipping in {left}…  (Cancel stops it)"; }
+                await Task.Delay(1000, _cts.Token);
+            }
+            CancelBtn.IsEnabled = false;
+            restore = App.HideForCapture();                                      // never capture ourselves
+            await Task.Delay(260);
 
             var shot = ScreenGrab.CaptureVirtualScreen(out var area);
-            BitmapSource? result = null;
+            BitmapSource? result;
             if (_mode == Mode.Full) result = shot;
             else
             {
-                var overlay = new CaptureOverlay(shot, area, _mode == Mode.Window ? CaptureOverlay.Kind.Window : CaptureOverlay.Kind.Rectangle);
-                overlay.ShowDialog();
-                result = overlay.Result;
+                var kind = _mode == Mode.Window ? CaptureOverlay.Kind.Window : _mode == Mode.FreeForm ? CaptureOverlay.Kind.FreeForm : CaptureOverlay.Kind.Rectangle;
+                _overlay = new CaptureOverlay(shot, area, kind);
+                _overlay.ShowDialog();
+                result = _overlay.Result;
+                _overlay = null;
             }
             if (result == null) return;                                         // cancelled
 
             SetImage(result);
+            got = true;
             if (_mode == Mode.Text) await DetectAsync(copyResult: true);
             else Finished(result);
         }
+        catch (OperationCanceledException) { /* Cancel during the delay */ }
         catch (Exception ex)
         {
             // never fail silently: tell the person, and leave the details where they can be found
@@ -149,11 +161,14 @@ public partial class CapturePage : UserControl
         {
             _busy = false;
             App.Capturing = false;
-            App.Show("capture");                                                // back to the result
+            CancelBtn.IsEnabled = false;
+            if (_image == null) MessageText.Text = DefaultMessage;
+            restore?.Invoke();
+            if (got || wasVisible) { Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate(); }
         }
     }
 
-    /// <summary>What the settings say should happen to every new capture.</summary>
+    /// <summary>What the settings say should happen to every new snip.</summary>
     private void Finished(BitmapSource picture)
     {
         var c = _manager.Config;
@@ -169,24 +184,50 @@ public partial class CapturePage : UserControl
         Surface.Width = image.PixelWidth;                                       // 1 unit = 1 picture pixel, so marks line up exactly
         Surface.Height = image.PixelHeight;
         Ink.Strokes.Clear();
-        EmptyHint.Visibility = Visibility.Collapsed;
-        PreviewBox.Visibility = Visibility.Visible;
-        ToolBar.Visibility = Visibility.Visible;
+        Message.Visibility = Visibility.Collapsed;
+        PictureHost.Visibility = Visibility.Visible;
+        EditBar.Visibility = Visibility.Visible;
+        ApplyTool();
+
+        // like the Snipping Tool, the window grows to fit the snip (up to most of the screen)
+        var work = SystemParameters.WorkArea;
+        double scale = ScreenGrab.Scale;
+        double w = Math.Clamp(image.PixelWidth / scale + 40, 620, work.Width * 0.9);
+        double h = Math.Clamp(image.PixelHeight / scale + 200, 340, work.Height * 0.9);
+        Width = w; Height = h;
+        if (IsVisible) { Left = Math.Max(work.Left, Math.Min(Left, work.Right - w)); Top = Math.Max(work.Top, Math.Min(Top, work.Bottom - h)); }
+    }
+
+    private void SetTool(Tool tool)
+    {
+        _tool = tool;
+        PenBtn.IsChecked = tool == Tool.Pen; HighlightBtn.IsChecked = tool == Tool.Highlighter; EraserBtn.IsChecked = tool == Tool.Eraser;
         ApplyTool();
     }
 
-    private void SetTool(Tool tool) { _tool = tool; ApplyTool(); }
+    private void Pen_Click(object sender, RoutedEventArgs e) => SetTool(Tool.Pen);
+    private void Highlight_Click(object sender, RoutedEventArgs e) => SetTool(Tool.Highlighter);
+    private void Eraser_Click(object sender, RoutedEventArgs e) => SetTool(Tool.Eraser);
+
+    private void Size_Click(object sender, RoutedEventArgs e)
+    {
+        _sizeIndex = (_sizeIndex + 1) % Sizes.Length;
+        SizeText.Text = Sizes[_sizeIndex].Label;
+        SizeBtn.ToolTip = "Thickness: " + Sizes[_sizeIndex].Menu;
+        ApplyTool();
+    }
 
     private void ApplyTool()
     {
         if (Ink == null) return;
         if (_tool == Tool.Eraser) { Ink.EditingMode = InkCanvasEditingMode.EraseByStroke; return; }
-        Ink.EditingMode = InkCanvasEditingMode.Ink;
         bool hl = _tool == Tool.Highlighter;
+        double size = Sizes[_sizeIndex].Size;
+        Ink.EditingMode = InkCanvasEditingMode.Ink;
         Ink.DefaultDrawingAttributes = new DrawingAttributes
         {
             Color = _color, FitToCurve = true, IsHighlighter = hl,
-            Width = hl ? _size * 3 : _size, Height = hl ? _size * 3 : _size,
+            Width = hl ? size * 3 : size, Height = hl ? size * 3 : size,
             StylusTip = hl ? StylusTip.Rectangle : StylusTip.Ellipse,
         };
     }
@@ -195,8 +236,6 @@ public partial class CapturePage : UserControl
     {
         if (Ink.Strokes.Count > 0) Ink.Strokes.RemoveAt(Ink.Strokes.Count - 1);
     }
-
-    private void ClearMarks_Click(object sender, RoutedEventArgs e) => Ink.Strokes.Clear();
 
     /// <summary>The picture with the pen marks on it.</summary>
     private BitmapSource Composite()
@@ -216,6 +255,22 @@ public partial class CapturePage : UserControl
         return rtb;
     }
 
+    // ---------- keys ----------
+    private void OnKey(object sender, KeyEventArgs e)
+    {
+        bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0 && (Keyboard.Modifiers & (ModifierKeys.Alt | ModifierKeys.Shift)) == 0;
+        bool inText = Keyboard.FocusedElement is TextBox;
+        if (!ctrl) return;
+        switch (e.Key)
+        {
+            case Key.N: _ = CaptureAsync(); e.Handled = true; break;
+            case Key.S when _image != null: SaveAs_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.C when _image != null && !inText: Copy_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.O: Open_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.V when !inText: Paste_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+        }
+    }
+
     // ---------- copy / save ----------
     private void Copy_Click(object sender, RoutedEventArgs e)
     {
@@ -228,7 +283,7 @@ public partial class CapturePage : UserControl
         for (int attempt = 0; attempt < 5; attempt++)
         {
             try { Clipboard.SetImage(picture); return true; }
-            catch (System.Runtime.InteropServices.COMException) { System.Threading.Thread.Sleep(80); }    // another program has the clipboard for a moment
+            catch (System.Runtime.InteropServices.COMException) { Thread.Sleep(80); }    // another program has the clipboard for a moment
         }
         App.Notify("Couldn't copy", "Another program is using the clipboard. Try again.", null);
         return false;
@@ -263,14 +318,6 @@ public partial class CapturePage : UserControl
         }
     }
 
-    /// <summary>Ctrl + S: opens "Save as…" when the keys are exactly Ctrl + S and there is a picture. Returns true when it did.</summary>
-    public bool TrySaveAs()
-    {
-        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 || (Keyboard.Modifiers & (ModifierKeys.Alt | ModifierKeys.Shift)) != 0 || _image == null) return false;
-        SaveAs_Click(this, new RoutedEventArgs());
-        return true;
-    }
-
     private void SaveAs_Click(object sender, RoutedEventArgs e)
     {
         if (_image == null) return;
@@ -279,7 +326,7 @@ public partial class CapturePage : UserControl
             Title = "Save picture", InitialDirectory = SaveFolder(), FileName = $"Screenshot {DateTime.Now:yyyy-MM-dd HHmmss}",
             Filter = "PNG picture|*.png|JPG picture|*.jpg", DefaultExt = ".png",
         };
-        if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
+        if (dlg.ShowDialog(this) != true) return;
         try { Encode(Composite(), dlg.FileName); App.Notify("Screenshot saved", Path.GetFileName(dlg.FileName), dlg.FileName); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { App.Notify("Couldn't save the screenshot", ex.Message, null); }
     }
@@ -300,7 +347,7 @@ public partial class CapturePage : UserControl
         {
             Title = "Open a picture", Filter = "Pictures|" + string.Join(";", ImageConverter.InputExtensions.Select(x => "*." + x)) + "|All files|*.*",
         };
-        if (dlg.ShowDialog(Window.GetWindow(this)) == true) _ = LoadFileAsync(dlg.FileName);
+        if (dlg.ShowDialog(this) == true) _ = LoadFileAsync(dlg.FileName);
     }
 
     private void Paste_Click(object sender, RoutedEventArgs e)
@@ -309,16 +356,16 @@ public partial class CapturePage : UserControl
         try { if (Clipboard.ContainsImage()) image = Clipboard.GetImage(); }
         catch (System.Runtime.InteropServices.COMException) { }
         if (image == null) { App.Notify("Nothing to paste", "There is no picture on the clipboard.", null); return; }
-        _ = ShowLoadedAsync(image);
+        ShowLoaded(image);
     }
 
-    private void Page_DragOver(object sender, DragEventArgs e)
+    private void Window_DragOver(object sender, DragEventArgs e)
     {
         e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
 
-    private void Page_Drop(object sender, DragEventArgs e)
+    private void Window_Drop(object sender, DragEventArgs e)
     {
         if (e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } files) _ = LoadFileAsync(files[0]);
     }
@@ -332,7 +379,8 @@ public partial class CapturePage : UserControl
                 decoder = BitmapDecoder.Create(fs, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
             var frame = decoder.Frames[0];
             frame.Freeze();
-            await ShowLoadedAsync(frame);
+            ShowLoaded(frame);
+            await Task.CompletedTask;
         }
         catch (Exception ex) when (ex is IOException or NotSupportedException or FileFormatException or InvalidOperationException or System.Runtime.InteropServices.COMException)
         {
@@ -340,12 +388,12 @@ public partial class CapturePage : UserControl
         }
     }
 
-    private async Task ShowLoadedAsync(BitmapSource image)
+    private void ShowLoaded(BitmapSource image)
     {
         var flat = new FormatConvertedBitmap(image, PixelFormats.Bgra32, null, 0);
         flat.Freeze();
         SetImage(flat);
-        if (_mode == Mode.Text) await DetectAsync(copyResult: true);
+        if (_mode == Mode.Text) _ = DetectAsync(copyResult: true);
     }
 
     // ---------- text detector ----------
@@ -368,7 +416,7 @@ public partial class CapturePage : UserControl
                 Clipboard.SetText(text);
                 return true;
             }
-            catch (System.Runtime.InteropServices.COMException) { System.Threading.Thread.Sleep(80); }
+            catch (System.Runtime.InteropServices.COMException) { Thread.Sleep(80); }
         }
         return false;
     }
@@ -380,10 +428,9 @@ public partial class CapturePage : UserControl
         TextPanel.Visibility = Visibility.Visible;
         TextStatus.Text = "Reading the text…";
         Detected.Text = "";
-        BuildLanguageChips();
         try
         {
-            string text = await TextDetector.ReadAsync(picture, _language);
+            string text = await TextDetector.ReadAsync(picture, null);
             Detected.Text = text;
             if (text.Length == 0) { TextStatus.Text = "No text found in this picture."; return; }
             int lines = text.Split('\n').Length;
@@ -398,24 +445,4 @@ public partial class CapturePage : UserControl
     }
 
     private static string Snippet(string text) => text.Length <= 90 ? text.Replace('\n', ' ') : text[..90].Replace('\n', ' ') + "…";
-
-    /// <summary>If Windows has several text-recognition languages, let the person pick one.</summary>
-    private void BuildLanguageChips()
-    {
-        if (_languagesBuilt) return;
-        _languagesBuilt = true;
-        List<(string Name, string Tag)> languages;
-        try { languages = TextDetector.Languages(); }
-        catch (Exception) { return; }
-        if (languages.Count < 2) return;
-        LangChips.Visibility = Visibility.Visible;
-        void Add(string label, string? tag, bool on)
-        {
-            var chip = new RadioButton { Content = label, GroupName = "lang", Style = (Style)FindResource("ChipButton"), IsChecked = on };
-            chip.Checked += (_, _) => { _language = tag; if (_image != null) _ = DetectAsync(copyResult: false); };
-            LangChips.Children.Add(chip);
-        }
-        Add("Automatic", null, true);
-        foreach (var (name, tag) in languages) Add(name, tag, false);
-    }
 }

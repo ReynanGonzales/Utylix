@@ -16,7 +16,7 @@ namespace IdmClone;
 /// </summary>
 public sealed class CaptureOverlay : Window
 {
-    public enum Kind { Rectangle, Window }
+    public enum Kind { Rectangle, Window, FreeForm }
 
     private readonly BitmapSource _shot;
     private readonly Int32Rect _area;
@@ -30,6 +30,12 @@ public sealed class CaptureOverlay : Window
     private readonly Border _label = new() { Background = new SolidColorBrush(Color.FromArgb(220, 20, 24, 34)), CornerRadius = new CornerRadius(5), Padding = new Thickness(8, 3, 8, 3), Visibility = Visibility.Collapsed };
     private readonly TextBlock _labelText = new() { Foreground = Brushes.White, FontSize = 12.5, FontFamily = new FontFamily("Segoe UI") };
 
+    private readonly List<Point> _points = new();                                  // free-form: the line drawn so far (window units)
+    private readonly Polyline _line = new()
+    {
+        Stroke = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)), StrokeThickness = 2, StrokeLineJoin = PenLineJoin.Round,
+        Fill = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+    };
     private Point? _start;
     private Rect _selection = Rect.Empty;          // in window units
     private bool _done;
@@ -67,13 +73,16 @@ public sealed class CaptureOverlay : Window
             Background = new SolidColorBrush(Color.FromArgb(225, 20, 24, 34)), CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 7, 14, 7),
             Child = new TextBlock
             {
-                Text = kind == Kind.Window ? $"Click a window to {what} it   ·   Esc to cancel" : $"Drag to select the area to {what}   ·   Esc to cancel",
+                Text = kind == Kind.Window ? $"Click a window to {what} it   ·   Esc to cancel"
+                     : kind == Kind.FreeForm ? $"Draw around the object to {what}   ·   Esc to cancel"
+                     : $"Drag to select the area to {what}   ·   Esc to cancel",
                 Foreground = Brushes.White, FontSize = 13.5, FontFamily = new FontFamily("Segoe UI"),
             },
         };
         _canvas.Children.Add(picture);
         _canvas.Children.Add(_dim);
         _canvas.Children.Add(_frame);
+        _canvas.Children.Add(_line);
         _canvas.Children.Add(_label);
         _canvas.Children.Add(hint);
         hint.Loaded += (_, _) => { Canvas.SetLeft(hint, Math.Max(0, (Width - hint.ActualWidth) / 2)); Canvas.SetTop(hint, 24); };
@@ -118,6 +127,7 @@ public sealed class CaptureOverlay : Window
             return;
         }
         _start = e.GetPosition(this);
+        if (_kind == Kind.FreeForm) { _points.Clear(); _points.Add(_start.Value); _line.Points = new PointCollection(_points); }
         CaptureMouse();
     }
 
@@ -134,20 +144,48 @@ public sealed class CaptureOverlay : Window
             return;
         }
         if (_start is not { } s) return;
+        if (_kind == Kind.FreeForm) { _points.Add(p); _line.Points.Add(p); return; }
         Highlight(new Rect(new Point(Math.Min(s.X, p.X), Math.Min(s.Y, p.Y)), new Point(Math.Max(s.X, p.X), Math.Max(s.Y, p.Y))));
     }
 
     private void OnUp(object sender, MouseButtonEventArgs e)
     {
-        if (_kind != Kind.Rectangle || _start == null) return;
+        if (_kind == Kind.Window || _start == null) return;
         ReleaseMouseCapture();
         _start = null;
+        if (_kind == Kind.FreeForm)
+        {
+            var box = new Rect(new Point(_points.Min(q => q.X), _points.Min(q => q.Y)), new Point(_points.Max(q => q.X), _points.Max(q => q.Y)));
+            if (_points.Count < 6 || box.Width * _scale < 6 || box.Height * _scale < 6) { _points.Clear(); _line.Points = new PointCollection(); return; }   // a click, not a drawing: try again
+            Finish(box);
+            return;
+        }
         if (_selection.IsEmpty || _selection.Width * _scale < 4 || _selection.Height * _scale < 4)
         {
             _selection = Rect.Empty; _frame.Visibility = _label.Visibility = Visibility.Collapsed; UpdateDim();     // a click, not a drag: try again
             return;
         }
         Finish(_selection);
+    }
+
+    /// <summary>Free-form: everything outside the line becomes see-through.</summary>
+    private BitmapSource CutOut(BitmapSource cropped, Rect box)
+    {
+        int w = cropped.PixelWidth, h = cropped.PixelHeight;
+        var figure = new PathFigure { StartPoint = new Point((_points[0].X - box.X) * _scale, (_points[0].Y - box.Y) * _scale), IsClosed = true, IsFilled = true };
+        foreach (var q in _points.Skip(1)) figure.Segments.Add(new LineSegment(new Point((q.X - box.X) * _scale, (q.Y - box.Y) * _scale), true));
+        var shape = new PathGeometry(); shape.Figures.Add(figure);
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.PushClip(shape);
+            dc.DrawImage(cropped, new Rect(0, 0, w, h));
+            dc.Pop();
+        }
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(visual);
+        rtb.Freeze();
+        return rtb;
     }
 
     private void Finish(Rect? selection)
@@ -159,6 +197,7 @@ public sealed class CaptureOverlay : Window
             var px = new Rect(r.X * _scale + _area.X, r.Y * _scale + _area.Y, r.Width * _scale, r.Height * _scale);
             SelectedArea = new Int32Rect((int)Math.Round(px.X), (int)Math.Round(px.Y), (int)Math.Round(px.Width), (int)Math.Round(px.Height));
             Result = ScreenGrab.Crop(_shot, _area, px);
+            if (_kind == Kind.FreeForm && Result != null) Result = CutOut(Result, r);
         }
         Close();
     }
