@@ -85,6 +85,37 @@
     document.addEventListener('pointerdown', onDown, true);
   }
 
+  // ---- follow the feed: Reels, Shorts-like players and playlists swap to the next video; the floating window should follow ----
+  let following = false, followTimer = 0, switchTimer = 0;
+
+  const inView = v => {
+    const r = v.getBoundingClientRect();
+    const w = Math.min(r.right, innerWidth) - Math.max(r.left, 0), h = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+    return w > 0 && h > 0 && (w * h) / Math.max(1, r.width * r.height) > 0.5;      // more than half of it is on screen
+  };
+
+  /** The floating video stopped (or was swiped away) and another one is playing on screen: float that one instead. */
+  function maybeSwitch() {
+    const cur = document.pictureInPictureElement;
+    if (!following || !cur) return;
+    if (!(cur.paused || cur.ended || !cur.isConnected || !inView(cur))) return;     // it still plays in view: leave it
+    const next = [...document.querySelectorAll('video')].find(v => v !== cur && !v.paused && !v.ended && v.readyState > 0 && usable(v) && inView(v));
+    if (next) next.requestPictureInPicture().catch(() => {});                          // allowed without a click while a floating window exists
+  }
+
+  function startFollowing() {
+    following = true;
+    clearInterval(followTimer);
+    followTimer = setInterval(maybeSwitch, 1000);
+  }
+
+  const soon = () => { clearTimeout(switchTimer); switchTimer = setTimeout(maybeSwitch, 180); };
+  for (const type of ['play', 'playing', 'pause', 'ended', 'emptied']) document.addEventListener(type, soon, true);   // media events do not bubble
+  document.addEventListener('leavepictureinpicture', () => {
+    setTimeout(() => { if (!document.pictureInPictureElement) { following = false; clearInterval(followTimer); } }, 400);    // (a switch leaves and enters at once)
+  }, true);
+  document.addEventListener('enterpictureinpicture', () => startFollowing(), true);
+
   async function toggle(video) {
     if (!video) return { error: 'There is no video here.' };
     if (!document.pictureInPictureEnabled) return { error: "This page doesn't allow Picture in Picture." };
