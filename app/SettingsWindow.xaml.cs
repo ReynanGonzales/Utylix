@@ -39,6 +39,7 @@ public partial class SettingsWindow : Window
         AutoUpdateBox.IsChecked = c.AutoUpdateYtDlp;
         AutoUpdateAppBox.IsChecked = c.AutoUpdateApp;
         WinFBox.IsChecked = c.OpenWinF;
+        DisableWinFBox.IsChecked = ExplorerHotkeys.IsDisabled('F');
         VersionLabel.Text = "Utylix " + AppUpdater.CurrentText;
         ExplorerMenuBox.IsChecked = c.ExplorerMenu;
         ArchiveMenuBox.IsChecked = c.ExplorerArchiveMenu;
@@ -357,6 +358,16 @@ public partial class SettingsWindow : Window
                 RecDir = RecDirBox.Text,
             });
             App.SetAutoStart(AutoStartBox.IsChecked == true);
+            bool turnOffFeedbackHub = DisableWinFBox.IsChecked == true;
+            if (turnOffFeedbackHub != ExplorerHotkeys.IsDisabled('F'))
+            {
+                if (ExplorerHotkeys.Set('F', turnOffFeedbackHub))
+                    MessageBox.Show(turnOffFeedbackHub
+                        ? "Windows' own Win + F (the Feedback Hub) is switched off for your account." + Environment.NewLine + Environment.NewLine + "It takes effect after you sign out of Windows and in again."
+                        : "Windows' own Win + F is switched on again." + Environment.NewLine + Environment.NewLine + "It takes effect after you sign out of Windows and in again.",
+                        "Utylix", MessageBoxButton.OK, MessageBoxImage.Information);
+                else MessageBox.Show("Windows would not let Utylix change this setting.", "Utylix", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
         catch (Exception ex)
         {

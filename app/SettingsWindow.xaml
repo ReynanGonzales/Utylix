@@ -278,7 +278,12 @@
                 <StackPanel x:Name="GroupGeneral">
                 <TextBlock Text="Shortcut" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
                 <Border Style="{StaticResource Section}">
-                    <CheckBox x:Name="WinFBox" Content="Press Win + F to bring Utylix up (press it again to put it away)" />
+                    <StackPanel>
+                        <CheckBox x:Name="WinFBox" Content="Press Win + F to bring Utylix up (press it again to put it away)" />
+                        <CheckBox x:Name="DisableWinFBox" Margin="0,10,0,0" Content="Turn off Windows' own Win + F (the Feedback Hub) for my account" />
+                        <TextBlock Margin="24,4,0,0" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}"
+                                   Text="Applies after you sign out and in again. It also frees Win + F when an administrator window is in front." />
+                    </StackPanel>
                 </Border>
                 </StackPanel>
 
