@@ -421,10 +421,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // ---------- messages from the video button on web pages (content.js) ----------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg && (msg.type === 'pip-hover' || msg.type === 'pip-log')) return false;     // (answered by the Picture in Picture code below)
+  if (msg && (msg.type === 'pip-hover' || msg.type === 'pip-log' || msg.type === 'pip-active')) return false;     // (answered by the Picture in Picture code below)
   (async () => {
     try {
-      if (msg && (msg.type === 'pip-hover' || msg.type === 'pip-log')) return;     // (answered by the Picture in Picture code below)
+      if (msg && (msg.type === 'pip-hover' || msg.type === 'pip-log' || msg.type === 'pip-active')) return;     // (answered by the Picture in Picture code below)
       const tabId = sender.tab?.id;
       if (tabId == null) return sendResponse({ error: 'no tab' });
 
@@ -573,6 +573,33 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
 });
 chrome.tabs.onRemoved.addListener(tabId => { for (const k of [...pipOver.keys()]) if (k.startsWith(tabId + ':')) pipOver.delete(k); });
 syncPipMenu();
+
+// Scrolling the mouse wheel over the floating window = next / previous video. The browser never gives the wheel to the page, so the
+// Utylix app watches for it (only over a window titled "Picture in picture") and we collect its notes here while a video floats.
+let pipWheelTab = null, pipWheelRun = 0;
+
+async function pipWheelLoop(run) {
+  await serverReady;
+  try { await fetch(SERVER + '/api/pip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"active":true}' }); } catch { return; }
+  let after = -1;
+  while (run === pipWheelRun) {
+    try {
+      const j = await (await fetch(`${SERVER}/api/pip/wait?after=${after}`, { signal: AbortSignal.timeout(32000) })).json();
+      if (run !== pipWheelRun) break;
+      if (after >= 0 && j.dir && j.id > after && pipWheelTab != null) chrome.tabs.sendMessage(pipWheelTab, { type: 'pip-step', dir: j.dir }, { frameId: 0 }).catch(() => {});
+      after = j.id;
+    } catch { await new Promise(r => setTimeout(r, 2000)); }
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg || msg.type !== 'pip-active' || sender.tab?.id == null) return;
+  if (msg.on) { pipWheelTab = sender.tab.id; const run = ++pipWheelRun; pipWheelLoop(run); }
+  else if (pipWheelTab === sender.tab.id) {
+    pipWheelRun++; pipWheelTab = null;
+    fetch(SERVER + '/api/pip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"active":false}' }).catch(() => {});
+  }
+});
 
 // what the page script did (floated, switched, closed): shown in the popup's log, so a failure can be explained
 chrome.runtime.onMessage.addListener((msg, sender) => {

@@ -135,6 +135,20 @@ public sealed class ApiServer
                 _show(which);
                 Send(ctx, 200, new { ok = true }, null);
             }
+            else if (method == "POST" && path == "/api/pip")
+            {
+                // the extension: a video is floating (true) / not any more (false). Turns the wheel-over-the-floating-window hook on or off.
+                using var doc = JsonDocument.Parse(new StreamReader(req.InputStream).ReadToEnd());
+                bool on = doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("active", out var a) && a.ValueKind == JsonValueKind.True;
+                PipWheel.SetActive(on);
+                Send(ctx, 200, new { ok = true }, null);
+            }
+            else if (method == "GET" && path == "/api/pip/wait")
+            {
+                long after = long.TryParse(req.QueryString["after"], out var n) ? n : -1;
+                var (id, dir) = PipWheel.Wait(after, TimeSpan.FromSeconds(25));
+                Send(ctx, 200, new { id, dir }, null);
+            }
             else if (method == "POST" && path == "/api/convert")
                 Convert(ctx);
             else if (method == "POST" && path == "/api/archive")

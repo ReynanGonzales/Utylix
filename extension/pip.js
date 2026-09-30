@@ -106,6 +106,31 @@
     if (next) { log('following to the next video'); next.requestPictureInPicture().catch(e => log('could not follow: ' + (e && e.name))); }   // allowed without a click while a floating window exists
   }
 
+  /** Next / previous video on a swipe-style page: the same thing the keyboard does, else scroll the list by one screen. */
+  function step(dir) {
+    const cur = document.pictureInPictureElement || target;
+    const key = dir > 0 ? 'ArrowDown' : 'ArrowUp', code = dir > 0 ? 40 : 38;
+    const aim = document.activeElement && document.activeElement !== document.body ? document.activeElement : document.body;
+    for (const type of ['keydown', 'keyup'])
+      aim.dispatchEvent(new KeyboardEvent(type, { key, code: key, keyCode: code, which: code, bubbles: true, cancelable: true, composed: true }));
+    setTimeout(() => {
+      const still = document.pictureInPictureElement === cur && cur && !cur.paused && inView(cur);
+      if (!still) return;                                                               // the key worked: the page moved on
+      let el = cur && cur.parentElement;
+      while (el && el !== document.body && !(el.scrollHeight > el.clientHeight + 40 && /(auto|scroll)/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
+      const box = el && el !== document.body ? el : document.scrollingElement;
+      box.scrollBy({ top: dir * (box === document.scrollingElement ? innerHeight : box.clientHeight), behavior: 'smooth' });
+    }, 500);
+    log(dir > 0 ? 'wheel: next video' : 'wheel: previous video');
+  }
+
+  function mediaKeys(on) {                              // also the ⏮ ⏭ buttons some browsers show on the floating window
+    try {
+      navigator.mediaSession.setActionHandler('nexttrack', on ? () => step(1) : null);
+      navigator.mediaSession.setActionHandler('previoustrack', on ? () => step(-1) : null);
+    } catch { /* not supported */ }
+  }
+
   function startFollowing() {
     following = true;
     clearInterval(followTimer);
@@ -115,9 +140,9 @@
   const soon = () => { clearTimeout(switchTimer); switchTimer = setTimeout(maybeSwitch, 180); };
   for (const type of ['play', 'playing', 'pause', 'ended', 'emptied']) document.addEventListener(type, soon, true);   // media events do not bubble
   document.addEventListener('leavepictureinpicture', () => {
-    setTimeout(() => { if (!document.pictureInPictureElement) { following = false; clearInterval(followTimer); log('floating window closed'); } }, 400);    // (a switch leaves and enters at once)
+    setTimeout(() => { if (!document.pictureInPictureElement) { following = false; clearInterval(followTimer); log('floating window closed'); mediaKeys(false); try { chrome.runtime.sendMessage({ type: 'pip-active', on: false }).catch(() => {}); } catch { /* reloaded */ } } }, 400);    // (a switch leaves and enters at once)
   }, true);
-  document.addEventListener('enterpictureinpicture', (e) => { log('floating: ' + (e.target.videoWidth || '?') + 'x' + (e.target.videoHeight || '?') + (feedLike() ? ', following the feed' : '')); startFollowing(); }, true);
+  document.addEventListener('enterpictureinpicture', (e) => { log('floating: ' + (e.target.videoWidth || '?') + 'x' + (e.target.videoHeight || '?') + (feedLike() ? ', following the feed' : '')); startFollowing(); mediaKeys(true); try { chrome.runtime.sendMessage({ type: 'pip-active', on: true }).catch(() => {}); } catch { /* reloaded */ } }, true);
 
   async function toggle(video) {
     if (!video) return { error: 'There is no video here.' };
@@ -140,6 +165,7 @@
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, respond) => {
+    if (msg && msg.type === 'pip-step' && (msg.dir === 1 || msg.dir === -1)) { step(msg.dir); return; }
     if (!msg || msg.type !== 'pip') return;
     // from the keyboard shortcut there is no right click: use the video that plays (else the biggest)
     toggle(!msg.guess && target && document.contains(target) ? target : guess()).then(respond);

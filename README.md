@@ -115,7 +115,7 @@ browser used) to Utylix. If the app can't fetch the file, the browser gets it ba
   player covers with its own layer and works on sites that switch Picture in Picture off (where the browser's own entry
   is missing or greyed out). If the browser insists on a click first, a note asks you to click the video once. Facebook and
   Instagram hide the browser's right-click menu on videos, so there Utylix lets the normal menu through; and **Alt + P** (change
-  it in `chrome://extensions/shortcuts`) floats the video that is playing on any page, no right click needed. While a video floats, Utylix follows the feed: swipe to the next Reel (or the next video of a playlist starts) and the floating window switches to it by itself. After
+  it in `chrome://extensions/shortcuts`) floats the video that is playing on any page, no right click needed. While a video floats, Utylix follows the feed: swipe to the next Reel (or the next video of a playlist starts) and the floating window switches to it by itself. Scroll the mouse wheel over the floating window to go to the next (wheel down) or previous (wheel up) Reel or video: the browser never passes the wheel to the page, so the Utylix app watches for it while a video floats (only over a window titled "Picture in picture"; it needs Utylix running). After
   updating, reload the extension in `brave://extensions` (and refresh open pages once).
 - **Pictures** – "Save image as" is captured like any file; for pictures that are only displayed, use right-click →
   *Download with Utylix* or the extension popup's *Images on this page*.
