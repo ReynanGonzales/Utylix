@@ -70,6 +70,15 @@ public partial class App : Application
         Tools.Dir = toolsDir ?? Path.Combine(dataDir, "tools");
         DataDir = dataDir;
 
+        // the administrator helper of the Fans tab: reads the hardware and sets fans for the normal Utylix, no windows
+        int fanHelper = Array.IndexOf(e.Args, "--fan-helper");
+        if (fanHelper >= 0 && fanHelper + 1 < e.Args.Length)
+        {
+            string owner = e.Args[fanHelper + 1];
+            _ = System.Threading.Tasks.Task.Run(() => { int code = FanHelper.Run(owner); Dispatcher.Invoke(() => Shutdown(code)); });
+            return;
+        }
+
         // the installed copy removes itself; a setup copy (Utylix-Setup.exe, --setup, first run on a PC) offers to install
         if (e.Args.Contains("--uninstall")) { ApplyTheme(); Installer.Uninstall(); Shutdown(); return; }
         if (Installer.WantsSetup(e.Args))
@@ -689,6 +698,7 @@ public partial class App : Application
         _shortcuts?.Dispose();
         if (_shell != null) _shell.AllowClose = true;
         _api?.Stop();
+        try { FanSettings.Client.StopAsync().Wait(TimeSpan.FromSeconds(3)); } catch (Exception) { /* the helper also hands the fans back by itself when we are gone */ }
         ApiPort.Clear(DataDir);
         _manager?.Shutdown();
         if (_tray != null)

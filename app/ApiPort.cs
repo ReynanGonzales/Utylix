@@ -15,12 +15,15 @@ internal static class ApiPort
     /// <summary>Who this copy belongs to (a fingerprint of the Windows user's SID): tells one user's copy from another's on the same PC.</summary>
     public static string UserId { get; } = Compute();
 
+    /// <summary>The id for a given Windows user SID (the fan helper runs as an administrator, but names things after the user who started it).</summary>
+    public static string UserIdOf(string sid) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sid)))[..12].ToLowerInvariant();
+
     private static string Compute()
     {
         try
         {
-            string sid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
-            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sid)))[..12].ToLowerInvariant();
+            return UserIdOf(System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName);
         }
         catch (Exception e) when (e is InvalidOperationException or System.Security.SecurityException) { return "unknown"; }
     }

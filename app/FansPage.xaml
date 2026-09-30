@@ -1,0 +1,53 @@
+<UserControl x:Class="IdmClone.FansPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="20,16,20,20">
+            <Grid>
+                <TextBlock Text="Fans" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="FanStatus" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" Margin="0,0,14,0" />
+                    <Button x:Name="StartBtn" AutomationProperties.AutomationId="FanStart" Content="Start fan control" Style="{StaticResource PrimaryButton}" MinWidth="150" Height="38" Click="Start_Click" />
+                    <Button x:Name="StopBtn" AutomationProperties.AutomationId="FanStop" Content="Stop (back to automatic)" Style="{StaticResource DialogButton}" Visibility="Collapsed" Click="Stop_Click" />
+                </StackPanel>
+            </Grid>
+
+            <Border x:Name="Intro" Style="{StaticResource Section}" Margin="0,14,0,0" Padding="16,12">
+                <StackPanel>
+                    <TextBlock TextWrapping="Wrap" Text="See the temperatures and fan speeds of this PC and set the fans: a fixed speed, or a curve that follows a temperature. Reading and setting fans needs administrator permission, so Windows asks when you press Start. Every fan stays under the PC's own control until you change it, and goes back to it when you press Stop or close Utylix." />
+                    <TextBlock x:Name="ProblemText" AutomationProperties.AutomationId="FanProblem" TextWrapping="Wrap" Margin="0,8,0,0" Foreground="#E5484D" Visibility="Collapsed" />
+                </StackPanel>
+            </Border>
+
+            <Border x:Name="TempsCard" Style="{StaticResource Section}" Margin="0,12,0,0" Padding="16,12" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="Temperatures" FontWeight="SemiBold" />
+                    <WrapPanel x:Name="Temps" Margin="0,8,0,0" />
+                </StackPanel>
+            </Border>
+
+            <StackPanel x:Name="Cards" Margin="0,4,0,0" />
+
+            <Border x:Name="SafetyCard" Style="{StaticResource Section}" Margin="0,12,0,0" Padding="16,12" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="Safety" FontWeight="SemiBold" />
+                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,8"
+                               Text="A fan never runs below the lowest speed, and if the processor or graphics card gets this hot, every fan you control goes to 100 % until it cools down." />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Lowest speed" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBox x:Name="FloorBox" AutomationProperties.AutomationId="FanFloor" Width="56" Style="{StaticResource Field}" LostFocus="Safety_Changed" />
+                        <TextBlock Text="%" VerticalAlignment="Center" Margin="4,0,22,0" />
+                        <TextBlock Text="Processor limit" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBox x:Name="CpuLimitBox" AutomationProperties.AutomationId="FanCpuLimit" Width="56" Style="{StaticResource Field}" LostFocus="Safety_Changed" />
+                        <TextBlock Text="°C" VerticalAlignment="Center" Margin="4,0,22,0" />
+                        <TextBlock Text="Graphics card limit" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBox x:Name="GpuLimitBox" AutomationProperties.AutomationId="FanGpuLimit" Width="56" Style="{StaticResource Field}" LostFocus="Safety_Changed" />
+                        <TextBlock Text="°C" VerticalAlignment="Center" Margin="4,0,0,0" />
+                    </StackPanel>
+                    <CheckBox x:Name="UnusedBox" Margin="0,12,0,0" Content="Also show fan headers with nothing plugged in (0 RPM)" Click="Unused_Click" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

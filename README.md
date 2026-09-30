@@ -41,6 +41,25 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
    **Developer mode**, click **Load unpacked** and select the `extension` folder.
 3. Download something in the browser – it shows up in Utylix. If Utylix isn't running, the extension starts it. Utylix comes up on its Downloads tab when a download starts (Settings → Downloads switches this off).
 
+## Fans
+
+The **Fans** tab shows the temperatures (processor, graphics card, motherboard) and the speed of every fan that spins, and
+lets you set each fan: **Automatic** (the PC decides, as always), **Fixed speed** (a slider), or **Curve** (the fan speed follows
+the processor's or the graphics card's temperature: start from *Quiet*, *Balanced* or *Performance* and edit the points; a
+point is `temperature in °C : speed in %`). Double-click a fan's name to call it "CPU fan" or "front fan".
+
+- **Start fan control** asks Windows for administrator permission: reading the motherboard and setting fans needs it, so it is
+  done by a separate helper (`Utylix.exe --fan-helper`, started from the button); the rest of Utylix stays a normal program.
+  It uses the open-source LibreHardwareMonitor library. The processor and motherboard sensors need the free **PawnIO** driver
+  (`winget install namazso.PawnIO`); the page says so if it is missing.
+- **Safety:** every fan stays under the PC's own control until you change it. A fan never goes below the lowest speed you set
+  (25 % by default); if the processor or the graphics card reaches its limit (85 °C by default) every controlled fan goes to
+  100 %; a curve with no temperature reading hands the fan back. When you press **Stop**, close Utylix, or Utylix crashes, every
+  fan is handed back at once. (If the helper process itself is killed in Task Manager the fans keep the last speed until
+  you restart the PC or start fan control again and press Stop.)
+- Settings are kept in `fans.json` in Utylix's data folder. Which fans can be set depends on the motherboard and the graphics
+  card; laptops usually do not allow it.
+
 ## Several Windows users at once
 
 Every Windows user who is signed in runs their own copy of Utylix with their own settings and downloads. The first one

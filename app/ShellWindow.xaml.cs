@@ -47,6 +47,7 @@ public partial class ShellWindow : Window
         Add(new("converter", "Multi Convert", () => new ConverterPage(), 820, 820, 810, 720));
         Add(new("player", "Video Player", () => new PlayerPage(manager), 820, 640, 810, 480));
         Add(new("recorder", "Screen Recorder", () => new RecorderPage(manager), 860, 760, 810, 560));
+        Add(new("fans", "Fans", () => new FansPage(), 900, 760, 810, 560));
 
         SizeChanged += (_, _) =>
         {
