@@ -113,7 +113,9 @@ browser used) to Utylix. If the app can't fetch the file, the browser gets it ba
   Picture** (under "Utylix Integration"): the video floats in a small window that stays on top; choose it again to put the
   video back. There is just one entry, and it only appears while the pointer is over a video. It also finds videos that a
   player covers with its own layer and works on sites that switch Picture in Picture off (where the browser's own entry
-  is missing or greyed out). If the browser insists on a click first, a note asks you to click the video once. After
+  is missing or greyed out). If the browser insists on a click first, a note asks you to click the video once. Facebook and
+  Instagram hide the browser's right-click menu on videos, so there Utylix lets the normal menu through; and **Alt + P** (change
+  it in `chrome://extensions/shortcuts`) floats the video that is playing on any page, no right click needed. After
   updating, reload the extension in `brave://extensions` (and refresh open pages once).
 - **Pictures** – "Save image as" is captured like any file; for pictures that are only displayed, use right-click →
   *Download with Utylix* or the extension popup's *Images on this page*.

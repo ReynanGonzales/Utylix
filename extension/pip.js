@@ -51,7 +51,13 @@
   document.addEventListener('mouseover', (e) => { setOver(!!videoAt(e.clientX, e.clientY)); }, { passive: true, capture: true });
   document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) setOver(false); }, true);
   window.addEventListener('blur', () => setOver(false));
-  document.addEventListener('contextmenu', (e) => { target = videoAt(e.clientX, e.clientY); }, true);
+  // Facebook and Instagram replace the browser's right-click menu on videos with their own, so the browser menu (and our entry in
+  // it) never shows. On those sites, swallow the right click before the page sees it when it is on a video: the normal menu opens.
+  const OWN_MENU = /(^|\.)(facebook\.com|fb\.com|fb\.watch|instagram\.com)$/i.test(location.hostname);
+  window.addEventListener('contextmenu', (e) => {
+    target = videoAt(e.clientX, e.clientY);
+    if (OWN_MENU && target && e.isTrusted) e.stopImmediatePropagation();
+  }, true);
 
   let toast = null;
   function say(text) {
@@ -101,7 +107,8 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     if (!msg || msg.type !== 'pip') return;
-    toggle(target && document.contains(target) ? target : guess()).then(respond);
+    // from the keyboard shortcut there is no right click: use the video that plays (else the biggest)
+    toggle(!msg.guess && target && document.contains(target) ? target : guess()).then(respond);
     return true;                                                         // answer asynchronously
   });
 })();

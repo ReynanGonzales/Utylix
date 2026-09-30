@@ -581,6 +581,18 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (sender.tab.active) chrome.contextMenus.update(PIP_ID, { visible: pipOverIn(sender.tab.id) && !pipIsYouTube(sender.tab.url) }, pipQuiet);
 });
 
+// Keyboard shortcut (Alt + P; change it in chrome://extensions/shortcuts): the same thing for the video that is playing on the page.
+// Works also where a site hides the browser's right-click menu.
+chrome.commands.onCommand.addListener(async (command, tab) => {
+  if (command !== 'toggle-pip') return;
+  tab = tab || (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+  if (tab?.id == null || pipIsYouTube(tab.url)) return;
+  let result;
+  try { result = await chrome.tabs.sendMessage(tab.id, { type: 'pip', guess: true }, { frameId: 0 }); }
+  catch { result = { error: 'reload this page once (the extension was updated)' }; }
+  if (!result || !result.ok) { await note({ url: tab.url || '' }, 'shortcut', 'Picture in Picture: ' + ((result && result.error) || 'no answer')); flashBadge('!', '#dc2626'); }
+});
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== PIP_ID || tab?.id == null) return;
   let result;
