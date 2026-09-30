@@ -68,7 +68,7 @@ public static class NativeHost
         args.Any(a => a.StartsWith("chrome-extension://", StringComparison.Ordinal) || a.StartsWith("moz-extension://", StringComparison.Ordinal));
 
     /// <summary>Answers one "start" message: makes sure the app is running, then returns (the process exits).</summary>
-    public static int RunHost(string[] args, int port, string dataDir)
+    public static int RunHost(string[] args, string dataDir)
     {
         try
         {
@@ -87,11 +87,15 @@ public static class NativeHost
             using (var doc = JsonDocument.Parse(read.Result))
                 cmd = doc.RootElement.TryGetProperty("cmd", out var c) ? c.GetString() : null;
 
+            // the port belongs to the Windows user who runs this browser: with several users signed in, each has their own copy of Utylix
+            int explicitPort = 0;
+            for (int i = 0; i < args.Length - 1; i++) if (args[i] == "--port" && int.TryParse(args[i + 1], out int ep)) explicitPort = ep;
             object reply;
             if (origin != $"chrome-extension://{ExtensionId}/") reply = new { ok = false, error = "unknown extension" };
+            else if (cmd == "info") { int live = ApiPort.Current(dataDir, explicitPort > 0 ? explicitPort : null); reply = new { ok = true, port = live, user = ApiPort.UserId, running = Ping(live) }; }
             else if (cmd != "start") reply = new { ok = false, error = "unknown command" };
             else if (!AllowedByUser(dataDir)) reply = new { ok = false, error = "disabled in Utylix settings" };
-            else reply = EnsureRunning(args, port);
+            else reply = EnsureRunning(args, dataDir, explicitPort > 0 ? explicitPort : null);
 
             WriteMessage(stdout, reply);
             return 0;
@@ -117,9 +121,10 @@ public static class NativeHost
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
     private static extern IntPtr GetStdHandle(int stdHandle);
 
-    private static object EnsureRunning(string[] args, int port)
+    private static object EnsureRunning(string[] args, string dataDir, int? explicitPort)
     {
-        if (Ping(port)) return new { ok = true, started = false };
+        int port = ApiPort.Current(dataDir, explicitPort);
+        if (Ping(port)) return new { ok = true, started = false, port };
 
         // start a normal, minimized copy (a separate process, so it lives on after this helper exits)
         var psi = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true };
@@ -132,7 +137,8 @@ public static class NativeHost
         for (int i = 0; i < 40; i++)                                 // wait until it answers (up to ~12 s)
         {
             System.Threading.Thread.Sleep(300);
-            if (Ping(port)) return new { ok = true, started = true };
+            port = ApiPort.Current(dataDir, explicitPort);                   // the new copy may have taken another port
+            if (Ping(port)) return new { ok = true, started = true, port };
         }
         return new { ok = false, error = "the app did not start" };
     }
@@ -143,7 +149,7 @@ public static class NativeHost
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
             string body = http.GetStringAsync($"http://127.0.0.1:{port}/api/ping").GetAwaiter().GetResult();
-            return body.Contains("\"idm-clone\"", StringComparison.Ordinal);
+            return body.Contains("\"idm-clone\"", StringComparison.Ordinal) && body.Contains($"\"user\":\"{ApiPort.UserId}\"", StringComparison.Ordinal);      // OUR copy, not another user's
         }
         catch (Exception) { return false; }
     }

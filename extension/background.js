@@ -8,7 +8,10 @@
 //   * downloads.onCreated - fallback for browsers/situations where the first hook doesn't fire.
 // Which files to capture (all / only some types, minimum size, excluded sites) is configured in the
 // app's Settings and read from the app; only the on/off switch lives in the browser.
-const SERVER = 'http://127.0.0.1:6800';
+// Usually port 6800. When several Windows users are signed in at once, each has their own copy of Utylix on its own port;
+// the native helper (it runs as the browser's user) says which one is ours, so we never talk to somebody else's copy.
+let SERVER = 'http://127.0.0.1:6800';
+let serverUser = null;
 const DEFAULTS = { enabled: true };
 const MEDIA_EXT = /\.(mp4|m4v|webm|mkv|mov|avi|flv|mp3|m4a|aac|ogg|opus|wav|flac)(\?|#|$)/i;
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|avif|heic|tiff?)(\?|#|$)/i;
@@ -29,16 +32,27 @@ let capture = { types_only: false, types: [], min_kb: 0, exclude: [] };
 let tools = {};                       // which video helpers (yt-dlp, ffmpeg) the app has installed
 let alive = { ok: false, at: 0 };
 
-async function serverAlive(force = false) {
-  if (!force && Date.now() - alive.at < ALIVE_TTL) return alive.ok;
-  let ok = false;
+async function pingServer() {
   try {
     const r = await fetch(SERVER + '/api/ping', { signal: AbortSignal.timeout(800) });
     const j = await r.json();
-    ok = j.app === 'idm-clone';
+    const ok = j.app === 'idm-clone' && (!serverUser || j.user === serverUser);
     if (ok && j.capture) capture = j.capture;             // settings come from the app
     if (ok) tools = j.tools || {};
-  } catch { /* not running */ }
+    return ok;
+  } catch { return false; /* not running */ }
+}
+
+let infoAt = 0;
+async function serverAlive(force = false) {
+  await serverReady;
+  if (!force && Date.now() - alive.at < ALIVE_TTL) return alive.ok;
+  let ok = await pingServer();
+  if (!ok && Date.now() - infoAt > 30_000) {             // maybe the app came back on another port: ask the helper again
+    infoAt = Date.now();
+    applyServerInfo(await nativeCall('info', 4000));
+    ok = await pingServer();
+  }
   alive = { ok, at: Date.now() };
   return ok;
 }
@@ -50,19 +64,35 @@ async function serverAlive(force = false) {
 const NATIVE_HOST = 'com.idmclone.host';
 let startFailedAt = 0;
 
-function startApp() {
+/** One question to the native helper ('start' | 'info'); resolves with its reply, or null when it is missing / switched off. */
+function nativeCall(cmd, timeout = 15000) {
   return new Promise(resolve => {
     let done = false, port = null;
-    const finish = ok => { if (!done) { done = true; clearTimeout(timer); try { port && port.disconnect(); } catch { /* already closed */ } resolve(ok); } };
-    const timer = setTimeout(() => finish(false), 15000);
+    const finish = m => { if (!done) { done = true; clearTimeout(timer); try { port && port.disconnect(); } catch { /* already closed */ } resolve(m); } };
+    const timer = setTimeout(() => finish(null), timeout);
     try {
       port = chrome.runtime.connectNative(NATIVE_HOST);
-      port.onMessage.addListener(m => finish(!!(m && m.ok)));
-      port.onDisconnect.addListener(() => { void chrome.runtime.lastError; finish(false); });   // not registered / disabled
-      port.postMessage({ cmd: 'start' });
-    } catch { finish(false); }
+      port.onMessage.addListener(m => finish(m || null));
+      port.onDisconnect.addListener(() => { void chrome.runtime.lastError; finish(null); });   // not registered / disabled
+      port.postMessage({ cmd });
+    } catch { finish(null); }
   });
 }
+
+function applyServerInfo(m) {
+  if (!m || !m.port) return;
+  SERVER = 'http://127.0.0.1:' + m.port;
+  if (m.user) serverUser = m.user;
+  chrome.storage.local.set({ serverPort: m.port }).catch(() => {});      // the popup reads it from here
+}
+
+async function startApp() {
+  const m = await nativeCall('start');
+  applyServerInfo(m);
+  return !!(m && m.ok);
+}
+
+const serverReady = nativeCall('info', 4000).then(applyServerInfo);      // which port is MY copy on?
 
 /** True when the app is reachable, starting it first if needed (and allowed). */
 async function ensureApp() {

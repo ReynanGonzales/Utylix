@@ -1,4 +1,5 @@
-const SERVER = 'http://127.0.0.1:6800';
+let SERVER = 'http://127.0.0.1:6800';     // the background page stores the port of THIS Windows user's copy (several users can be signed in)
+const serverReady = chrome.storage.local.get({ serverPort: 6800 }).then(v => { SERVER = 'http://127.0.0.1:' + v.serverPort; });
 const $ = id => document.getElementById(id);
 
 const fmt = n => {
@@ -16,6 +17,7 @@ function el(tag, cls, text) {
 }
 
 async function post(path, body) {
+  await serverReady;
   const r = await fetch(SERVER + path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
@@ -77,6 +79,7 @@ async function refresh() {
   renderLog();
   let data;
   try {
+    await serverReady;
     data = await (await fetch(SERVER + '/api/downloads', { signal: AbortSignal.timeout(1500) })).json();
   } catch {
     $('dot').classList.remove('on'); $('offline').hidden = false; return;

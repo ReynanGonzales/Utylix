@@ -39,6 +39,14 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
    **Developer mode**, click **Load unpacked** and select the `extension` folder.
 3. Download something in the browser – it shows up in Utylix. If Utylix isn't running, the extension starts it.
 
+## Several Windows users at once
+
+Every Windows user who is signed in runs their own copy of Utylix with their own settings and downloads. The first one
+listens on port 6800; the next user's copy takes the next free port (6801, 6802 ...) and notes it in `port.txt` in their own
+data folder, so nobody gets an error and nobody's downloads end up in someone else's Utylix. Explorer's right-click menus and
+the browser link find the right copy by themselves (the extension asks its helper, which runs as the browser's user, for the
+port; after updating Utylix, reload the extension once in `chrome://extensions`).
+
 ## Installing and uninstalling
 
 Run **`InstallerBuilder.bat`** to build the installer: `installer\Utylix-Setup.exe`, one file you can give to anyone (it is

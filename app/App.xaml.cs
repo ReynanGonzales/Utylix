@@ -42,13 +42,14 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, ev) => LogError(ev.ExceptionObject as Exception);
 
         int port = 6800;
+        bool explicitPort = false;                    // --port given (tests): use exactly that one
         string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         string dataDir = Path.Combine(appData, "Utylix");
         bool customData = false;
         string? toolsDir = null;
         for (int i = 0; i < e.Args.Length - 1; i++)
         {
-            if (e.Args[i] == "--port" && int.TryParse(e.Args[i + 1], out int p)) port = p;
+            if (e.Args[i] == "--port" && int.TryParse(e.Args[i + 1], out int p)) { port = p; explicitPort = true; }
             if (e.Args[i] == "--data") { dataDir = e.Args[i + 1]; customData = true; }
             if (e.Args[i] == "--tools") toolsDir = e.Args[i + 1];   // lets a test copy share the real yt-dlp/ffmpeg
         }
@@ -80,7 +81,7 @@ public partial class App : Application
         // Started by the browser on behalf of the extension ("please start Utylix")? Do just that and leave.
         if (NativeHost.IsHostLaunch(e.Args))
         {
-            Shutdown(NativeHost.RunHost(e.Args, port, dataDir));
+            Shutdown(NativeHost.RunHost(e.Args, dataDir));
             return;
         }
 
@@ -89,13 +90,16 @@ public partial class App : Application
         var archiveCmd = ParseArchive(e.Args);       // "Extract here", "Add to ZIP", "Open with Utylix" ...
         var toolCmd = ParseTool(e.Args);             // "Remove background", "Play with Utylix"
 
-        _mutex = new Mutex(true, $"Local\\Utylix.SingleInstance.{port}", out bool first);
+        // One copy per Windows user session ("Local" is per session). The port is NOT part of the name: another user signed in at
+        // the same time has their own copy, which simply takes the next free port (kept in port.txt in each user's data folder).
+        _mutex = new Mutex(true, explicitPort ? $"Local\\Utylix.SingleInstance.{port}" : "Local\\Utylix.SingleInstance", out bool first);
         if (!first)
         {
-            if (convert != null) SendConvert(port, convert.Value.Files, convert.Value.Format);
-            else if (archiveCmd != null) SendArchive(port, archiveCmd.Value.Op, archiveCmd.Value.Files);
-            else if (toolCmd != null) SendTool(port, toolCmd.Value.Op, toolCmd.Value.Files);
-            else AskRunningInstanceToShow(port);
+            int live = ApiPort.Current(dataDir, explicitPort ? port : null);      // where the running copy listens
+            if (convert != null) SendConvert(live, convert.Value.Files, convert.Value.Format);
+            else if (archiveCmd != null) SendArchive(live, archiveCmd.Value.Op, archiveCmd.Value.Files);
+            else if (toolCmd != null) SendTool(live, toolCmd.Value.Op, toolCmd.Value.Files);
+            else AskRunningInstanceToShow(live);
             Shutdown();
             return;
         }
@@ -103,18 +107,25 @@ public partial class App : Application
         AppUpdater.CleanLeftovers();
         ApplyTheme();
         _manager = new Manager(dataDir);
-        _api = new ApiServer(_manager, port, which => Dispatcher.Invoke(() => ShowTab("downloads")),
-            d => Dispatcher.BeginInvoke(() => new CaptureWindow(_manager, d).ShowOnTop()),
-            (files, format) => Dispatcher.BeginInvoke(() => HandleConvert(files, format)),
-            (op, files) => Dispatcher.BeginInvoke(() => HandleArchive(op, files)),
-            (op, files) => Dispatcher.BeginInvoke(() => HandleTool(op, files)));
-        if (!_api.Start())
+        // another Windows user (signed in at the same time) or another program may hold 6800: take the next free port
+        int chosen = 0;
+        foreach (int candidate in explicitPort ? new[] { port } : Enumerable.Range(port, 31))
         {
-            MessageBox.Show($"Utylix could not listen on 127.0.0.1:{port}.\nAnother program is probably using that port.",
+            _api = new ApiServer(_manager, candidate, which => Dispatcher.Invoke(() => ShowTab("downloads")),
+                d => Dispatcher.BeginInvoke(() => new CaptureWindow(_manager, d).ShowOnTop()),
+                (files, format) => Dispatcher.BeginInvoke(() => HandleConvert(files, format)),
+                (op, files) => Dispatcher.BeginInvoke(() => HandleArchive(op, files)),
+                (op, files) => Dispatcher.BeginInvoke(() => HandleTool(op, files)));
+            if (_api.Start()) { chosen = candidate; break; }
+        }
+        if (chosen == 0)
+        {
+            MessageBox.Show($"Utylix could not find a free port to listen on (it tried 127.0.0.1:{port} to {(explicitPort ? port : port + 30)}).\nAnother program is probably using them.",
                 "Utylix", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
             return;
         }
+        ApiPort.Publish(dataDir, chosen);             // the browser link and Explorer's menus find this copy through it
 
         _shell = new ShellWindow(_manager);
         Recorder.CleanLeftovers();
@@ -656,6 +667,7 @@ public partial class App : Application
         _shortcuts?.Dispose();
         if (_shell != null) _shell.AllowClose = true;
         _api?.Stop();
+        ApiPort.Clear(DataDir);
         _manager?.Shutdown();
         if (_tray != null)
         {
