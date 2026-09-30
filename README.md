@@ -121,7 +121,8 @@ browser used) to Utylix. If the app can't fetch the file, the browser gets it ba
 ## Screen Capture
 
 Pick what to capture (**Rectangle**, **Window**, **Full screen** or **Text Detector**), optionally a delay of 3, 5 or
-10 seconds, and click **New capture**. Utylix hides itself, freezes the screen and dims it: drag over the part you want
+10 seconds, and click **New capture** (clicking a mode itself starts that capture right away too). **Ctrl + S** on this tab
+opens **Save as…** for the picture. Utylix hides itself, freezes the screen and dims it: drag over the part you want
 (or click a window); Esc or right-click cancels. The result shows in the tab, where you can draw on it with the **Pen**
 or **Highlighter** (five colors, three sizes, **Eraser**, **Undo**), then **Copy**, **Save** or **Save as…**.
 

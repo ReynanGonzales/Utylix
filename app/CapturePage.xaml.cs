@@ -40,10 +40,11 @@ public partial class CapturePage : UserControl
         InitializeComponent();
         _manager = manager;
 
-        AddChip(ModeChips, "Rectangle", "mode", () => SetMode(Mode.Rectangle), true);
-        AddChip(ModeChips, "Window", "mode", () => SetMode(Mode.Window));
-        AddChip(ModeChips, "Full screen", "mode", () => SetMode(Mode.Full));
-        AddChip(ModeChips, "Text Detector", "mode", () => SetMode(Mode.Text));
+        // clicking a mode starts that capture at once, like pressing the capture button
+        AddChip(ModeChips, "Rectangle", "mode", () => SetMode(Mode.Rectangle), true, () => _ = CaptureAsync());
+        AddChip(ModeChips, "Window", "mode", () => SetMode(Mode.Window), onClicked: () => _ = CaptureAsync());
+        AddChip(ModeChips, "Full screen", "mode", () => SetMode(Mode.Full), onClicked: () => _ = CaptureAsync());
+        AddChip(ModeChips, "Text Detector", "mode", () => SetMode(Mode.Text), onClicked: () => _ = CaptureAsync());
         foreach (var (label, seconds) in new[] { ("No delay", 0), ("3 s", 3), ("5 s", 5), ("10 s", 10) })
             AddChip(DelayChips, label, "delay", () => _delaySeconds = seconds, seconds == 0);
 
@@ -61,13 +62,16 @@ public partial class CapturePage : UserControl
             AddChip(SizeChips, label, "size", () => { _size = size; ApplyTool(); }, size == 4.0);
 
         SetMode(Mode.Rectangle);
+        // Ctrl + S while this tab is in use and there is a picture: "Save as…"
+        PreviewKeyDown += (_, e) => { if (e.Key == Key.S && TrySaveAs()) e.Handled = true; };
         IsVisibleChanged += (_, _) => { if (IsVisible) RefreshShortcutHint(); };
     }
 
-    private void AddChip(WrapPanel host, string text, string group, Action onChecked, bool isChecked = false)
+    private void AddChip(WrapPanel host, string text, string group, Action onChecked, bool isChecked = false, Action? onClicked = null)
     {
         var chip = new RadioButton { Content = text, GroupName = group, Style = (Style)FindResource("ChipButton"), IsChecked = isChecked };
         chip.Checked += (_, _) => onChecked();
+        if (onClicked != null) chip.Click += (_, _) => onClicked();
         host.Children.Add(chip);
     }
 
@@ -257,6 +261,14 @@ public partial class CapturePage : UserControl
         {
             App.Notify("Couldn't save the screenshot", ex.Message, null);
         }
+    }
+
+    /// <summary>Ctrl + S: opens "Save as…" when the keys are exactly Ctrl + S and there is a picture. Returns true when it did.</summary>
+    public bool TrySaveAs()
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 || (Keyboard.Modifiers & (ModifierKeys.Alt | ModifierKeys.Shift)) != 0 || _image == null) return false;
+        SaveAs_Click(this, new RoutedEventArgs());
+        return true;
     }
 
     private void SaveAs_Click(object sender, RoutedEventArgs e)

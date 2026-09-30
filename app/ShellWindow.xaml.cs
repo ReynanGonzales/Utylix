@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using IdmClone.Engine;
@@ -54,6 +55,11 @@ public partial class ShellWindow : Window
                 _userSizes[_current] = new Size(ActualWidth, ActualHeight);     // remember what you dragged it to
         };
         ElevatedBar.Visibility = IsElevated() ? Visibility.Visible : Visibility.Collapsed;
+        // Ctrl + S on the Screen Capture tab: "Save as…" for the picture (wherever the keyboard focus is inside the window)
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.S && _current == "capture" && _pages.TryGetValue("capture", out var page) && page is CapturePage capture && capture.TrySaveAs()) e.Handled = true;
+        };
         _timer.Tick += (_, _) => RefreshBadge();
         _timer.Start();
         SelectTab("downloads");
