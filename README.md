@@ -38,7 +38,7 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
    Feedback Hub shortcut; switch it off in Settings → *Shortcut*).
 2. For the browser features, in Chrome/Edge/Brave open `chrome://extensions` (`brave://extensions`), enable
    **Developer mode**, click **Load unpacked** and select the `extension` folder.
-3. Download something in the browser – it shows up in Utylix. If Utylix isn't running, the extension starts it.
+3. Download something in the browser – it shows up in Utylix. If Utylix isn't running, the extension starts it. Utylix comes up on its Downloads tab when a download starts (Settings → Downloads switches this off).
 
 ## Several Windows users at once
 

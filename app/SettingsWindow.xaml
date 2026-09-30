@@ -30,6 +30,7 @@
                 <Border Style="{StaticResource Section}">
                     <StackPanel>
                         <CheckBox x:Name="ConfirmBox" Content="Show a confirmation window before a captured download starts" />
+                        <CheckBox x:Name="ShowOnDownloadBox" Margin="0,10,0,0" Content="Bring Utylix up on the Downloads tab when the browser starts a download" />
                         <CheckBox x:Name="VideoButtonBox" Margin="0,10,0,0"
                                   Content="Show the floating &quot;Download this video&quot; button on videos" />
                         <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"

@@ -76,6 +76,8 @@ public sealed class Config
 
     // ---- browser capture ----
     /// <summary>Show the "New download" window when the browser hands something over.</summary>
+    /// <summary>Bring Utylix up on its Downloads tab when the browser hands it a download.</summary>
+    [JsonPropertyName("show_on_download")] public bool ShowOnDownload { get; set; } = true;
     [JsonPropertyName("confirm_captured")] public bool ConfirmCaptured { get; set; } = true;
     /// <summary>false = capture every download the browser makes; true = only the types below.</summary>
     [JsonPropertyName("capture_types_only")] public bool CaptureTypesOnly { get; set; }
@@ -241,6 +243,7 @@ public sealed class Manager
                 SortByType = c.SortByType,
                 CategoryDirs = overrides,
                 ConfirmCaptured = c.ConfirmCaptured,
+                ShowOnDownload = c.ShowOnDownload,
                 VideoButton = c.VideoButton,
                 SubMode = c.SubMode is "off" or "file" or "embed" ? c.SubMode : "file",
                 SubLangs = MediaService.CleanSubInput(c.SubLangs),

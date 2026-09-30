@@ -32,6 +32,7 @@ public partial class SettingsWindow : Window
         MaxBox.Text = c.MaxActive.ToString();
         AutoStartBox.IsChecked = App.AutoStartEnabled;
         ConfirmBox.IsChecked = c.ConfirmCaptured;
+        ShowOnDownloadBox.IsChecked = c.ShowOnDownload;
         VideoButtonBox.IsChecked = c.VideoButton;
         ClipboardBox.IsChecked = c.WatchClipboard;
         BrowserStartBox.IsChecked = c.AllowBrowserStart;
@@ -329,6 +330,7 @@ public partial class SettingsWindow : Window
                 CategoryDirs = _catBoxes.Where(kv => _catEdited.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value.Text))
                                         .ToDictionary(kv => kv.Key, kv => kv.Value.Text.Trim()),
                 ConfirmCaptured = ConfirmBox.IsChecked == true,
+                ShowOnDownload = ShowOnDownloadBox.IsChecked == true,
                 VideoButton = VideoButtonBox.IsChecked == true,
                 WatchClipboard = ClipboardBox.IsChecked == true,
                 AllowBrowserStart = BrowserStartBox.IsChecked == true,

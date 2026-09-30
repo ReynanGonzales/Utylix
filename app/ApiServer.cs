@@ -204,12 +204,21 @@ public sealed class ApiServer
         if (prompt)
         {
             var d = _manager.AddAwaiting(urls[0], headers, hint);
+            ShowDownloads();
             _prompt(d);
             Send(ctx, 200, new { added = new[] { d.Id }, prompt = true }, null);
             return;
         }
         var added = urls.Select(u => _manager.Add(u, headers, hint).Id).ToList();
+        ShowDownloads();
         Send(ctx, 200, new { added }, null);
+    }
+
+    /// <summary>A download arrived from the browser: bring Utylix up on the Downloads tab (Settings can switch this off).</summary>
+    private void ShowDownloads()
+    {
+        if (!_manager.Config.ShowOnDownload) return;
+        try { _show("downloads"); } catch (Exception e) when (e is InvalidOperationException or System.Threading.Tasks.TaskCanceledException) { }
     }
 
     /// <summary>
@@ -362,6 +371,7 @@ public sealed class ApiServer
             bool prompt = _manager.Config.ConfirmCaptured && root.TryGetProperty("prompt", out var pr) && pr.ValueKind == JsonValueKind.True;
             var d = _manager.AddMedia(url, option, title?.Length > 200 ? title[..200] : title, Math.Max(0, size), cookies, ua,
                                       awaiting: prompt, referer: RefererOf(root));
+            ShowDownloads();
             if (prompt) _prompt(d);
             Send(ctx, 200, new { added = new[] { d.Id }, prompt }, null);
         }
