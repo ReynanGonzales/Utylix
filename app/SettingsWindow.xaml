@@ -281,8 +281,9 @@
                     <StackPanel>
                         <CheckBox x:Name="WinFBox" Content="Press Win + F to bring Utylix up (press it again to put it away)" />
                         <CheckBox x:Name="DisableWinFBox" Margin="0,10,0,0" Content="Turn off Windows' own Win + F (the Feedback Hub) for my account" />
+                        <CheckBox x:Name="DisableWinSBox" Margin="0,10,0,0" Content="Turn off Windows' own Win + S (Windows Search) for my account" />
                         <TextBlock Margin="24,4,0,0" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}"
-                                   Text="Applies after you sign out and in again. It also frees Win + F when an administrator window is in front." />
+                                   Text="Applies after you sign out and in again. It also frees Win + F and Win + S when an administrator window is in front (Win + S is Utylix's capture shortcut)." />
                     </StackPanel>
                 </Border>
                 </StackPanel>

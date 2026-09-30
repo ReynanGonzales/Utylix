@@ -40,6 +40,7 @@ public partial class SettingsWindow : Window
         AutoUpdateAppBox.IsChecked = c.AutoUpdateApp;
         WinFBox.IsChecked = c.OpenWinF;
         DisableWinFBox.IsChecked = ExplorerHotkeys.IsDisabled('F');
+        DisableWinSBox.IsChecked = ExplorerHotkeys.IsDisabled('S');
         VersionLabel.Text = "Utylix " + AppUpdater.CurrentText;
         ExplorerMenuBox.IsChecked = c.ExplorerMenu;
         ArchiveMenuBox.IsChecked = c.ExplorerArchiveMenu;
@@ -358,16 +359,20 @@ public partial class SettingsWindow : Window
                 RecDir = RecDirBox.Text,
             });
             App.SetAutoStart(AutoStartBox.IsChecked == true);
-            bool turnOffFeedbackHub = DisableWinFBox.IsChecked == true;
-            if (turnOffFeedbackHub != ExplorerHotkeys.IsDisabled('F'))
+            // Windows' own Win + F (Feedback Hub) and Win + S (Search) can be switched off for this account
+            var changes = new List<string>();
+            bool failed = false;
+            foreach (var (letter, box, what) in new[] { ('F', DisableWinFBox, "Win + F (the Feedback Hub)"), ('S', DisableWinSBox, "Win + S (Windows Search)") })
             {
-                if (ExplorerHotkeys.Set('F', turnOffFeedbackHub))
-                    MessageBox.Show(turnOffFeedbackHub
-                        ? "Windows' own Win + F (the Feedback Hub) is switched off for your account." + Environment.NewLine + Environment.NewLine + "It takes effect after you sign out of Windows and in again."
-                        : "Windows' own Win + F is switched on again." + Environment.NewLine + Environment.NewLine + "It takes effect after you sign out of Windows and in again.",
-                        "Utylix", MessageBoxButton.OK, MessageBoxImage.Information);
-                else MessageBox.Show("Windows would not let Utylix change this setting.", "Utylix", MessageBoxButton.OK, MessageBoxImage.Warning);
+                bool want = box.IsChecked == true;
+                if (want == ExplorerHotkeys.IsDisabled(letter)) continue;
+                if (ExplorerHotkeys.Set(letter, want)) changes.Add(want ? $"Windows' own {what} is switched off." : $"Windows' own {what} is switched on again.");
+                else failed = true;
             }
+            if (changes.Count > 0)
+                MessageBox.Show(string.Join(Environment.NewLine, changes) + Environment.NewLine + Environment.NewLine + "It takes effect after you sign out of Windows and in again.",
+                                "Utylix", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (failed) MessageBox.Show("Windows would not let Utylix change this setting.", "Utylix", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         catch (Exception ex)
         {
