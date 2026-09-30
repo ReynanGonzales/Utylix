@@ -34,7 +34,8 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
 
 ## Use it
 
-1. Run `Utylix.exe`.
+1. Run `Utylix.exe`. Press **Win + F** anywhere to bring Utylix up (again to put it back in the tray; it replaces Windows'
+   Feedback Hub shortcut; switch it off in Settings → *Shortcut*).
 2. For the browser features, in Chrome/Edge/Brave open `chrome://extensions` (`brave://extensions`), enable
    **Developer mode**, click **Load unpacked** and select the `extension` folder.
 3. Download something in the browser – it shows up in Utylix. If Utylix isn't running, the extension starts it.

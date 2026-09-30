@@ -15,7 +15,7 @@ public sealed class Shortcuts : IDisposable
 {
     private const int WM_HOTKEY = 0x0312, HotkeyId = 0x5554, RecordHotkeyId = 0x5555, PauseHotkeyId = 0x5556;
     private const int WH_KEYBOARD_LL = 13, WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101, WM_SYSKEYDOWN = 0x0104, WM_SYSKEYUP = 0x0105;
-    private const int VK_P = 0x50, VK_R = 0x52, VK_S = 0x53, VK_LWIN = 0x5B, VK_RWIN = 0x5C, VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12;
+    private const int VK_F = 0x46, VK_P = 0x50, VK_R = 0x52, VK_S = 0x53, VK_LWIN = 0x5B, VK_RWIN = 0x5C, VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12;
 
     private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
 
@@ -39,7 +39,8 @@ public sealed class Shortcuts : IDisposable
     private readonly HwndSource _window;                 // hidden window that receives the hotkey message
     private readonly HookProc _hookProc;                 // kept in a field so it is not collected while hooked
     private IntPtr _hook;
-    private bool _swallowedS;
+    private bool _swallowedS, _swallowedF;
+    private bool _winSOn, _winFOn;
     private bool _ctrlAltRegistered, _recordRegistered, _pauseRegistered;
 
     /// <summary>Raised on the UI thread when a capture shortcut was pressed.</summary>
@@ -51,6 +52,9 @@ public sealed class Shortcuts : IDisposable
     /// <summary>Raised on the UI thread when the pause shortcut (Ctrl + Alt + P) was pressed.</summary>
     public event Action? PausePressed;
 
+    /// <summary>Raised on the UI thread when Win + F was pressed (bring Utylix up).</summary>
+    public event Action? OpenPressed;
+
     public Shortcuts()
     {
         _window = new HwndSource(new HwndSourceParameters("UtylixShortcuts") { ParentWindow = new IntPtr(-3), WindowStyle = 0 });   // message-only
@@ -59,8 +63,9 @@ public sealed class Shortcuts : IDisposable
     }
 
     /// <summary>Turn the shortcuts on or off. Returns false for a shortcut Windows did not let us have.</summary>
-    public (bool CtrlAltS, bool WinS, bool CtrlAltR, bool CtrlAltP) Apply(bool ctrlAltS, bool winS, bool ctrlAltR)
+    public (bool CtrlAltS, bool WinS, bool CtrlAltR, bool CtrlAltP) Apply(bool ctrlAltS, bool winS, bool ctrlAltR, bool winF = false)
     {
+        _winSOn = winS; _winFOn = winF;
         if (_pauseRegistered) { UnregisterHotKey(_window.Handle, PauseHotkeyId); _pauseRegistered = false; }
         bool ok4 = true;
         if (ctrlAltR)                                       // the pause key comes with the recording shortcut
@@ -84,9 +89,9 @@ public sealed class Shortcuts : IDisposable
             ok1 = _ctrlAltRegistered;
         }
 
-        if (_hook != IntPtr.Zero && !winS) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
+        if (_hook != IntPtr.Zero && !winS && !winF) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
         bool ok2 = true;
-        if (winS && _hook == IntPtr.Zero)
+        if ((winS || winF) && _hook == IntPtr.Zero)
         {
             _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _hookProc, GetModuleHandle(null), 0);
             ok2 = _hook != IntPtr.Zero;
@@ -122,9 +127,24 @@ public sealed class Shortcuts : IDisposable
         {
             int msg = wParam.ToInt32();
             var key = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-            if (key.vkCode == VK_S)
+            if (key.vkCode == VK_F && (_winFOn || _swallowedF))
             {
-                if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && (Down(VK_LWIN) || Down(VK_RWIN)) && !Down(VK_SHIFT) && !Down(VK_CONTROL) && !Down(VK_MENU))
+                if (_winFOn && (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && (Down(VK_LWIN) || Down(VK_RWIN)) && !Down(VK_SHIFT) && !Down(VK_CONTROL) && !Down(VK_MENU))
+                {
+                    _swallowedF = true;
+                    MaskWindowsKey();
+                    _window.Dispatcher.BeginInvoke(new Action(() => OpenPressed?.Invoke()));
+                    return (IntPtr)1;                                                        // Windows' Feedback Hub never sees it
+                }
+                if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) && _swallowedF)
+                {
+                    _swallowedF = false;
+                    return (IntPtr)1;
+                }
+            }
+            if (key.vkCode == VK_S && (_winSOn || _swallowedS))
+            {
+                if (_winSOn && (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && (Down(VK_LWIN) || Down(VK_RWIN)) && !Down(VK_SHIFT) && !Down(VK_CONTROL) && !Down(VK_MENU))
                 {
                     _swallowedS = true;
                     MaskWindowsKey();

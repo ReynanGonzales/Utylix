@@ -32,6 +32,9 @@ public partial class ShellWindow : Window
 
     public bool AllowClose { get; set; }
 
+    /// <summary>Key of the tool that is showing.</summary>
+    public string CurrentKey => _current;
+
     public ShellWindow(Manager manager)
     {
         InitializeComponent();

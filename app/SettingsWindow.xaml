@@ -274,6 +274,13 @@
 
                 </StackPanel>
 
+                <StackPanel x:Name="GroupGeneral">
+                <TextBlock Text="Shortcut" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />
+                <Border Style="{StaticResource Section}">
+                    <CheckBox x:Name="WinFBox" Content="Press Win + F to bring Utylix up (press it again to put it away)" />
+                </Border>
+                </StackPanel>
+
                 <StackPanel x:Name="GroupUpdates">
                 <!-- ============ Updates ============ -->
                 <TextBlock Text="Updates" FontSize="16" FontWeight="SemiBold" Margin="2,6,0,8" />

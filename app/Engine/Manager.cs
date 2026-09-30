@@ -66,6 +66,7 @@ public sealed class Config
     [JsonPropertyName("shot_copy")] public bool ShotCopy { get; set; } = true;            // copy every capture to the clipboard
     [JsonPropertyName("shot_autosave")] public bool ShotAutoSave { get; set; }            // save every capture as a file
     [JsonPropertyName("shot_dir")] public string ShotDir { get; set; } = "";              // "" = Pictures\Screenshots
+    [JsonPropertyName("open_win_f")] public bool OpenWinF { get; set; } = true;           // Win + F brings Utylix up
     [JsonPropertyName("shot_win_s")] public bool ShotWinS { get; set; } = true;           // Win + S starts a capture
     [JsonPropertyName("shot_ctrl_alt_s")] public bool ShotCtrlAltS { get; set; } = true;  // Ctrl + Alt + S starts a capture
 
@@ -262,6 +263,7 @@ public sealed class Manager
                 ShotAutoSave = c.ShotAutoSave,
                 ShotDir = c.ShotDir?.Trim() ?? "",
                 ShotWinS = c.ShotWinS,
+                OpenWinF = c.OpenWinF,
                 ShotCtrlAltS = c.ShotCtrlAltS,
                 RecDir = c.RecDir?.Trim() ?? "",
                 RecHotkey = c.RecHotkey,

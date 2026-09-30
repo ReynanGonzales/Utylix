@@ -37,6 +37,7 @@ public partial class SettingsWindow : Window
         BrowserStartBox.IsChecked = c.AllowBrowserStart;
         AutoUpdateBox.IsChecked = c.AutoUpdateYtDlp;
         AutoUpdateAppBox.IsChecked = c.AutoUpdateApp;
+        WinFBox.IsChecked = c.OpenWinF;
         VersionLabel.Text = "Utylix " + AppUpdater.CurrentText;
         ExplorerMenuBox.IsChecked = c.ExplorerMenu;
         ArchiveMenuBox.IsChecked = c.ExplorerArchiveMenu;
@@ -345,6 +346,7 @@ public partial class SettingsWindow : Window
                 ExplorerBgMenu = BgMenuBox.IsChecked == true,
                 ExplorerPlayMenu = PlayMenuBox.IsChecked == true,
                 ShotWinS = ShotWinSBox.IsChecked == true,
+                OpenWinF = WinFBox.IsChecked == true,
                 ShotCtrlAltS = ShotCtrlAltBox.IsChecked == true,
                 ShotCopy = ShotCopyBox.IsChecked == true,
                 ShotAutoSave = ShotAutoSaveBox.IsChecked == true,

@@ -132,6 +132,7 @@ public partial class App : Application
         _shortcuts = new Shortcuts();
         _shortcuts.Pressed += StartCaptureFromShortcut;
         _shortcuts.RecordPressed += () => { if (_shell != null) _ = _shell.Page<RecorderPage>("recorder").ToggleAsync(); };
+        _shortcuts.OpenPressed += OpenUtylix;
         _shortcuts.PausePressed += () => { if (_recordingPage != null) _ = _recordingPage.TogglePauseAsync(); };
         ApplyShortcuts();
         CreateTray();
@@ -487,10 +488,10 @@ public partial class App : Application
         var app = (App)Current;
         if (app._manager == null || app._shortcuts == null) return;
         var c = app._manager.Config;
-        var (ctrlAlt, win, record, pause) = app._shortcuts.Apply(c.ShotCtrlAltS, c.ShotWinS, c.RecHotkey);
+        var (ctrlAlt, win, record, pause) = app._shortcuts.Apply(c.ShotCtrlAltS, c.ShotWinS, c.RecHotkey, c.OpenWinF);
         var refused = new List<string>();
         if (!ctrlAlt) refused.Add("Ctrl + Alt + S");
-        if (!win) refused.Add("Win + S");
+        if (!win) refused.Add(c.OpenWinF && !c.ShotWinS ? "Win + F" : "Win + S / Win + F");
         if (!record) refused.Add("Ctrl + Alt + R");
         if (!pause) refused.Add("Ctrl + Alt + P");
         if (refused.Count > 0)
@@ -517,6 +518,14 @@ public partial class App : Application
     }
 
     /// <summary>Bring the window forward on the given tool ("downloads", "converter", "capture", "recorder", "player").</summary>
+    /// <summary>Win + F: bring Utylix up on the tool it was on; pressed again while it is in front, it goes back to the tray.</summary>
+    private void OpenUtylix()
+    {
+        if (_shell == null) return;
+        if (_shell.IsVisible && _shell.IsActive && _shell.WindowState != WindowState.Minimized) { _shell.Hide(); return; }
+        ShowTab(string.IsNullOrEmpty(_shell.CurrentKey) ? "downloads" : _shell.CurrentKey);
+    }
+
     private void ShowTab(string key)
     {
         if (_shell == null) return;
