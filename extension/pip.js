@@ -36,9 +36,12 @@
   }
 
   // Tell the extension whether the pointer is over a video, so the menu entry for covered videos can be shown only then.
-  function setOver(now) {
-    if (now === over) return;
+  let lastSent = 0;
+  function setOver(now, force = false) {
+    const t = performance.now();
+    if (now === over && !(force || (now && t - lastSent > 1000))) return;           // (while on a video: say so again every second, see background.js)
     over = now;
+    lastSent = t;
     try { chrome.runtime.sendMessage({ type: 'pip-hover', over }).catch(() => {}); } catch { /* extension was reloaded: this page needs a refresh */ }
   }
 
@@ -56,6 +59,7 @@
   const OWN_MENU = /(^|\.)(facebook\.com|fb\.com|fb\.watch|instagram\.com)$/i.test(location.hostname);
   window.addEventListener('contextmenu', (e) => {
     target = videoAt(e.clientX, e.clientY);
+    setOver(!!target, true);                                                          // right before the browser builds its menu
     if (OWN_MENU && target && e.isTrusted) e.stopImmediatePropagation();
   }, true);
 

@@ -555,11 +555,17 @@ function createPipMenu() {
 createPipMenu();
 chrome.runtime.onInstalled.addListener(createPipMenu);
 
-const pipOver = new Map();                                               // "tabId:frameId" -> the pointer is over a video there
+// "tabId:frameId" -> the pointer is over a video there. The browser puts this background script to sleep after a short idle time
+// and starts it fresh on the next event, which used to forget where the pointer was and hide the menu entry for good. So the
+// map is kept in session storage and read back first, and the page re-announces itself every second while the pointer is on a video.
+const pipOver = new Map();
+const pipSave = () => { try { chrome.storage.session.set({ pipOver: [...pipOver.keys()] }).catch(() => {}); } catch { /* no storage */ } };
+const pipReady = (async () => { try { const v = await chrome.storage.session.get({ pipOver: [] }); for (const k of v.pipOver) pipOver.set(k, true); } catch { /* start empty */ } })();
 const pipOverIn = tabId => [...pipOver.keys()].some(k => k.startsWith(tabId + ':'));
 
 async function syncPipMenu() {
   try {
+    await pipReady;
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab) return;
     chrome.contextMenus.update(PIP_ID, { visible: pipOverIn(tab.id) && !pipIsYouTube(tab.url) }, pipQuiet);
@@ -568,10 +574,10 @@ async function syncPipMenu() {
 chrome.tabs.onActivated.addListener(syncPipMenu);
 chrome.windows.onFocusChanged.addListener(syncPipMenu);
 chrome.tabs.onUpdated.addListener((tabId, change) => {
-  if (change.status === 'loading') { for (const k of [...pipOver.keys()]) if (k.startsWith(tabId + ':')) pipOver.delete(k); }
+  if (change.status === 'loading') { for (const k of [...pipOver.keys()]) if (k.startsWith(tabId + ':')) pipOver.delete(k); pipSave(); }
   if (change.url || change.status === 'loading') syncPipMenu();
 });
-chrome.tabs.onRemoved.addListener(tabId => { for (const k of [...pipOver.keys()]) if (k.startsWith(tabId + ':')) pipOver.delete(k); });
+chrome.tabs.onRemoved.addListener(tabId => { for (const k of [...pipOver.keys()]) if (k.startsWith(tabId + ':')) pipOver.delete(k); pipSave(); });
 syncPipMenu();
 
 // Scrolling the mouse wheel over the floating window = next / previous video. The browser never gives the wheel to the page, so the
@@ -609,8 +615,12 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (!msg || msg.type !== 'pip-hover' || sender.tab?.id == null) return;
   const key = `${sender.tab.id}:${sender.frameId || 0}`;
-  if (msg.over) pipOver.set(key, true); else pipOver.delete(key);
-  if (sender.tab.active) chrome.contextMenus.update(PIP_ID, { visible: pipOverIn(sender.tab.id) && !pipIsYouTube(sender.tab.url) }, pipQuiet);
+  pipReady.then(() => {
+    const had = pipOver.has(key);
+    if (msg.over) pipOver.set(key, true); else pipOver.delete(key);
+    if (had !== !!msg.over) pipSave();
+    if (sender.tab.active) chrome.contextMenus.update(PIP_ID, { visible: pipOverIn(sender.tab.id) && !pipIsYouTube(sender.tab.url) }, pipQuiet);
+  });
 });
 
 // Keyboard shortcut (Alt + P; change it in chrome://extensions/shortcuts): the same thing for the video that is playing on the page.
