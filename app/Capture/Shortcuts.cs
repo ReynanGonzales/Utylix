@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Interop;
 
 namespace IdmClone;
@@ -27,6 +28,15 @@ public sealed class Shortcuts : IDisposable
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
     [DllImport("user32.dll")] private static extern uint SendInput(uint count, INPUT[] inputs, int size);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? name);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] private static extern int GetMessage(out MSG msg, IntPtr hwnd, uint min, uint max);
+    [DllImport("user32.dll")] private static extern bool PeekMessage(out MSG msg, IntPtr hwnd, uint min, uint max, uint remove);
+    [DllImport("user32.dll")] private static extern bool TranslateMessage(ref MSG msg);
+    [DllImport("user32.dll")] private static extern IntPtr DispatchMessage(ref MSG msg);
+    [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint thread, uint msg, IntPtr w, IntPtr l);
+    [DllImport("user32.dll")] private static extern UIntPtr SetTimer(IntPtr hwnd, UIntPtr id, uint ms, IntPtr proc);
+    [StructLayout(LayoutKind.Sequential)] private struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public int x, y; }
+    private const uint WM_QUIT = 0x0012, WM_TIMER = 0x0113, WM_APP_HOOK = 0x8001, WM_APP_UNHOOK = 0x8002;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct KBDLLHOOKSTRUCT { public uint vkCode, scanCode, flags, time; public UIntPtr extra; }
@@ -38,9 +48,13 @@ public sealed class Shortcuts : IDisposable
 
     private readonly HwndSource _window;                 // hidden window that receives the hotkey message
     private readonly HookProc _hookProc;                 // kept in a field so it is not collected while hooked
-    private IntPtr _hook;
+    private IntPtr _hook;                                // (only touched by the hook thread)
     private bool _swallowedS, _swallowedF;
-    private bool _winSOn, _winFOn;
+    private volatile bool _winSOn, _winFOn;
+    private Thread? _hookThread;
+    private uint _hookThreadId;
+    private readonly ManualResetEventSlim _hookReady = new(false);
+    private volatile bool _hookInstalled;
     private bool _ctrlAltRegistered, _recordRegistered, _pauseRegistered;
 
     /// <summary>Raised on the UI thread when a capture shortcut was pressed.</summary>
@@ -89,14 +103,67 @@ public sealed class Shortcuts : IDisposable
             ok1 = _ctrlAltRegistered;
         }
 
-        if (_hook != IntPtr.Zero && !winS && !winF) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
         bool ok2 = true;
-        if ((winS || winF) && _hook == IntPtr.Zero)
-        {
-            _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _hookProc, GetModuleHandle(null), 0);
-            ok2 = _hook != IntPtr.Zero;
-        }
+        if (winS || winF) ok2 = StartHook(); else StopHook();
         return (ok1, ok2, ok3, ok4);
+    }
+
+    // The keyboard hook lives on its OWN thread with its own message loop. Windows gives a low-level hook only a fraction of a second
+    // to answer; if the program's window thread is busy for longer (a download, a capture, a heavy redraw), Windows quietly throws the
+    // hook away and Win + S / Win + F stop working until the next start. On its own thread the hook always answers at once (it only
+    // hands the work to the window thread), and it is put in again every 20 seconds and whenever Windows wakes up, in case it was dropped.
+    private bool StartHook()
+    {
+        if (_hookThread == null || !_hookThread.IsAlive)
+        {
+            _hookReady.Reset();
+            _hookThread = new Thread(HookThreadMain) { IsBackground = true, Name = "Utylix keyboard hook" };
+            _hookThread.SetApartmentState(ApartmentState.STA);
+            _hookThread.Start();
+            _hookReady.Wait(TimeSpan.FromSeconds(3));
+        }
+        else
+        {
+            _hookReady.Reset();
+            PostThreadMessage(_hookThreadId, WM_APP_HOOK, IntPtr.Zero, IntPtr.Zero);
+            _hookReady.Wait(TimeSpan.FromSeconds(3));
+        }
+        return _hookInstalled;
+    }
+
+    private void StopHook()
+    {
+        if (_hookThread is { IsAlive: true }) PostThreadMessage(_hookThreadId, WM_APP_UNHOOK, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    private void InstallHook()
+    {
+        if (_hook != IntPtr.Zero) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
+        _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _hookProc, GetModuleHandle(null), 0);
+        _hookInstalled = _hook != IntPtr.Zero;
+        _hookReady.Set();
+    }
+
+    private void HookThreadMain()
+    {
+        PeekMessage(out _, IntPtr.Zero, 0, 0, 0);                                  // makes this thread's message queue
+        _hookThreadId = GetCurrentThreadId();
+        InstallHook();
+        SetTimer(IntPtr.Zero, UIntPtr.Zero, 20000, IntPtr.Zero);
+        while (GetMessage(out var m, IntPtr.Zero, 0, 0) > 0)
+        {
+            if (m.message == WM_APP_HOOK) InstallHook();
+            else if (m.message == WM_APP_UNHOOK) { if (_hook != IntPtr.Zero) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; } _hookInstalled = false; _hookReady.Set(); }
+            else if (m.message == WM_TIMER && (_winSOn || _winFOn)) InstallHook();
+            else { TranslateMessage(ref m); DispatchMessage(ref m); }
+        }
+        if (_hook != IntPtr.Zero) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
+    }
+
+    /// <summary>Put the hook in again now (after the PC wakes up, the screen is unlocked ...).</summary>
+    public void Refresh()
+    {
+        if ((_winSOn || _winFOn) && _hookThread is { IsAlive: true }) PostThreadMessage(_hookThreadId, WM_APP_HOOK, IntPtr.Zero, IntPtr.Zero);
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -177,7 +244,7 @@ public sealed class Shortcuts : IDisposable
         if (_ctrlAltRegistered) UnregisterHotKey(_window.Handle, HotkeyId);
         if (_recordRegistered) UnregisterHotKey(_window.Handle, RecordHotkeyId);
         if (_pauseRegistered) UnregisterHotKey(_window.Handle, PauseHotkeyId);
-        if (_hook != IntPtr.Zero) UnhookWindowsHookEx(_hook);
+        if (_hookThread is { IsAlive: true }) PostThreadMessage(_hookThreadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
         _window.Dispose();
     }
 }

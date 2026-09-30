@@ -133,6 +133,9 @@ public partial class App : Application
         _shortcuts.Pressed += StartCaptureFromShortcut;
         _shortcuts.RecordPressed += () => { if (_shell != null) _ = _shell.Page<RecorderPage>("recorder").ToggleAsync(); };
         _shortcuts.OpenPressed += OpenUtylix;
+        // a hook can be lost while the PC sleeps or is locked: put it in again
+        Microsoft.Win32.SystemEvents.PowerModeChanged += (_, ev) => { if (ev.Mode == Microsoft.Win32.PowerModes.Resume) _shortcuts?.Refresh(); };
+        Microsoft.Win32.SystemEvents.SessionSwitch += (_, _) => _shortcuts?.Refresh();
         _shortcuts.PausePressed += () => { if (_recordingPage != null) _ = _recordingPage.TogglePauseAsync(); };
         ApplyShortcuts();
         CreateTray();
