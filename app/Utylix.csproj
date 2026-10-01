@@ -20,6 +20,10 @@
     <Resource Include="convert.ico" />
     <Resource Include="logo.png" />
     <Resource Include="player.ico" />
+    <Resource Include="photos.ico" />
+    <Resource Include="music.ico" />
+    <Resource Include="music.png" />
+    <Resource Include="photos.png" />
     <Resource Include="player.png" />
     <Resource Include="archive.ico" />
     <Resource Include="archive.png" />

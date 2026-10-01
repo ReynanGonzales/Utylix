@@ -181,6 +181,7 @@ public partial class App : Application
             ShellMenu.RegisterArchive(dataDir, _manager.Config.ExplorerArchiveMenu);   // right-click -> Extract / Add to ZIP
             ShellMenu.RegisterBackground(dataDir, _manager.Config.ExplorerBgMenu);     // right-click -> Remove background
             ShellMenu.RegisterPlayer(dataDir, _manager.Config.ExplorerPlayMenu);       // right-click -> Play with Utylix, and "Open with"
+            ShellMenu.RegisterViewer(dataDir);                                         // "Open with" Utylix on pictures
             ShellMenu.RegisterTorrent(_manager.Config.TorrentHandler);                 // magnet links and .torrent files can be opened with Utylix
         }
         _quickBackground = new QuickBackground((title, text, error, reveal) => Dispatcher.BeginInvoke(() =>
@@ -209,7 +210,8 @@ public partial class App : Application
 
         if (toolCmd != null)                                                               // started by the right-click menu: no main window
         {
-            if (toolCmd.Value.Op == "play") { _ephemeral = true; PlayerWindow.AnyClosed += MaybeQuitAfterArchive; }   // a double-clicked video: go away when the player is closed
+            if (toolCmd.Value.Op == "view") { _ephemeral = true; ViewerWindow.AnyClosed += MaybeQuitAfterArchive; }            // a double-clicked picture: go away when the viewer is closed
+            if (toolCmd.Value.Op == "play") { _ephemeral = true; PlayerWindow.AnyClosed += MaybeQuitAfterArchive; MusicWindow.AnyClosed += MaybeQuitAfterArchive; }   // a double-clicked video: go away when the player is closed
             HandleTool(toolCmd.Value.Op, toolCmd.Value.Files);
         }
         else if (convert != null) HandleConvert(convert.Value.Files, convert.Value.Format);   // started by the right-click menu: no main window
@@ -230,16 +232,24 @@ public partial class App : Application
         if (args.Contains("--extension-help")) return ("extension", new List<string>());    // shows how to add the browser extension
         if (args.Contains("--snip")) return ("snip", new List<string>());                  // opens the Snip window
         if (args.Contains("--brightness")) return ("brightness", new List<string>());       // opens the brightness panel
-        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent");
+        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent" or "--view");
         if (i < 0) return null;
         var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).ToList();
-        return files.Count == 0 ? null : (args[i] == "--remove-bg" ? "remove-bg" : args[i] == "--torrent" ? "torrent" : "play", files);
+        return files.Count == 0 ? null : (args[i] == "--remove-bg" ? "remove-bg" : args[i] == "--torrent" ? "torrent" : args[i] == "--view" ? "view" : "play", files);
     }
 
     private void HandleTool(string op, List<string> files)
     {
         if (op == "remove-bg") _quickBackground?.Enqueue(files.Where(BackgroundRemover.IsPicture));
-        else if (op == "play") PlayerWindow.Open(files);
+        else if (op == "play")
+        {
+            // songs go to the music player, videos to the video player (a mix: each to its own)
+            var songs = files.Where(PlayerMedia.IsAudio).ToList();
+            var videos = files.Where(f => !PlayerMedia.IsAudio(f)).ToList();
+            if (songs.Count > 0) MusicWindow.Open(songs);
+            if (videos.Count > 0) PlayerWindow.Open(videos);
+        }
+        else if (op == "view") ViewerWindow.Open(files);
         else if (op == "torrent") { foreach (var source in files.Where(TorrentSource.Is)) _manager!.Add(source, null, null); ShowTab("downloads"); }
         else if (op == "brightness") BrightnessWindow.ShowPanel();
         else if (op == "update") AppUpdateWindow.ShowWindow(_manager!);
@@ -282,13 +292,13 @@ public partial class App : Application
 
     private void MaybeQuitAfterArchive()
     {
-        if (!_ephemeral || ArchiveWindow.Count > 0 || PlayerWindow.Count > 0 || (_shell?.IsVisible ?? false) || _manager == null) return;
+        if (!_ephemeral || ArchiveWindow.Count > 0 || PlayerWindow.Count > 0 || ViewerWindow.Count > 0 || MusicWindow.Count > 0 || (_shell?.IsVisible ?? false) || _manager == null) return;
         if (_manager.All().Any(d => d.Status is DlStatus.Downloading or DlStatus.Queued)) return;      // it is doing something else too
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (_ephemeral && ArchiveWindow.Count == 0 && PlayerWindow.Count == 0 && !(_shell?.IsVisible ?? false)) Quit();
+            if (_ephemeral && ArchiveWindow.Count == 0 && PlayerWindow.Count == 0 && ViewerWindow.Count == 0 && MusicWindow.Count == 0 && !(_shell?.IsVisible ?? false)) Quit();
         };
         timer.Start();
     }
@@ -655,6 +665,10 @@ public partial class App : Application
         menu.Items.Add("Screen Capture", null, (_, _) => Dispatcher.Invoke(() => SnipWindow.Get(_manager!).Open()));      // opens the window like the Snipping Tool; Win + S snips at once
         menu.Items.Add("Browser extension…", null, (_, _) => Dispatcher.Invoke(() => ExtensionFiles.ShowHelp()));
         menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
+        menu.Items.Add("Photo viewer…", null, (_, _) => Dispatcher.Invoke(ViewerWindow.Browse));
+        menu.Items.Add("Music player", null, (_, _) => Dispatcher.Invoke(MusicWindow.OpenEmpty));
+        menu.Items.Add("Music: play / pause", null, (_, _) => MusicWindow.TogglePlayFromOutside());
+        menu.Items.Add("Music: next song", null, (_, _) => MusicWindow.NextFromOutside());
         menu.Items.Add("Screen Recorder", null, (_, _) => Dispatcher.Invoke(() => ShowTab("recorder")));
         _stopRecordingItem = menu.Items.Add("Stop recording", null, (_, _) => Dispatcher.Invoke(() => { if (_recordingPage != null) _ = _recordingPage.StopAsync(); }));
         _stopRecordingItem.Enabled = false;

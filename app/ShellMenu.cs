@@ -156,6 +156,44 @@ public static class ShellMenu
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
     }
 
+    // ---------- pictures ----------
+    private const string PictureProgId = "Utylix.PictureFile";
+
+    /// <summary>Utylix in the "Open with" list of pictures (so it can be made the default), starting the photo viewer. Pass null to remove it.</summary>
+    public static void RegisterViewer(string? dataDir)
+    {
+        try
+        {
+            string exe = Environment.ProcessPath!;
+            bool enabled = dataDir != null;
+            if (enabled)
+            {
+                string icon = OwnIcon(dataDir!, "photos", IconOf(exe));
+                using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + PictureProgId);
+                SetIfDifferent(progId, "", "Picture (opened with Utylix)");
+                using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", icon);
+                using var cmd = progId.CreateSubKey(@"shell\open\command");
+                SetIfDifferent(cmd, "", $"\"{exe}\" --view \"%1\"");
+            }
+            else Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + PictureProgId, throwOnMissingSubKey: false);
+
+            foreach (string ext in ViewerWindow.Extensions)
+            {
+                if (enabled)
+                {
+                    using var owp = Registry.CurrentUser.CreateSubKey($@"Software\Classes\.{ext}\OpenWithProgids");
+                    if (!owp.GetValueNames().Contains(PictureProgId)) owp.SetValue(PictureProgId, new byte[0], RegistryValueKind.None);
+                }
+                else
+                {
+                    using var owp = Registry.CurrentUser.OpenSubKey($@"Software\Classes\.{ext}\OpenWithProgids", writable: true);
+                    owp?.DeleteValue(PictureProgId, throwOnMissingValue: false);
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
+    }
+
     // ---------- torrents ----------
     private const string TorrentProgId = "Utylix.Torrent", MagnetProgId = "Utylix.Magnet";
 

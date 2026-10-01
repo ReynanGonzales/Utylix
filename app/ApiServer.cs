@@ -264,7 +264,7 @@ public sealed class ApiServer
         using var doc = JsonDocument.Parse(new StreamReader(ctx.Request.InputStream).ReadToEnd());
         var root = doc.RootElement;
         string op = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("op", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString() ?? "" : "";
-        if (op is not ("remove-bg" or "play" or "torrent" or "brightness" or "update" or "snip" or "extension")) throw new ArgumentException("unknown operation");
+        if (op is not ("remove-bg" or "play" or "view" or "torrent" or "brightness" or "update" or "snip" or "extension")) throw new ArgumentException("unknown operation");
         if (op is "brightness" or "update" or "snip" or "extension") { _tool(op, new List<string>()); Send(ctx, 200, new { accepted = 0 }, null); return; }     // opens the brightness panel / the update window
         if (!root.TryGetProperty("files", out var arr) || arr.ValueKind != JsonValueKind.Array) throw new ArgumentException("expected {\"files\": [...]}");
         var files = new List<string>();
@@ -281,7 +281,7 @@ public sealed class ApiServer
             }
             // only real, absolute paths of local files of the right kind: nothing else is ever read
             if (p == null || p.Length >= 32768 || !Path.IsPathFullyQualified(p) || p.StartsWith(@"\\", StringComparison.Ordinal) || !File.Exists(p)) continue;
-            if (op == "remove-bg" ? !BackgroundRemover.IsPicture(p) : !PlayerMedia.IsPlayable(p)) continue;
+            if (op == "remove-bg" ? !BackgroundRemover.IsPicture(p) : op == "view" ? !ViewerWindow.IsViewable(p) : !PlayerMedia.IsPlayable(p)) continue;
             files.Add(Path.GetFullPath(p));
         }
         if (files.Count > 0) _tool(op, files);

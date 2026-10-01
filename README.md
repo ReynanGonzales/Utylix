@@ -244,6 +244,20 @@ the installer will do that for you later). If Utylix was started only to play a 
 - **Remembers** where you stopped in each file (not for files under a minute), the volume, the window size and a recent list.
   The screen stays awake while a video plays.
 
+## Photo viewer
+
+A quick, dark window for pictures. Open one from Explorer (right-click > Open with > Utylix, or make it the default for pictures in Windows' Default apps), from the Dashboard / tray ("Photo viewer…"), or drop pictures on it.
+
+- Left / Right (or the arrows on the sides, or the mouse's back / forward buttons) go through the folder in Explorer's order; Home / End jump to the first / last.
+- The wheel zooms around the pointer, drag moves, double-click toggles fit / 100 %. `+` `-` zoom, `0` fits, `1` is actual size.
+- `R` / Shift+R rotate (photos are turned upright by their own orientation tag), Space plays a slideshow (3 s), `T` shows a strip of small pictures, F11 (or F) is full screen.
+- Ctrl+C copies the picture, Delete moves it to the Recycle Bin, Esc closes.
+- It reads what Windows can decode: JPEG, PNG, GIF (first frame), BMP, TIFF, ICO; WebP, HEIC and AVIF need Microsoft's free codec extensions from the Store (the window says so).
+
+## Music player
+
+Songs open in their own player (videos still open in the Video Player): a playlist with cover art (from the file, or a `cover.jpg` / `folder.jpg` next to it), shuffle, repeat (off / all / one), and the keyboard's media keys (play-pause, next, previous) while it is open. Open one song from Explorer and the rest of its folder follows it. "Add folder…" adds a folder and its folders; "Show: …" switches the list and the player between song + artist, artist only and song only; "Small player" hides the list. The tray menu has "Music: play / pause" and "Music: next song".
+
 ## Background Remover
 
 Right-click a picture (PNG, JPG, WebP, BMP, TIFF, HEIC, AVIF) → **Remove background**. A few seconds later a notice says
