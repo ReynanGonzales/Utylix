@@ -66,6 +66,9 @@ public static class TorrentService
         AutoSaveLoadMagnetLinkMetadata = true,
         ListenEndPoints = new Dictionary<string, IPEndPoint> { ["ipv4"] = new IPEndPoint(IPAddress.Any, Port()) },
         DhtEndPoint = new IPEndPoint(IPAddress.Any, Port()),
+        // most peers of an old torrent do not answer: try many at once and give up on a silent one sooner (the library tries 8, each for 10 s)
+        MaximumHalfOpenConnections = 40,
+        ConnectionTimeout = TimeSpan.FromSeconds(6),
         MaximumDownloadRate = Math.Max(0, cfg.TorrentDownKb) * 1024,
         MaximumUploadRate = Math.Max(0, cfg.TorrentUpKb) * 1024,
     }.ToSettings();
