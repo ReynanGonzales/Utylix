@@ -35,6 +35,20 @@ public sealed class DashboardPage : UserControl
         AutomationProperties.SetAutomationId(head, "DashboardTitle");
         root.Children.Add(head);
 
+        // ---- the PC: fans and temperatures ----
+        root.Children.Add(Heading("This PC"));
+        root.Children.Add(Fans);
+
+        // ---- downloads (in the fans' area, just above the safety settings) ----
+        var downloads = new Border { Style = (Style)R("Section"), Padding = new Thickness(16, 12, 16, 14), Margin = new Thickness(0, 0, 0, 0) };
+        var dstack = new StackPanel();
+        AutomationProperties.SetAutomationId(_downloadsLine, "DashDownloadsLine");
+        dstack.Children.Add(_downloadsLine);
+        dstack.Children.Add(_recent);
+        downloads.Child = dstack;
+        Fans.ExtraSlot.Children.Add(Heading("Downloads"));
+        Fans.ExtraSlot.Children.Add(downloads);
+
         // ---- quick actions ----
         root.Children.Add(Heading("Quick actions"));
         var tiles = new WrapPanel();
@@ -57,20 +71,6 @@ public sealed class DashboardPage : UserControl
         Tile("", "Browser extension", "DashExtension", () => ExtensionFiles.ShowHelp(Window.GetWindow(this)));
         Tile("", "Check for updates", "DashUpdates", () => AppUpdateWindow.ShowWindow(_manager));
         root.Children.Add(tiles);
-
-        // ---- downloads (in the fans' area, just above the safety settings) ----
-        var downloads = new Border { Style = (Style)R("Section"), Padding = new Thickness(16, 12, 16, 14), Margin = new Thickness(0, 0, 0, 0) };
-        var dstack = new StackPanel();
-        AutomationProperties.SetAutomationId(_downloadsLine, "DashDownloadsLine");
-        dstack.Children.Add(_downloadsLine);
-        dstack.Children.Add(_recent);
-        downloads.Child = dstack;
-        Fans.ExtraSlot.Children.Add(Heading("Downloads"));
-        Fans.ExtraSlot.Children.Add(downloads);
-
-        // ---- the PC: fans and temperatures ----
-        root.Children.Add(Heading("This PC"));
-        root.Children.Add(Fans);
 
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         _timer.Tick += (_, _) => Refresh();
