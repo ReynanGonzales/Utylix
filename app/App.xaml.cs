@@ -70,6 +70,8 @@ public partial class App : Application
         Tools.Dir = toolsDir ?? Path.Combine(dataDir, "tools");
         DataDir = dataDir;
 
+        int fanSuffix = Array.IndexOf(e.Args, "--fan-suffix");
+        if (fanSuffix >= 0 && fanSuffix + 1 < e.Args.Length) FanJson.Suffix = new string(e.Args[fanSuffix + 1].Where(char.IsLetterOrDigit).ToArray());
         // the administrator helper of the Fans tab: reads the hardware and sets fans for the normal Utylix, no windows
         // one-time setup / removal of the "start the fan helper without a prompt" task (started with administrator rights, then ends)
         int taskInstall = Array.IndexOf(e.Args, "--fan-task-install");
@@ -142,7 +144,7 @@ public partial class App : Application
         ApiPort.Publish(dataDir, chosen);             // the browser link and Explorer's menus find this copy through it
 
         _shell = new ShellWindow(_manager);
-        _ = Dispatcher.BeginInvoke(() => _shell.Page<FansPage>("fans"));            // starts the fan helper by itself when that is set up (no click)
+        _ = Dispatcher.BeginInvoke(() => _shell.Page<DashboardPage>("home"));            // starts the fan helper by itself when that is set up (no click)
         Recorder.CleanLeftovers();
         _shortcuts = new Shortcuts();
         _shortcuts.Pressed += StartCaptureFromShortcut;

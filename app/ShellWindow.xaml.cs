@@ -32,6 +32,7 @@ public partial class ShellWindow : Window
     private bool _animating;
 
     public bool AllowClose { get; set; }
+    private string _beforeHome = "downloads";
 
     /// <summary>Key of the tool that is showing.</summary>
     public string CurrentKey => _current;
@@ -47,7 +48,7 @@ public partial class ShellWindow : Window
         Add(new("converter", "Multi Convert", () => new ConverterPage(), 820, 820, 810, 720));
         Add(new("player", "Video Player", () => new PlayerPage(manager), 820, 640, 810, 480));
         Add(new("recorder", "Screen Recorder", () => new RecorderPage(manager), 860, 760, 810, 560));
-        Add(new("fans", "Fans", () => new FansPage(), 900, 760, 810, 560));
+        Add(new("home", "Dashboard", () => new DashboardPage(manager), 1000, 780, 810, 560), inBar: false);     // opened by the logo
 
         SizeChanged += (_, _) =>
         {
@@ -70,7 +71,7 @@ public partial class ShellWindow : Window
         catch (Exception) { return false; }
     }
 
-    private void Add(Tool tool)
+    private void Add(Tool tool, bool inBar = true)
     {
         _tools.Add(tool);
         var content = new StackPanel { Orientation = Orientation.Horizontal };
@@ -88,7 +89,7 @@ public partial class ShellWindow : Window
         }
         tab.Checked += (_, _) => { if (!_selecting) SelectTab(tool.Key); };
         _tabs[tool.Key] = tab;
-        Tabs.Children.Add(tab);
+        if (inBar) Tabs.Children.Add(tab);
     }
 
     private void RefreshBadge()
@@ -112,8 +113,10 @@ public partial class ShellWindow : Window
         _current = key;
 
         _selecting = true;
-        _tabs[key].IsChecked = true;
+        foreach (var other in _tabs.Values) other.IsChecked = false;                // (the dashboard has no tab in the bar)
+        if (key != "home") { _tabs[key].IsChecked = true; _beforeHome = key; }
         _selecting = false;
+        LogoLine.Opacity = key == "home" ? 1 : 0;
 
         var page = Page<UserControl>(key);
         Host.Content = page;
@@ -185,6 +188,8 @@ public partial class ShellWindow : Window
         }
         base.OnClosing(e);
     }
+
+    private void Logo_Click(object sender, RoutedEventArgs e) => SelectTab(_current == "home" ? _beforeHome : "home");
 
     private void Settings_Click(object sender, RoutedEventArgs e) =>
         new SettingsWindow(_manager, _current) { Owner = this }.ShowDialog();      // opens on the settings of the tab you are on

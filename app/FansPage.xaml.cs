@@ -25,6 +25,8 @@ public partial class FansPage : UserControl
         public required StackPanel FixedPanel, CurvePanel;
         public required TextBox Points;
         public required RadioButton Auto, Fixed, Curve, Cpu, Gpu;
+        public RotateTransform? Spin;
+        public double LastRpm;
     }
 
     private readonly FanSettings _settings = FanSettings.Load();
@@ -46,6 +48,7 @@ public partial class FansPage : UserControl
         _timer.Tick += async (_, _) => await TickAsync();
         _debounce.Tick += async (_, _) => { _debounce.Stop(); await PushAsync(); };
         SetOff();
+        Cards.SizeChanged += (_, _) => Relayout();
         _timer.Start();                                           // (the helper wants to hear from us every second, whether or not this tab is showing)
         _ = BringUpAsync(interactive: false);                     // fan control starts by itself when it has been set up before
     }
@@ -174,9 +177,33 @@ public partial class FansPage : UserControl
             var card = BuildCard(control, fan, index++);
             _cards[control.Id] = card;
         }
+        Relayout();
         if (_cards.Count == 0)
             Cards.Children.Add(new TextBlock { Text = "No fan that can be set was found. Reading the temperatures still works.", Foreground = (Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 10, 0, 0) });
         _building = false;
+    }
+
+    /// <summary>A little fan (three blades) that the card turns at the speed of the real one.</summary>
+    private FrameworkElement FanIcon(out RotateTransform spin)
+    {
+        spin = new RotateTransform(0, 18, 18);
+        var canvas = new Canvas { Width = 36, Height = 36, RenderTransform = spin, ToolTip = "Turns as fast as the fan" };
+        var blade = Geometry.Parse("M18,18 C14,8 20,1 27,3 C31,10 26,16 18,18 Z");
+        for (int i = 0; i < 3; i++)
+            canvas.Children.Add(new System.Windows.Shapes.Path { Data = blade, Fill = (Brush)FindResource("AccentBrush"), RenderTransform = new RotateTransform(i * 120, 18, 18) });
+        var hub = new System.Windows.Shapes.Ellipse { Width = 9, Height = 9, Fill = (Brush)FindResource("CardBrush"), Stroke = (Brush)FindResource("AccentBrush"), StrokeThickness = 1.5 };
+        Canvas.SetLeft(hub, 13.5); Canvas.SetTop(hub, 13.5);
+        canvas.Children.Add(hub);
+        return new Border { Width = 36, Height = 36, Child = canvas, Background = Brushes.Transparent };
+    }
+
+    /// <summary>Two cards per row (one when the page is narrow).</summary>
+    private void Relayout()
+    {
+        double w = Cards.ActualWidth;
+        if (w <= 0) return;
+        double each = w >= 700 ? Math.Floor(w / 2) - 12 : w - 12;
+        foreach (FrameworkElement card in Cards.Children.OfType<Border>()) card.Width = Math.Max(250, each);
     }
 
     /// <summary>The few temperatures worth looking at: the processor, the graphics card, and one board reading that looks believable.</summary>
@@ -197,12 +224,18 @@ public partial class FansPage : UserControl
         string mode = rule?.Mode ?? "auto";
         if (rule != null && rule.Points.Count == 0) rule.Points = FanSettings.Presets[1].Points.Select(p => (double[])p.Clone()).ToList();
 
-        var border = new Border { Style = (Style)FindResource("Section"), Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(16, 12, 16, 14) };
+        var border = new Border { Style = (Style)FindResource("Section"), Margin = new Thickness(0, 12, 12, 0), Padding = new Thickness(16, 12, 16, 14) };
         var root = new StackPanel();
         border.Child = root;
         AutomationProperties.SetAutomationId(border, "FanCard" + index);
 
         var head = new Grid();
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition());
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var icon = FanIcon(out var spin);
+        icon.Margin = new Thickness(0, 0, 10, 0);
+        Grid.SetColumn(icon, 0);
         var name = new TextBlock { Text = NameOf(control), FontWeight = FontWeights.SemiBold, FontSize = 15, Cursor = Cursors.Hand, ToolTip = "Double-click to rename" };
         AutomationProperties.SetAutomationId(name, "FanName" + index);
         name.MouseLeftButtonDown += (_, e) =>
@@ -212,15 +245,19 @@ public partial class FansPage : UserControl
             if (n == null) return;
             _settings.Names[control.Id] = n.Trim(); _settings.Save(); name.Text = NameOf(control);
         };
-        var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        var rpm = new TextBlock { FontSize = 15, FontWeight = FontWeights.SemiBold };
-        var now = new TextBlock { Margin = new Thickness(12, 0, 0, 0), Foreground = (Brush)FindResource("MutedBrush"), VerticalAlignment = VerticalAlignment.Center };
+        var right = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right };
+        Grid.SetColumn(right, 2);
+        var rpm = new TextBlock { FontSize = 15, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Right };
+        var now = new TextBlock { FontSize = 12, Foreground = (Brush)FindResource("MutedBrush"), HorizontalAlignment = HorizontalAlignment.Right };
         AutomationProperties.SetAutomationId(rpm, "FanRpm" + index);
         AutomationProperties.SetAutomationId(now, "FanNow" + index);
         right.Children.Add(rpm); right.Children.Add(now);
-        head.Children.Add(name); head.Children.Add(right);
+        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        titles.Children.Add(name);
+        titles.Children.Add(new TextBlock { Text = control.Hardware, FontSize = 12, Foreground = (Brush)FindResource("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis });
+        Grid.SetColumn(titles, 1);
+        head.Children.Add(icon); head.Children.Add(titles); head.Children.Add(right);
         root.Children.Add(head);
-        root.Children.Add(new TextBlock { Text = control.Hardware, FontSize = 12, Foreground = (Brush)FindResource("MutedBrush") });
 
         var chips = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         RadioButton Chip(string text, string id, bool on, string group)
@@ -237,7 +274,7 @@ public partial class FansPage : UserControl
 
         var fixedPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0), Visibility = mode == "manual" ? Visibility.Visible : Visibility.Collapsed };
         double floor = Math.Max(control.Min, _settings.Floor);
-        var slider = new Slider { Minimum = floor, Maximum = Math.Max(floor + 1, control.Max), Width = 320, Value = Math.Clamp(rule?.Percent ?? 50, floor, 100), TickFrequency = 5, IsSnapToTickEnabled = false, VerticalAlignment = VerticalAlignment.Center };
+        var slider = new Slider { Minimum = floor, Maximum = Math.Max(floor + 1, control.Max), Width = 250, Value = Math.Clamp(rule?.Percent ?? 50, floor, 100), TickFrequency = 5, IsSnapToTickEnabled = false, VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetAutomationId(slider, "FanSlider" + index);
         var sliderValue = new TextBlock { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, MinWidth = 44 };
         fixedPanel.Children.Add(slider); fixedPanel.Children.Add(sliderValue);
@@ -254,14 +291,14 @@ public partial class FansPage : UserControl
         curvePanel.Children.Add(srcRow);
         var presetRow = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
         presetRow.Children.Add(new TextBlock { Text = "Start from", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) });
-        var points = new TextBox { Style = (Style)FindResource("Field"), Margin = new Thickness(0, 8, 0, 0), MaxWidth = 520, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 420 };
+        var points = new TextBox { Style = (Style)FindResource("Field"), Margin = new Thickness(0, 8, 0, 0), MaxWidth = 520 };
         AutomationProperties.SetAutomationId(points, "FanPoints" + index);
         curvePanel.Children.Add(presetRow);
         curvePanel.Children.Add(new TextBlock { Text = "Curve: temperature in °C : fan speed in %, separated by commas", FontSize = 12, Foreground = (Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 10, 0, 0) });
         curvePanel.Children.Add(points);
         root.Children.Add(curvePanel);
 
-        var card = new Card { Control = control, Fan = fan, Rpm = rpm, Now = now, Slider = slider, SliderValue = sliderValue, FixedPanel = fixedPanel, CurvePanel = curvePanel, Points = points, Auto = auto, Fixed = fixedChip, Curve = curveChip, Cpu = cpu, Gpu = gpu };
+        var card = new Card { Control = control, Fan = fan, Rpm = rpm, Now = now, Slider = slider, SliderValue = sliderValue, FixedPanel = fixedPanel, CurvePanel = curvePanel, Spin = spin, Points = points, Auto = auto, Fixed = fixedChip, Curve = curveChip, Cpu = cpu, Gpu = gpu };
         points.Text = FormatPoints((rule?.Points.Count > 0 ? rule.Points : FanSettings.Presets[1].Points.Select(p => (double[])p.Clone()).ToList()));
         foreach (var (pname, ppoints) in FanSettings.Presets)
         {
@@ -330,6 +367,13 @@ public partial class FansPage : UserControl
             var control = _sensors.FirstOrDefault(s => s.Id == id);
             var fan = control == null ? null : FanOf(control);
             card.Rpm.Text = fan?.Value is double rpm ? rpm.ToString("0", CultureInfo.InvariantCulture) + " RPM" : "– RPM";
+            double speed = fan?.Value ?? 0;
+            if (card.Spin != null && Math.Abs(speed - card.LastRpm) > Math.Max(60, card.LastRpm * 0.15))        // the icon turns as fast as the fan (roughly)
+            {
+                card.LastRpm = speed;
+                card.Spin.BeginAnimation(RotateTransform.AngleProperty, speed <= 0 ? null
+                    : new System.Windows.Media.Animation.DoubleAnimation(0, 360, TimeSpan.FromSeconds(Math.Clamp(1200.0 / speed, 0.25, 6))) { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever });
+            }
             card.Now.Text = control?.Value is double pct ? (control.Auto ? "PC decides, now " : "set, now ") + pct.ToString("0", CultureInfo.InvariantCulture) + " %" : "";
         }
     }

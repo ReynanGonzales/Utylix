@@ -56,5 +56,7 @@ public sealed class FanReply
 internal static class FanJson
 {
     public static readonly JsonSerializerOptions Options = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
-    public static string PipeFor(string ownerSid) => "Utylix.Fans." + ApiPort.UserIdOf(ownerSid);
+    /// <summary>A test copy of Utylix gives its own name to the pipe ("--fan-suffix x") so it never talks to the real helper.</summary>
+    public static string Suffix { get; set; } = "";
+    public static string PipeFor(string ownerSid) => "Utylix.Fans." + ApiPort.UserIdOf(ownerSid) + Suffix;
 }

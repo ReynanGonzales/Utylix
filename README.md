@@ -44,10 +44,14 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
    `chrome://extensions` / `brave://extensions` and the `extension` folder of this repository.)
 3. Download something in the browser – it shows up in Utylix. If Utylix isn't running, the extension starts it. Utylix comes up on its Downloads tab when a download starts (Settings → Downloads switches this off).
 
-## Fans
+## Dashboard and fans
 
-The **Fans** tab shows the temperatures (processor, graphics card, motherboard) and the speed of every fan that spins, and
-lets you set each fan: **Automatic** (the PC decides, as always), **Fixed speed** (a slider), or **Curve** (the fan speed follows
+Click the **Utylix logo** at the top left to open the **dashboard** (click it again to go back to the tool you were in): quick
+actions (take a snip, record the screen, video player, convert files, downloads, brightness, browser extension, check for
+updates), what the downloads are doing, and under *This PC* the fans.
+
+The fan part shows the temperatures (processor, graphics card, one board reading) and, two to a row, every fan that spins with
+a little fan icon that turns as fast as the real one, and lets you set each fan: **Automatic** (the PC decides, as always), **Fixed speed** (a slider), or **Curve** (the fan speed follows
 the processor's or the graphics card's temperature: start from *Quiet*, *Balanced* or *Performance* and edit the points; a
 point is `temperature in °C : speed in %`). Double-click a fan's name to call it "CPU fan" or "front fan".
 

@@ -30,7 +30,7 @@ internal sealed class FanClient : IDisposable
         psi.ArgumentList.Add(sid);
         string[] args = Environment.GetCommandLineArgs();
         for (int i = 0; i < args.Length - 1; i++)
-            if (args[i] is "--data") {           // a test copy: both use the same data folder
+            if (args[i] is "--data" or "--fan-suffix") {           // a test copy: both use the same data folder / pipe name
                 psi.ArgumentList.Add(args[i]); psi.ArgumentList.Add(args[i + 1]); }
         try { Process.Start(psi); return true; }
         catch (System.ComponentModel.Win32Exception) { return false; }            // "No" on the Windows prompt

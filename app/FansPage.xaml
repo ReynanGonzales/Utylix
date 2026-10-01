@@ -2,10 +2,9 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="Transparent">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="20,16,20,20">
+    <StackPanel>
             <Grid>
-                <TextBlock Text="Fans" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock Text="Fans and temperatures" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="FanStatus" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" Margin="0,0,14,0" />
                     <Button x:Name="StartBtn" AutomationProperties.AutomationId="FanStart" Content="Start fan control" Style="{StaticResource PrimaryButton}" MinWidth="150" Height="38" Click="Start_Click" />
@@ -27,7 +26,7 @@
                 </StackPanel>
             </Border>
 
-            <StackPanel x:Name="Cards" Margin="0,4,0,0" />
+            <WrapPanel x:Name="Cards" Margin="0,4,0,0" />
 
             <Border x:Name="SafetyCard" Style="{StaticResource Section}" Margin="0,12,0,0" Padding="16,12" Visibility="Collapsed">
                 <StackPanel>
@@ -52,6 +51,5 @@
                     <CheckBox x:Name="UnusedBox" Margin="0,12,0,0" Content="Show every sensor and fan header, also the ones with nothing plugged in" Click="Unused_Click" />
                 </StackPanel>
             </Border>
-        </StackPanel>
-    </ScrollViewer>
+    </StackPanel>
 </UserControl>

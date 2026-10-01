@@ -76,8 +76,14 @@
             <DockPanel Height="48">
                 <Button DockPanel.Dock="Right" Style="{StaticResource BarButton}" Margin="0,0,10,0" VerticalAlignment="Center"
                         Content="⚙  Settings" Click="Settings_Click" />
-                <Image Source="logo.png" DockPanel.Dock="Left" Width="26" Height="26" Margin="16,0,10,0"
-                       RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Center" />
+                <!-- the logo opens the dashboard (click it again to go back to the tool you were in) -->
+                <Button x:Name="LogoBtn" DockPanel.Dock="Left" Style="{StaticResource BarButton}" Margin="8,0,4,0" Padding="0" Click="Logo_Click"
+                        ToolTip="Dashboard" AutomationProperties.AutomationId="LogoButton" AutomationProperties.Name="Utylix dashboard">
+                    <Grid Margin="8,0">
+                        <Image Source="logo.png" Width="26" Height="26" Margin="0,4,0,8" RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Center" />
+                        <Border x:Name="LogoLine" Height="3" CornerRadius="2,2,0,0" VerticalAlignment="Bottom" Margin="0,0,0,-1" Background="{DynamicResource AccentBrush}" Opacity="0" />
+                    </Grid>
+                </Button>
                 <StackPanel x:Name="Tabs" Orientation="Horizontal" />
             </DockPanel>
         </Border>
