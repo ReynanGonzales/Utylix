@@ -25,6 +25,13 @@ public sealed partial class Download
 
     public bool IsTorrent => _torrent;
 
+    private static readonly string[] PublicTrackers =
+    {
+        "udp://tracker.opentrackr.org:1337/announce", "udp://open.stealth.si:80/announce", "udp://exodus.desync.com:6969/announce",
+        "udp://tracker.torrent.eu.org:451/announce", "udp://open.demonii.com:1337/announce",
+    };
+    private DateTime _tStarted;
+
     public void SetTorrent() { lock (_lock) { _torrent = true; _resumable = true; } }
 
     private DownloadInfo TorrentInfo()
@@ -78,7 +85,7 @@ public sealed partial class Download
         bool completed = false;
         try
         {
-            lock (_lock) { _tPhase = "Starting…"; _tSpeed = 0; _tSeeding = false; }
+            lock (_lock) { _tPhase = "Starting…"; _tSpeed = 0; _tSeeding = false; _tStarted = DateTime.UtcNow; }
             var cfg = _mgr.Config;
             var engine = await TorrentService.EngineAsync(App.DataDir, cfg);
 
@@ -100,6 +107,12 @@ public sealed partial class Download
                 {
                     if (!MagnetLink.TryParse(Url, out var magnet)) throw new InvalidOperationException("That magnet link is not valid.");
                     manager = await engine.AddAsync(magnet!, dir);
+                    // old magnet links often list trackers that are long dead: add a few public ones that answer
+                    foreach (string t in PublicTrackers)
+                    {
+                        try { await manager.TrackerManager.AddTrackerAsync(new Uri(t)); }
+                        catch (Exception e) when (e is ArgumentException or InvalidOperationException or UriFormatException) { }
+                    }
                 }
                 TorrentService.Track(Id, manager);
             }
@@ -146,7 +159,12 @@ public sealed partial class Download
                 _ => _tPeers == 0 && _tSpeed < 1 && !m.Complete ? "Finding peers…" : null,
             };
         }
-        else _tPhase = _tPeers == 0 ? "Finding peers…" : "Getting the torrent's details…";
+        else
+        {
+            bool slow = (DateTime.UtcNow - _tStarted).TotalSeconds > 60;
+            _tPhase = _tPeers > 0 ? "Getting the torrent's details…"
+                : slow ? "No peers found yet - the torrent may be dead, or your network may block torrents" : "Finding peers…";
+        }
     }
 
     private async Task FinishTorrentAsync(TorrentManager? manager, bool completed)
