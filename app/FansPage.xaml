@@ -36,16 +36,20 @@
                                Text="A fan never runs below the lowest speed, and if the processor or graphics card gets this hot, every fan you control goes to 100 % until it cools down." />
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="Lowest speed" VerticalAlignment="Center" Margin="0,0,8,0" />
-                        <TextBox x:Name="FloorBox" AutomationProperties.AutomationId="FanFloor" Width="56" Style="{StaticResource Field}" LostFocus="Safety_Changed" />
+                        <TextBox x:Name="FloorBox" AutomationProperties.AutomationId="FanFloor" Width="64" Style="{StaticResource Field}" LostFocus="Safety_Changed" />
                         <TextBlock Text="%" VerticalAlignment="Center" Margin="4,0,22,0" />
                         <TextBlock Text="Processor limit" VerticalAlignment="Center" Margin="0,0,8,0" />
-                        <TextBox x:Name="CpuLimitBox" AutomationProperties.AutomationId="FanCpuLimit" Width="56" Style="{StaticResource Field}" LostFocus="Safety_Changed" />
+                        <TextBox x:Name="CpuLimitBox" AutomationProperties.AutomationId="FanCpuLimit" Width="64" Style="{StaticResource Field}" LostFocus="Safety_Changed" />
                         <TextBlock Text="°C" VerticalAlignment="Center" Margin="4,0,22,0" />
                         <TextBlock Text="Graphics card limit" VerticalAlignment="Center" Margin="0,0,8,0" />
-                        <TextBox x:Name="GpuLimitBox" AutomationProperties.AutomationId="FanGpuLimit" Width="56" Style="{StaticResource Field}" LostFocus="Safety_Changed" />
+                        <TextBox x:Name="GpuLimitBox" AutomationProperties.AutomationId="FanGpuLimit" Width="64" Style="{StaticResource Field}" LostFocus="Safety_Changed" />
                         <TextBlock Text="°C" VerticalAlignment="Center" Margin="4,0,0,0" />
                     </StackPanel>
-                    <CheckBox x:Name="UnusedBox" Margin="0,12,0,0" Content="Also show fan headers with nothing plugged in (0 RPM)" Click="Unused_Click" />
+                    <CheckBox x:Name="AutoBox" AutomationProperties.AutomationId="FanAuto" Margin="0,12,0,0" Content="Start fan control by itself when Utylix starts (Windows asks once, the first time)" Click="Auto_Click" />
+                    <TextBlock Margin="24,2,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"
+                               Text="A copy of the program is put in the protected Program Files folder and a Windows task starts it without a prompt. Only that protected copy runs with administrator rights." />
+                    <Button Content="Remove this from the PC…" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Margin="24,2,0,0" Click="RemoveTask_Click" />
+                    <CheckBox x:Name="UnusedBox" Margin="0,12,0,0" Content="Show every sensor and fan header, also the ones with nothing plugged in" Click="Unused_Click" />
                 </StackPanel>
             </Border>
         </StackPanel>

@@ -51,6 +51,13 @@ lets you set each fan: **Automatic** (the PC decides, as always), **Fixed speed*
 the processor's or the graphics card's temperature: start from *Quiet*, *Balanced* or *Performance* and edit the points; a
 point is `temperature in °C : speed in %`). Double-click a fan's name to call it "CPU fan" or "front fan".
 
+- **No clicking after the first time.** The first **Start fan control** asks Windows for permission once and sets up a Windows
+  task that starts the helper without a prompt; from then on Utylix starts fan control by itself whenever it starts. For safety
+  that task runs a copy of the program in the protected Program Files folder (`C:\Program Files\Utylix\FanHelper`), never the
+  one in your own folder, and the copy is checked against Utylix; after an update, press Start once more (one prompt). Untick
+  *Start fan control by itself* to go back to a prompt each time, or *Remove this from the PC…* to delete the copy and the task
+  (uninstalling Utylix does that too). The Fans page lists only the processor, graphics card and one board temperature unless
+  you tick *Show every sensor*.
 - **Start fan control** asks Windows for administrator permission: reading the motherboard and setting fans needs it, so it is
   done by a separate helper (`Utylix.exe --fan-helper`, started from the button); the rest of Utylix stays a normal program.
   It uses the open-source LibreHardwareMonitor library. The processor and motherboard sensors need the free **PawnIO** driver

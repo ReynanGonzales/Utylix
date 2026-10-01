@@ -42,14 +42,12 @@ public partial class FansPage : UserControl
         CpuLimitBox.Text = _settings.Config.EmergencyCpu.ToString("0", CultureInfo.InvariantCulture);
         GpuLimitBox.Text = _settings.Config.EmergencyGpu.ToString("0", CultureInfo.InvariantCulture);
         UnusedBox.IsChecked = _settings.ShowUnused;
+        AutoBox.IsChecked = _settings.AutoStart;
         _timer.Tick += async (_, _) => await TickAsync();
         _debounce.Tick += async (_, _) => { _debounce.Stop(); await PushAsync(); };
-        Loaded += async (_, _) =>
-        {
-            if (!FanSettings.Client.Connected && await FanSettings.Client.ConnectAsync(400)) { await PushAsync(); }     // a helper that is still running from before
-            _timer.Start();
-        };
         SetOff();
+        _timer.Start();                                           // (the helper wants to hear from us every second, whether or not this tab is showing)
+        _ = BringUpAsync(interactive: false);                     // fan control starts by itself when it has been set up before
     }
 
     // ---------- on / off ----------
@@ -65,15 +63,46 @@ public partial class FansPage : UserControl
         ProblemText.Visibility = string.IsNullOrEmpty(problem) ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private async void Start_Click(object sender, RoutedEventArgs e)
+    private async void Start_Click(object sender, RoutedEventArgs e) => await BringUpAsync(interactive: true);
+
+    /// <summary>
+    /// Gets the helper running and connected. "interactive" = the person pressed Start: Windows may be asked for permission. Otherwise
+    /// (Utylix just started) it only starts the helper if that can be done without a prompt.
+    /// </summary>
+    private async Task BringUpAsync(bool interactive)
     {
-        StartBtn.IsEnabled = false;
-        StatusText.Text = "Waiting for Windows' permission…";
-        if (!FanClient.StartHelper()) { SetOff("Windows' permission was not given, so fan control did not start."); return; }
-        StatusText.Text = "Starting… (reading the hardware takes a few seconds)";
+        if (FanSettings.Client.Connected) return;
+        if (!interactive && !_settings.AutoStart) return;
+        if (await FanSettings.Client.ConnectAsync(400)) { await PushAsync(); await TickAsync(); return; }        // already running from before
+        if (interactive) { StartBtn.IsEnabled = false; StatusText.Text = "Starting…"; }
+
+        bool started = false;
+        if (_settings.AutoStart)
+        {
+            bool ready = await FanTask.IsReadyAsync();
+            if (!ready && interactive)
+            {
+                StatusText.Text = "Waiting for Windows' permission (needed once)…";
+                if (!await FanTask.InstallWithPromptAsync())
+                {
+                    SetOff("Windows' permission was not given (or the setup failed), so the automatic start was not set up. You can untick \"Start fan control by itself\" below to start it with a prompt each time instead.");
+                    return;
+                }
+                ready = await FanTask.IsReadyAsync();
+            }
+            if (ready) started = FanTask.RunNow();
+            else if (!interactive) return;                            // not set up (or out of date after an update): press Start once
+        }
+        if (!started)
+        {
+            if (!interactive) return;
+            StatusText.Text = "Waiting for Windows' permission…";
+            if (!FanClient.StartHelper()) { SetOff("Windows' permission was not given, so fan control did not start."); return; }
+        }
+        if (interactive) StatusText.Text = "Starting… (reading the hardware takes a few seconds)";
         if (!await FanSettings.Client.ConnectAsync(25000))
         {
-            SetOff("The fan helper did not start. If an antivirus blocked it, allow Utylix; details are in fan-helper.log in Utylix's data folder.");
+            if (interactive) SetOff("The fan helper did not start. If an antivirus blocked it, allow Utylix; details are in fan-helper.log in Utylix's data folder.");
             return;
         }
         await PushAsync();
@@ -111,7 +140,7 @@ public partial class FansPage : UserControl
         finally { _busy = false; }
     }
 
-    private static string Label(FanSensor s) => s.Kind switch { "cpu" => "Processor", "gpu" => "Graphics card", "board" => "Board", _ => s.Hardware } + " " + s.Name;
+    private static string Label(FanSensor s) => s.Kind switch { "cpu" => "Processor", "gpu" => "Graphics card", "board" => "Motherboard", _ => s.Hardware } + " " + s.Name.Replace("Temperature ", "");
 
     private FanSensor? FanOf(FanSensor control) => _sensors.FirstOrDefault(s => s.Type == "fan" && s.HardwareId == control.HardwareId && s.Name == control.Name);
 
@@ -130,7 +159,7 @@ public partial class FansPage : UserControl
     {
         _building = true;
         Temps.Children.Clear(); Cards.Children.Clear(); _cards.Clear();
-        foreach (var t in _sensors.Where(s => s.Type == "temp" && (s.Kind is "cpu" or "gpu" || _settings.ShowUnused)))
+        foreach (var t in ShownTemps())
         {
             var chip = new Border { Background = (Brush)FindResource("BgBrush"), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 8, 8) };
             var text = new TextBlock { Text = Label(t) + "   " + (t.Value?.ToString("0", CultureInfo.InvariantCulture) ?? "–") + " °C", Tag = t.Id };
@@ -148,6 +177,18 @@ public partial class FansPage : UserControl
         if (_cards.Count == 0)
             Cards.Children.Add(new TextBlock { Text = "No fan that can be set was found. Reading the temperatures still works.", Foreground = (Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 10, 0, 0) });
         _building = false;
+    }
+
+    /// <summary>The few temperatures worth looking at: the processor, the graphics card, and one board reading that looks believable.</summary>
+    private IEnumerable<FanSensor> ShownTemps()
+    {
+        var temps = _sensors.Where(s => s.Type == "temp").ToList();
+        if (_settings.ShowUnused) return temps;
+        var list = new List<FanSensor>();
+        if (SourceId("cpu") is { } cpu) list.Add(cpu);
+        if (SourceId("gpu") is { } gpu) list.Add(gpu);
+        list.AddRange(temps.Where(s => s.Kind == "board" && (s.Value ?? 0) is > 15 and < 90).Take(1));
+        return list;
     }
 
     private Card BuildCard(FanSensor control, FanSensor? fan, int index)
@@ -305,6 +346,22 @@ public partial class FansPage : UserControl
         foreach (var r in _settings.Config.Rules) r.Floor = _settings.Floor;
         _settings.Save();
         await PushAsync();
+    }
+
+    private void Auto_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.AutoStart = AutoBox.IsChecked == true;
+        _settings.Save();
+    }
+
+    private async void RemoveTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show("Remove the automatic start of fan control from this PC?" + Environment.NewLine + Environment.NewLine + "The protected copy and the Windows task are deleted (Windows asks for permission). Fan control then works only when you press Start.", "Utylix", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        await FanSettings.Client.StopAsync();
+        SetOff();
+        bool ok = await FanTask.RemoveWithPromptAsync();
+        _settings.AutoStart = false; AutoBox.IsChecked = false; _settings.Save();
+        MessageBox.Show(ok ? "Removed. The fans are under the PC's own control." : "It could not be removed (permission refused?). The fans are under the PC's own control.", "Utylix");
     }
 
     private void Unused_Click(object sender, RoutedEventArgs e)

@@ -13,6 +13,7 @@ internal sealed class FanSettings
     [JsonPropertyName("config")] public FanConfig Config { get; set; } = new();
     [JsonPropertyName("show_unused")] public bool ShowUnused { get; set; }
     [JsonPropertyName("floor")] public double Floor { get; set; } = 25;
+    [JsonPropertyName("auto_start")] public bool AutoStart { get; set; } = true;               // start fan control when Utylix starts (once set up)
 
     public static FanClient Client { get; } = new();
     private static string PathOnDisk => System.IO.Path.Combine(App.DataDir, "fans.json");
