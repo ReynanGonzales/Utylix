@@ -39,18 +39,8 @@ public sealed class DashboardPage : UserControl
         root.Children.Add(Heading("This PC"));
         root.Children.Add(Fans);
 
-        // ---- downloads (in the fans' area, just above the safety settings) ----
-        var downloads = new Border { Style = (Style)R("Section"), Padding = new Thickness(16, 12, 16, 14), Margin = new Thickness(0, 0, 0, 0) };
-        var dstack = new StackPanel();
-        AutomationProperties.SetAutomationId(_downloadsLine, "DashDownloadsLine");
-        dstack.Children.Add(_downloadsLine);
-        dstack.Children.Add(_recent);
-        downloads.Child = dstack;
-        Fans.ExtraSlot.Children.Add(Heading("Downloads"));
-        Fans.ExtraSlot.Children.Add(downloads);
-
-        // ---- quick actions ----
-        root.Children.Add(Heading("Quick actions"));
+        // ---- quick actions (in the fans' area, under the fan cards and above the safety settings) ----
+        Fans.ExtraSlot.Children.Add(Heading("Quick actions"));
         var tiles = new WrapPanel();
         void Tile(string glyph, string label, string id, Action action)
         {
@@ -70,7 +60,17 @@ public sealed class DashboardPage : UserControl
         Tile("", "Brightness", "DashBrightness", BrightnessWindow.ShowPanel);
         Tile("", "Browser extension", "DashExtension", () => ExtensionFiles.ShowHelp(Window.GetWindow(this)));
         Tile("", "Check for updates", "DashUpdates", () => AppUpdateWindow.ShowWindow(_manager));
-        root.Children.Add(tiles);
+        Fans.ExtraSlot.Children.Add(tiles);
+
+        // ---- downloads ----
+        var downloads = new Border { Style = (Style)R("Section"), Padding = new Thickness(16, 12, 16, 14), Margin = new Thickness(0, 0, 0, 0) };
+        var dstack = new StackPanel();
+        AutomationProperties.SetAutomationId(_downloadsLine, "DashDownloadsLine");
+        dstack.Children.Add(_downloadsLine);
+        dstack.Children.Add(_recent);
+        downloads.Child = dstack;
+        Fans.ExtraSlot.Children.Add(Heading("Downloads"));
+        Fans.ExtraSlot.Children.Add(downloads);
 
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         _timer.Tick += (_, _) => Refresh();
