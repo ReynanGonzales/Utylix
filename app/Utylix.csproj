@@ -10,7 +10,7 @@
     <AssemblyName>Utylix</AssemblyName>
     <RootNamespace>IdmClone</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.2.1</Version>
+    <Version>1.3.0</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType>none</DebugType>
   </PropertyGroup>
