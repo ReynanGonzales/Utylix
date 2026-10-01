@@ -199,7 +199,7 @@ public sealed class ApiServer
         string? hint = urls.Count == 1 ? Str("filename") : null;
 
         // Browser hand-offs ask for a confirmation window (like IDM's "Download File Info"), if enabled.
-        bool prompt = urls.Count == 1 && _manager.Config.ConfirmCaptured &&
+        bool prompt = urls.Count == 1 && !TorrentSource.Is(urls[0]) && _manager.Config.ConfirmCaptured &&
                       root.TryGetProperty("prompt", out var pr) && pr.ValueKind == JsonValueKind.True;
         if (prompt)
         {
@@ -264,13 +264,21 @@ public sealed class ApiServer
         using var doc = JsonDocument.Parse(new StreamReader(ctx.Request.InputStream).ReadToEnd());
         var root = doc.RootElement;
         string op = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("op", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString() ?? "" : "";
-        if (op is not ("remove-bg" or "play" or "brightness" or "update" or "snip" or "extension")) throw new ArgumentException("unknown operation");
+        if (op is not ("remove-bg" or "play" or "torrent" or "brightness" or "update" or "snip" or "extension")) throw new ArgumentException("unknown operation");
         if (op is "brightness" or "update" or "snip" or "extension") { _tool(op, new List<string>()); Send(ctx, 200, new { accepted = 0 }, null); return; }     // opens the brightness panel / the update window
         if (!root.TryGetProperty("files", out var arr) || arr.ValueKind != JsonValueKind.Array) throw new ArgumentException("expected {\"files\": [...]}");
         var files = new List<string>();
         foreach (var e in arr.EnumerateArray().Take(500))
         {
             string? p = e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+            if (op == "torrent")        // a magnet link, or a real .torrent file (a small one) on this PC
+            {
+                if (p == null) continue;
+                if (TorrentSource.IsMagnet(p)) files.Add(p);
+                else if (p.Length < 32768 && Path.IsPathFullyQualified(p) && !p.StartsWith(@"\\", StringComparison.Ordinal) && p.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) &&
+                         File.Exists(p) && new FileInfo(p).Length < 20 * 1024 * 1024) files.Add(Path.GetFullPath(p));
+                continue;
+            }
             // only real, absolute paths of local files of the right kind: nothing else is ever read
             if (p == null || p.Length >= 32768 || !Path.IsPathFullyQualified(p) || p.StartsWith(@"\\", StringComparison.Ordinal) || !File.Exists(p)) continue;
             if (op == "remove-bg" ? !BackgroundRemover.IsPicture(p) : !PlayerMedia.IsPlayable(p)) continue;
@@ -395,7 +403,7 @@ public sealed class ApiServer
     }
 
     private static bool ValidUrl(string url) =>
-        url.Length <= 8192 && Uri.TryCreate(url, UriKind.Absolute, out var u) &&
+        TorrentSource.IsMagnet(url) || url.Length <= 8192 && Uri.TryCreate(url, UriKind.Absolute, out var u) &&
         (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
 
     private static object ToApi(DownloadInfo i) => new

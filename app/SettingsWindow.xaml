@@ -170,6 +170,30 @@
                     </StackPanel>
                 </Border>
 
+                <!-- ============ Torrents ============ -->
+                <TextBlock Text="Torrents and magnet links" FontSize="16" FontWeight="SemiBold" Margin="2,24,0,2" />
+                <TextBlock Text="Utylix downloads torrents itself: paste a magnet link or a .torrent in the Downloads tab, copy one, or click one in the browser."
+                           Foreground="{DynamicResource MutedBrush}" Margin="2,0,0,8" TextWrapping="Wrap" />
+                <Border Style="{StaticResource Section}">
+                    <StackPanel>
+                        <CheckBox x:Name="TorrentHandlerBox" Content="Offer Utylix to Windows for magnet links and .torrent files" />
+                        <Button Content="Choose the default app in Windows…" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Margin="24,2,0,0" Click="DefaultApps_Click" />
+                        <CheckBox x:Name="TorrentSeedBox" Margin="0,10,0,0" Content="Keep sharing (uploading) a finished torrent while Utylix is open" />
+                        <TextBlock Margin="24,2,0,0" FontSize="12.5" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"
+                                   Text="Off: a torrent stops uploading as soon as it is complete. Sharing back is what keeps torrents alive, but it uses your upload speed." />
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <TextBlock Text="Download speed limit" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBox x:Name="TorrentDownBox" Style="{StaticResource Field}" Width="80" />
+                            <TextBlock Text="KB/s" VerticalAlignment="Center" Margin="6,0,24,0" Foreground="{DynamicResource MutedBrush}" />
+                            <TextBlock Text="Upload speed limit" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBox x:Name="TorrentUpBox" Style="{StaticResource Field}" Width="80" />
+                            <TextBlock Text="KB/s   (0 = no limit)" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="{DynamicResource MutedBrush}" />
+                        </StackPanel>
+                        <TextBlock Margin="0,12,0,0" FontSize="12.5" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"
+                                   Text="Torrents are saved in a Torrents folder inside your download folder. Windows may ask once whether Utylix may use the network: allow it for private networks. Only download what you are allowed to have." />
+                    </StackPanel>
+                </Border>
+
                 </StackPanel>
 
                 <StackPanel x:Name="GroupArchive">

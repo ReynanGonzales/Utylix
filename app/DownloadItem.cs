@@ -82,6 +82,7 @@ public sealed class DownloadItem : INotifyPropertyChanged
                 parts.Add(Format.Bytes(_info.Speed) + "/s");
                 if (_info.Eta is { } eta) parts.Add(Format.Eta(eta) + " left");
                 if (_info.IsMedia) parts.Add("video site");
+                else if (_info.IsTorrent) parts.Add($"{_info.Connections} {(_info.Connections == 1 ? "peer" : "peers")}, {_info.Seeds} {(_info.Seeds == 1 ? "seed" : "seeds")}");
                 else
                 {
                     parts.Add(_info.Connections + (_info.Connections == 1 ? " connection" : " connections"));
@@ -120,8 +121,8 @@ public sealed class DownloadItem : INotifyPropertyChanged
     public string DetSpeed => Status == DlStatus.Downloading ? Format.Bytes(_info.Speed) + "/s" : "—";
     public string DetAvg => _info.AvgSpeed > 0 ? Format.Bytes(_info.AvgSpeed) + "/s" : "—";
     public string DetEta => Status == DlStatus.Downloading && _info.Eta is { } eta ? Format.Eta(eta) : "—";
-    public string DetConnections => _info.IsMedia ? "—" : Status == DlStatus.Downloading ? _info.Connections.ToString() : "—";
-    public string DetResume => _info.IsMedia ? "Yes — video site (yt-dlp), can pause and resume"
+    public string DetConnections => _info.IsMedia ? "—" : _info.IsTorrent ? (Status == DlStatus.Downloading ? $"{_info.Connections} peers ({_info.Seeds} seeds)" : "—") : Status == DlStatus.Downloading ? _info.Connections.ToString() : "—";
+    public string DetResume => _info.IsTorrent ? "Yes — torrent, can pause and resume" : _info.IsMedia ? "Yes — video site (yt-dlp), can pause and resume"
         : _info.Resumable ? "Yes — multi-connection, can pause and resume" : "No — single connection";
 
     /// <summary>Returns true if anything visible changed.</summary>

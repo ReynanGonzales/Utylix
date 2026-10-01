@@ -49,6 +49,13 @@ public sealed class Config
     // ---- the New download window ----
     /// <summary>What to do when a download finishes: "none", "open" or "folder" (remembered from the last time).</summary>
     [JsonPropertyName("after_download")] public string AfterDownload { get; set; } = "none";
+    /// <summary>Keep uploading a finished torrent while Utylix runs (off: it stops as soon as the download is complete).</summary>
+    [JsonPropertyName("torrent_seed")] public bool TorrentSeed { get; set; }
+    /// <summary>Speed limits for torrents in KB/s (0 = no limit).</summary>
+    [JsonPropertyName("torrent_down_kb")] public int TorrentDownKb { get; set; }
+    [JsonPropertyName("torrent_up_kb")] public int TorrentUpKb { get; set; }
+    /// <summary>Offer Utylix to Windows for magnet links and .torrent files.</summary>
+    [JsonPropertyName("torrent_handler")] public bool TorrentHandler { get; set; } = true;
 
     // ---- background remover ----
     /// <summary>"Remove background" in Explorer's right-click menu for pictures.</summary>
@@ -91,7 +98,10 @@ public sealed class Config
         "zip, rar, 7z, tar, gz, bz2, xz, iso, img, exe, msi, msu, dmg, pkg, deb, rpm, apk, cab, bin, " +
         "mp4, mkv, avi, mov, wmv, flv, webm, m4v, mp3, flac, wav, aac, ogg, m4a, " +
         "jpg, jpeg, png, gif, webp, bmp, svg, tif, tiff, avif, heic, " +
-        "pdf, doc, docx, xls, xlsx, ppt, pptx, epub";
+        "pdf, doc, docx, xls, xlsx, ppt, pptx, epub, " +
+        "torrent, txt, csv, json, xml, rtf, odt, ods, odp, srt, vtt, ttf, otf, psd, ico, jfif, heif, " +
+        "mpg, mpeg, ts, 3gp, wma, opus, mid, zst, lz, lzma, tgz, wim, vhd, vhdx, vmdk, ova, " +
+        "appx, msix, msixbundle, jar, crx, vsix, whl, ps1, bat, sh";
 
     /// <summary>"zip, .RAR; 7z" -> ["zip","rar","7z"]</summary>
     public static List<string> SplitList(string? text) =>
@@ -262,6 +272,10 @@ public sealed class Manager
                 ExplorerBgMenu = c.ExplorerBgMenu,
                 ExplorerPlayMenu = c.ExplorerPlayMenu,
                 AfterDownload = Config.AfterDownload,          // not a Settings field: keep what we have
+                TorrentSeed = c.TorrentSeed,
+                TorrentDownKb = Math.Clamp(c.TorrentDownKb, 0, 10_000_000),
+                TorrentUpKb = Math.Clamp(c.TorrentUpKb, 0, 10_000_000),
+                TorrentHandler = c.TorrentHandler,
                 ShotCopy = c.ShotCopy,
                 ShotAutoSave = c.ShotAutoSave,
                 ShotDir = c.ShotDir?.Trim() ?? "",
@@ -277,6 +291,7 @@ public sealed class Manager
             };
             File.WriteAllText(Path.Combine(_dataDir, "config.json"), JsonSerializer.Serialize(Config));
             EnsureCategoryFolders();
+            TorrentService.Apply(Config);
             return Config;
         }
     }
@@ -286,7 +301,8 @@ public sealed class Manager
     {
         var d = new Download(this, url, headers, string.IsNullOrEmpty(hint) ? null : Util.Sanitize(hint),
                              Config.DownloadDir, Config.Connections);
-        if (awaiting) d.MarkAwaiting();
+        if (TorrentSource.Is(url)) { d.SetTorrent(); awaiting = false; }      // a magnet link or .torrent: no confirmation window, the torrent engine takes it
+        else if (awaiting) d.MarkAwaiting();
         lock (_lock) _downloads[d.Id] = d;
         Save();
         return d;
@@ -356,6 +372,7 @@ public sealed class Manager
         foreach (var d in All()) d.Pause();
         foreach (var d in All()) d.WaitStopped(3000);
         Save();
+        TorrentService.Shutdown();
     }
 
     private void SchedulerLoop()

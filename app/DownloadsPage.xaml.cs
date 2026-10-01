@@ -100,7 +100,7 @@ public partial class DownloadsPage : UserControl
     private void Open_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender)?.FilePath is not { } path) return;
-        if (!System.IO.File.Exists(path)) { ShowMessage("That file no longer exists."); return; }
+        if (!System.IO.File.Exists(path) && !System.IO.Directory.Exists(path)) { ShowMessage("That file no longer exists."); return; }       // (a multi-file torrent is a folder)
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
         catch (Exception ex) { ShowMessage(ex.Message); }
     }
@@ -126,7 +126,7 @@ public partial class DownloadsPage : UserControl
     private void Folder_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender)?.FilePath is not { } path) return;
-        if (!System.IO.File.Exists(path)) { ShowMessage("That file no longer exists."); return; }
+        if (!System.IO.File.Exists(path) && !System.IO.Directory.Exists(path)) { ShowMessage("That file no longer exists."); return; }
         Process.Start("explorer.exe", $"/select,\"{path}\"");
     }
 
@@ -135,10 +135,10 @@ public partial class DownloadsPage : UserControl
     {
         var urls = UrlBox.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
         if (urls.Count == 0) return;
-        if (!urls.All(u => Uri.TryCreate(u, UriKind.Absolute, out var uri) &&
+        if (!urls.All(u => TorrentSource.Is(u) || Uri.TryCreate(u, UriKind.Absolute, out var uri) &&
                            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)))
         {
-            ShowMessage("Only http:// and https:// links are supported.");
+            ShowMessage("Only http:// and https:// links, magnet links and .torrent files are supported.");
             return;
         }
         foreach (var url in urls) _manager.Add(url, null, null);

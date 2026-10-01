@@ -154,6 +154,16 @@ browser used) to Utylix. If the app can't fetch the file, the browser gets it ba
 - **Pictures** – "Save image as" is captured like any file; for pictures that are only displayed, use right-click →
   *Download with Utylix* or the extension popup's *Images on this page*.
 
+## Torrents and magnet links
+
+Utylix downloads torrents itself (the [MonoTorrent](https://github.com/alanmcgovern/monotorrent) library); uTorrent is not needed.
+
+- **Add one:** paste a `magnet:` link or the address of a `.torrent` file in the Downloads tab, copy one (the copied-link popup offers it), or click a magnet link / open a `.torrent` file in Windows. Utylix is offered to Windows for both (Settings > Torrents; where nothing is set yet it becomes the default, a choice such as uTorrent is never overridden - change it in Windows' "Default apps").
+- It shows in the list like any download: peers and seeds, speed, time left, Pause / Resume, and "Delete" to remove the files too. A multi-file torrent is a folder named after the torrent, in `Downloads\Torrents`.
+- A finished torrent stops uploading by default; Settings can keep it sharing while Utylix is open, and set speed limits.
+- The browser extension also hands over `.torrent` files it catches.
+- Windows may ask once whether Utylix may use the network: allow private networks.
+
 ## Screen Capture
 
 There is no tab for it in the main window: press **Win + S** and a snip starts at once (the tray icon → *Screen Capture*

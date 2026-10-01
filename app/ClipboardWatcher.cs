@@ -69,17 +69,27 @@ public sealed class ClipboardWatcher
     private void Consider(string text)
     {
         var cfg = _manager.Config;
-        if (!cfg.WatchClipboard || text.Length == 0 || text.Length > 2048 || text.Contains('\n') || text.Contains(' ')) return;
+        if (!cfg.WatchClipboard || text.Length == 0 || text.Length > 4096 || text.Contains('\n') || text.Contains(' ')) return;
         if (text == _ignore) { _ignore = null; return; }
-        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)) return;
-
-        var offer = Classify(text, uri, cfg);
+        ClipboardOffer? offer;
+        if (TorrentSource.IsMagnet(text)) offer = new ClipboardOffer(text, OfferKind.File, TorrentSource.MagnetName(text) ?? "Magnet link", "torrent");
+        else
+        {
+            if (text.Length > 2048 || !Uri.TryCreate(text, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)) return;
+            offer = Classify(text, uri, cfg);
+        }
         if (offer == null) return;
         if (_seen.TryGetValue(text, out var at) && DateTime.UtcNow - at < TimeSpan.FromMinutes(10)) return;   // don't nag about the same link
         _seen[text] = DateTime.UtcNow;
         if (_manager.All().Any(d => string.Equals(d.Url, text, StringComparison.Ordinal))) return;           // already downloading/downloaded
         _offer(offer);
     }
+
+    /// <summary>Endings of web pages (and the like), which are not files to download.</summary>
+    private static readonly HashSet<string> PageEndings = new() { "html", "htm", "xhtml", "shtml", "php", "asp", "aspx", "jsp", "jspx", "cgi", "pl", "cfm", "do", "action", "md", "com", "org", "net", "io" };
+
+    private static bool LooksLikeFile(string ext) =>
+        ext.Length is >= 1 and <= 8 && ext.All(char.IsLetterOrDigit) && !ext.All(char.IsDigit) && !PageEndings.Contains(ext);
 
     private static ClipboardOffer? Classify(string text, Uri uri, Config cfg)
     {
@@ -90,7 +100,9 @@ public sealed class ClipboardWatcher
             return new ClipboardOffer(text, OfferKind.Video, "Video from " + (host.StartsWith("www.") ? host[4..] : host), "Choose picture, sound or both when it starts");
 
         string ext = System.IO.Path.GetExtension(uri.AbsolutePath).TrimStart('.').ToLowerInvariant();
-        if (ext.Length > 0 && Config.SplitList(cfg.CaptureTypes).Contains(ext))
+        // "Every download" (the default): any link that ends like a file is offered, whatever the type. "Only these file types": just the list.
+        bool wanted = cfg.CaptureTypesOnly ? ext.Length > 0 && Config.SplitList(cfg.CaptureTypes).Contains(ext) : LooksLikeFile(ext);
+        if (wanted)
         {
             string name = Uri.UnescapeDataString(System.IO.Path.GetFileName(uri.AbsolutePath));
             return new ClipboardOffer(text, OfferKind.File, name.Length > 0 ? name : uri.Host, uri.Host);

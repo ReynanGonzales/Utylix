@@ -156,6 +156,77 @@ public static class ShellMenu
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
     }
 
+    // ---------- torrents ----------
+    private const string TorrentProgId = "Utylix.Torrent", MagnetProgId = "Utylix.Magnet";
+
+    /// <summary>
+    /// Utylix as a program for magnet links and .torrent files: it shows up in Windows' "Default apps" (Choose defaults by file type / link
+    /// type) and in "Open with". Where nothing is set for them yet, it is also made the program that opens them. A choice already made in
+    /// Windows (for example uTorrent) is never overridden: Windows keeps that in a place only the person can change.
+    /// </summary>
+    public static void RegisterTorrent(bool enabled)
+    {
+        try
+        {
+            string exe = Environment.ProcessPath!;
+            string command = $"\"{exe}\" --torrent \"%1\"";
+            if (enabled)
+            {
+                foreach (var (id, text, url) in new[] { (TorrentProgId, "Torrent file (opened with Utylix)", false), (MagnetProgId, "URL:Magnet link", true) })
+                {
+                    using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + id);
+                    SetIfDifferent(progId, "", text);
+                    if (url) SetIfDifferent(progId, "URL Protocol", "");
+                    using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", IconOf(exe));
+                    using var cmd = progId.CreateSubKey(@"shell\open\command");
+                    SetIfDifferent(cmd, "", command);
+                }
+                using (var owp = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.torrent\OpenWithProgids"))
+                    if (!owp.GetValueNames().Contains(TorrentProgId)) owp.SetValue(TorrentProgId, new byte[0], RegistryValueKind.None);
+
+                // listed in Settings > Default apps
+                using (var cap = Registry.CurrentUser.CreateSubKey(@"Software\Utylix\Capabilities"))
+                {
+                    SetIfDifferent(cap, "ApplicationName", "Utylix");
+                    SetIfDifferent(cap, "ApplicationDescription", "Downloads, torrents, converting, archives, player and more.");
+                    using var files = cap.CreateSubKey("FileAssociations"); SetIfDifferent(files, ".torrent", TorrentProgId);
+                    using var urls = cap.CreateSubKey("URLAssociations"); SetIfDifferent(urls, "magnet", MagnetProgId);
+                }
+                using (var reg = Registry.CurrentUser.CreateSubKey(@"Software\RegisteredApplications")) SetIfDifferent(reg, "Utylix", @"Software\Utylix\Capabilities");
+
+                // nothing opens magnet links / .torrent files on this PC yet: Utylix does
+                using (var existing = Registry.ClassesRoot.OpenSubKey(@"magnet\shell\open\command"))
+                    if (existing == null || (existing.GetValue("") as string ?? "").Contains(exe, StringComparison.OrdinalIgnoreCase))
+                    {
+                        using var m = Registry.CurrentUser.CreateSubKey(@"Software\Classes\magnet");
+                        SetIfDifferent(m, "", "URL:Magnet link"); SetIfDifferent(m, "URL Protocol", "");
+                        using var mc = m.CreateSubKey(@"shell\open\command"); SetIfDifferent(mc, "", command);
+                    }
+                using (var t = Registry.ClassesRoot.OpenSubKey(".torrent"))
+                {
+                    string current = t?.GetValue("") as string ?? "";
+                    if (current.Length == 0)
+                    {
+                        using var k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.torrent");
+                        SetIfDifferent(k, "", TorrentProgId);
+                    }
+                }
+            }
+            else
+            {
+                foreach (var id in new[] { TorrentProgId, MagnetProgId }) Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + id, false);
+                using (var owp = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.torrent\OpenWithProgids", true)) owp?.DeleteValue(TorrentProgId, false);
+                Registry.CurrentUser.DeleteSubKeyTree(@"Software\Utylix\Capabilities", false);
+                using (var reg = Registry.CurrentUser.OpenSubKey(@"Software\RegisteredApplications", true)) reg?.DeleteValue("Utylix", false);
+                using (var m = Registry.CurrentUser.OpenSubKey(@"Software\Classes\magnet\shell\open\command"))
+                    if (m?.GetValue("") is string c && c.Contains(exe, StringComparison.OrdinalIgnoreCase)) { m.Close(); Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\magnet", false); }
+                using (var t = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.torrent", true))
+                    if (t?.GetValue("") as string == TorrentProgId) t.DeleteValue("", false);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
+    }
+
     private static void SetIfDifferent(RegistryKey key, string name, string value)
     {
         if (key.GetValue(name) as string != value) key.SetValue(name, value);

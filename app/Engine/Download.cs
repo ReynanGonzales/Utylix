@@ -28,7 +28,9 @@ public sealed record DownloadInfo(
     /// <summary>"start:end:pos;..." for each connection's part of the file (compact string so records compare cheaply).</summary>
     string Segments, string SavePath, string? ContentType, int Retries, long AvgSpeed,
     /// <summary>true for YouTube/Facebook/... downloads run through yt-dlp; Phase says what it is doing right now.</summary>
-    bool IsMedia = false, string? Phase = null);
+    bool IsMedia = false, string? Phase = null,
+    /// <summary>A torrent or magnet link (peers are in Connections).</summary>
+    bool IsTorrent = false, int Seeds = 0, long Uploaded = 0);
 
 public sealed class DownloadState
 {
@@ -52,6 +54,8 @@ public sealed class DownloadState
     public string? ConvertTo { get; set; }
     public bool KeepOriginal { get; set; }
     public string? AfterDone { get; set; }
+    public bool IsTorrent { get; set; }
+    public string? TorrentFile { get; set; }
 }
 
 /// <summary>
@@ -133,7 +137,15 @@ public sealed partial class Download
             _keepOriginal = st.KeepOriginal,
             _afterDone = st.AfterDone,
             _segments = st.Segments.Select(s => new Segment { Start = s[0], End = s[1], Pos = s[2] }).ToList(),
+            _torrent = st.IsTorrent,
+            _torrentFile = st.TorrentFile,
         };
+        if (d._torrent)
+        {
+            d._tSize = st.Size ?? 0;
+            if (st.Segments.Count == 1) d._tDone = st.Segments[0][2];
+            d._segments = new();
+        }
         d._status = Enum.TryParse<DlStatus>(st.Status, out var s) ? s : DlStatus.Paused;
         if (d._status is DlStatus.Queued or DlStatus.Downloading) d._status = DlStatus.Paused;
         return d;
@@ -148,7 +160,8 @@ public sealed partial class Download
                 FileName = FileName, Size = _size, Resumable = _resumable, Status = _status.ToString(),
                 Error = _error, Created = Created, MediaOption = _mediaOption, MediaTitle = _mediaTitle, MediaReferer = _mediaReferer,
                 ConvertTo = _convertTo, KeepOriginal = _keepOriginal, AfterDone = _afterDone,
-                Segments = _segments.Select(s => new[] { s.Start, s.End, s.Pos }).ToList(),
+                Segments = _torrent ? new() { new[] { 0L, Math.Max(0, _tSize - 1), _tDone } } : _segments.Select(s => new[] { s.Start, s.End, s.Pos }).ToList(),
+                IsTorrent = _torrent, TorrentFile = _torrentFile,
             };
     }
 
@@ -162,6 +175,7 @@ public sealed partial class Download
     {
         lock (_lock)
         {
+            if (_torrent) return TorrentInfo();
             if (_mediaOption != null) return MediaInfo();
             long size = _size ?? -1;
             long done = _status == DlStatus.Completed ? size : _segments.Sum(s => s.Pos - s.Start);
@@ -230,6 +244,7 @@ public sealed partial class Download
             running = _task is { IsCompleted: false };
             completed = _status == DlStatus.Completed;
         }
+        if (IsTorrent) { if (!running) RemoveTorrent(deleteFile, completed); return; }   // a running one stops itself, see FinishTorrentAsync
         if (IsMedia && !completed && !running) CleanMediaTemp();   // a running one cleans up after itself
         if (FileName == null) return;
         if (completed && deleteFile) TryDelete(FinalPath);
@@ -240,7 +255,7 @@ public sealed partial class Download
     /// <summary>Ask the server about the file (name, size, Range support) without starting the transfer.</summary>
     public void BeginProbe()
     {
-        if (IsMedia) return;         // a video-site download has nothing to probe: the page address isn't the file
+        if (IsMedia || IsTorrent) return;         // a video-site download has nothing to probe: the page address isn't the file
         var ct = _cts.Token;
         _probeTask = Task.Run(async () =>
         {
@@ -517,6 +532,7 @@ public sealed partial class Download
 
     private async Task RunAsync(CancellationTokenSource cts)
     {
+        if (IsTorrent) { await RunTorrentAsync(cts); return; }
         if (IsMedia) { await RunMediaAsync(cts); return; }   // video sites: yt-dlp does the work (Download.Media.cs)
         try
         {

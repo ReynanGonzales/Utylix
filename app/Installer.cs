@@ -258,6 +258,7 @@ internal static partial class Installer
             ShellMenu.RegisterArchive(dataDir, false);
             ShellMenu.RegisterBackground(dataDir, false);
             ShellMenu.RegisterPlayer(dataDir, false);
+            ShellMenu.RegisterTorrent(false);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
         Thread.Sleep(800);

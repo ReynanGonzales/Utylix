@@ -181,6 +181,7 @@ public partial class App : Application
             ShellMenu.RegisterArchive(dataDir, _manager.Config.ExplorerArchiveMenu);   // right-click -> Extract / Add to ZIP
             ShellMenu.RegisterBackground(dataDir, _manager.Config.ExplorerBgMenu);     // right-click -> Remove background
             ShellMenu.RegisterPlayer(dataDir, _manager.Config.ExplorerPlayMenu);       // right-click -> Play with Utylix, and "Open with"
+            ShellMenu.RegisterTorrent(_manager.Config.TorrentHandler);                 // magnet links and .torrent files can be opened with Utylix
         }
         _quickBackground = new QuickBackground((title, text, error, reveal) => Dispatcher.BeginInvoke(() =>
             Balloon(error ? 7000 : 5000, title, reveal != null ? text + "\nClick to open its folder" : text,
@@ -229,16 +230,17 @@ public partial class App : Application
         if (args.Contains("--extension-help")) return ("extension", new List<string>());    // shows how to add the browser extension
         if (args.Contains("--snip")) return ("snip", new List<string>());                  // opens the Snip window
         if (args.Contains("--brightness")) return ("brightness", new List<string>());       // opens the brightness panel
-        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play");
+        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent");
         if (i < 0) return null;
         var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).ToList();
-        return files.Count == 0 ? null : (args[i] == "--remove-bg" ? "remove-bg" : "play", files);
+        return files.Count == 0 ? null : (args[i] == "--remove-bg" ? "remove-bg" : args[i] == "--torrent" ? "torrent" : "play", files);
     }
 
     private void HandleTool(string op, List<string> files)
     {
         if (op == "remove-bg") _quickBackground?.Enqueue(files.Where(BackgroundRemover.IsPicture));
         else if (op == "play") PlayerWindow.Open(files);
+        else if (op == "torrent") { foreach (var source in files.Where(TorrentSource.Is)) _manager!.Add(source, null, null); ShowTab("downloads"); }
         else if (op == "brightness") BrightnessWindow.ShowPanel();
         else if (op == "update") AppUpdateWindow.ShowWindow(_manager!);
         else if (op == "snip") SnipWindow.Get(_manager!).Open();
@@ -451,6 +453,7 @@ public partial class App : Application
         bool confirm = _manager.Config.ConfirmCaptured;
         if (offer.Kind == OfferKind.File)
         {
+            if (TorrentSource.Is(offer.Url)) { _manager.Add(offer.Url, null, null); ShowTab("downloads"); return; }    // a magnet link / .torrent: the torrent engine takes it, nothing to confirm
             if (confirm) new CaptureWindow(_manager, _manager.AddAwaiting(offer.Url, null, null)).ShowOnTop();
             else _manager.Add(offer.Url, null, null);
             return;

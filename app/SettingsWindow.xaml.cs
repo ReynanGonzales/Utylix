@@ -38,6 +38,10 @@ public partial class SettingsWindow : Window
         BrowserStartBox.IsChecked = c.AllowBrowserStart;
         AutoUpdateBox.IsChecked = c.AutoUpdateYtDlp;
         AutoUpdateAppBox.IsChecked = c.AutoUpdateApp;
+        TorrentHandlerBox.IsChecked = c.TorrentHandler;
+        TorrentSeedBox.IsChecked = c.TorrentSeed;
+        TorrentDownBox.Text = c.TorrentDownKb.ToString();
+        TorrentUpBox.Text = c.TorrentUpKb.ToString();
         WinFBox.IsChecked = c.OpenWinF;
         DisableWinFBox.IsChecked = ExplorerHotkeys.IsDisabled('F');
         DisableWinSBox.IsChecked = ExplorerHotkeys.IsDisabled('S');
@@ -91,6 +95,12 @@ public partial class SettingsWindow : Window
     private void ShowAll_Click(object sender, RoutedEventArgs e) => ShowSettingsFor(null);
 
     private void ExtensionHelp_Click(object sender, RoutedEventArgs e) => ExtensionFiles.ShowHelp(this);
+
+    private void DefaultApps_Click(object sender, RoutedEventArgs e)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:defaultapps") { UseShellExecute = true }); }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+    }
 
     private void CheckUpdates_Click(object sender, RoutedEventArgs e) => AppUpdateWindow.ShowWindow(_manager);
 
@@ -216,6 +226,7 @@ public partial class SettingsWindow : Window
         ShellMenu.RegisterArchive(App.DataDir, applied.ExplorerArchiveMenu);
         ShellMenu.RegisterBackground(App.DataDir, applied.ExplorerBgMenu);
         ShellMenu.RegisterPlayer(App.DataDir, applied.ExplorerPlayMenu);
+        ShellMenu.RegisterTorrent(applied.TorrentHandler);
     }
 
     private void RefreshPlayerEngine()
@@ -317,6 +328,11 @@ public partial class SettingsWindow : Window
             ErrorText.Text = "Minimum file size must be a number, 0 or more.";
             return;
         }
+        if (!int.TryParse(TorrentDownBox.Text, out int tDown) || tDown < 0 || !int.TryParse(TorrentUpBox.Text, out int tUp) || tUp < 0)
+        {
+            ErrorText.Text = "The torrent speed limits must be numbers, 0 or more (0 = no limit).";
+            return;
+        }
         bool typesOnly = TypesRadio.IsChecked == true;
         if (typesOnly && Config.SplitList(TypesBox.Text).Count == 0)
         {
@@ -340,6 +356,10 @@ public partial class SettingsWindow : Window
                 AllowBrowserStart = BrowserStartBox.IsChecked == true,
                 AutoUpdateYtDlp = AutoUpdateBox.IsChecked == true,
                 AutoUpdateApp = AutoUpdateAppBox.IsChecked == true,
+                TorrentHandler = TorrentHandlerBox.IsChecked == true,
+                TorrentSeed = TorrentSeedBox.IsChecked == true,
+                TorrentDownKb = tDown,
+                TorrentUpKb = tUp,
                 SubMode = SubOffRadio.IsChecked == true ? "off" : SubEmbedRadio.IsChecked == true ? "embed" : "file",
                 SubLangs = SubLangsBox.Text,
                 SubAuto = SubAutoBox.IsChecked == true,
