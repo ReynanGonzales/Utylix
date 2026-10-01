@@ -119,6 +119,7 @@ public partial class App : Application
             return;
         }
 
+        if (toolCmd?.Op == "play") VlcEngine.Prewarm();          // a video or song is about to play: start the playback engine now, while everything else starts up
         AppUpdater.CleanLeftovers();
         ApplyTheme();
         _manager = new Manager(dataDir);

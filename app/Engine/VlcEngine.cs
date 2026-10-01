@@ -55,6 +55,13 @@ public static class VlcEngine
     private static LibVLC? _instance;
     private static readonly object Lock = new();
 
+    /// <summary>Starts the engine in the background (loading it takes a few seconds the first time), so the first video or song does not wait for it.</summary>
+    public static void Prewarm()
+    {
+        if (_instance != null || !Available) return;
+        _ = Task.Run(() => { try { _ = Instance; } catch (Exception e) when (e is IOException or InvalidOperationException or VLCException or DllNotFoundException or BadImageFormatException) { } });
+    }
+
     /// <summary>The shared engine (created on first use). Throws when the engine is missing.</summary>
     public static LibVLC Instance
     {
