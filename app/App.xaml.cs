@@ -646,13 +646,13 @@ public partial class App : Application
         menu.Items.Add("Browser extension…", null, (_, _) => Dispatcher.Invoke(() => ExtensionFiles.ShowHelp()));
         menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
         menu.Items.Add("Screen Recorder", null, (_, _) => Dispatcher.Invoke(() => ShowTab("recorder")));
-        menu.Items.Add("Brightness", null, (_, _) => Dispatcher.Invoke(BrightnessWindow.ShowPanel));
         _stopRecordingItem = menu.Items.Add("Stop recording", null, (_, _) => Dispatcher.Invoke(() => { if (_recordingPage != null) _ = _recordingPage.StopAsync(); }));
         _stopRecordingItem.Enabled = false;
         menu.Items.Add("Check for updates…", null, (_, _) => Dispatcher.Invoke(() => AppUpdateWindow.ShowWindow(_manager!)));
         menu.Items.Add("Pause all", null, (_, _) => _manager?.PauseAll());
         menu.Items.Add("Resume all", null, (_, _) => _manager?.ResumeAll());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add("Brightness", null, (_, _) => Dispatcher.Invoke(BrightnessWindow.ShowPanel));      // right above Exit
         menu.Items.Add("Exit", null, (_, _) => Dispatcher.Invoke(Quit));
         _tray = new System.Windows.Forms.NotifyIcon
         {
