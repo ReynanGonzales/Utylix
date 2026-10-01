@@ -111,36 +111,54 @@ public static class ShellMenu
             string icon = enabled ? OwnIcon(dataDir, "player", IconOf(exe)) : "";
             if (enabled)
             {
+                // Only what is different is written: Windows watches these keys, and re-writing the same values at every start
+                // can make it distrust the person's choice of default app ("How do you want to open this file?").
                 using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + PlayProgId);
-                progId.SetValue("", "Video or music (played with Utylix)");
-                using (var di = progId.CreateSubKey("DefaultIcon")) di.SetValue("", icon);
+                SetIfDifferent(progId, "", "Video or music (played with Utylix)");
+                using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", icon);
                 using var cmd = progId.CreateSubKey(@"shell\open\command");
-                cmd.SetValue("", $"\"{exe}\" --play \"%1\"");
+                SetIfDifferent(cmd, "", $"\"{exe}\" --play \"%1\"");
             }
             else Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + PlayProgId, throwOnMissingSubKey: false);
 
             foreach (string ext in PlayerMedia.VideoExtensions.Concat(PlayerMedia.AudioExtensions).Distinct())
             {
                 string verbKey = $@"Software\Classes\SystemFileAssociations\.{ext}\shell\{PlayVerb}";
-                Registry.CurrentUser.DeleteSubKeyTree(verbKey, throwOnMissingSubKey: false);
+                string wantCommand = $"\"{exe}\" --play \"%1\"";
                 if (enabled)
                 {
-                    using var verb = Registry.CurrentUser.CreateSubKey(verbKey);
-                    verb.SetValue("MUIVerb", "Play with Utylix");
-                    verb.SetValue("Icon", icon);
-                    using var command = verb.CreateSubKey("command");
-                    command.SetValue("", $"\"{exe}\" --play \"%1\"");
+                    using (var existing = Registry.CurrentUser.OpenSubKey(verbKey))
+                    {
+                        bool same = existing != null && existing.GetValue("MUIVerb") as string == "Play with Utylix" && existing.GetValue("Icon") as string == icon;
+                        if (same) { using var c = existing!.OpenSubKey("command"); same = c?.GetValue("") as string == wantCommand; }
+                        if (!same)
+                        {
+                            existing?.Close();
+                            Registry.CurrentUser.DeleteSubKeyTree(verbKey, throwOnMissingSubKey: false);
+                            using var verb = Registry.CurrentUser.CreateSubKey(verbKey);
+                            verb.SetValue("MUIVerb", "Play with Utylix");
+                            verb.SetValue("Icon", icon);
+                            using var command = verb.CreateSubKey("command");
+                            command.SetValue("", wantCommand);
+                        }
+                    }
                     using var owp = Registry.CurrentUser.CreateSubKey($@"Software\Classes\.{ext}\OpenWithProgids");
-                    owp.SetValue(PlayProgId, new byte[0], RegistryValueKind.None);
+                    if (!owp.GetValueNames().Contains(PlayProgId)) owp.SetValue(PlayProgId, new byte[0], RegistryValueKind.None);
                 }
                 else
                 {
+                    Registry.CurrentUser.DeleteSubKeyTree(verbKey, throwOnMissingSubKey: false);
                     using var owp = Registry.CurrentUser.OpenSubKey($@"Software\Classes\.{ext}\OpenWithProgids", writable: true);
                     owp?.DeleteValue(PlayProgId, throwOnMissingValue: false);
                 }
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
+    }
+
+    private static void SetIfDifferent(RegistryKey key, string name, string value)
+    {
+        if (key.GetValue(name) as string != value) key.SetValue(name, value);
     }
 
     // ---------- archives ----------
