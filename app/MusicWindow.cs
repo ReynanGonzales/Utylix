@@ -254,6 +254,7 @@ public sealed class MusicWindow : Window
         AllowDrop = true; FontFamily = new FontFamily("Segoe UI");
         try { Icon = BitmapFrame.Create(new Uri("pack://application:,,,/music.ico")); } catch (Exception e) when (e is IOException or UriFormatException) { }
         WindowTheme.DarkTitleBar(this);
+        WindowTheme.OwnTaskbarButton(this, "Utylix.Music");
         Track.DisplayMode = Math.Clamp(_saved.Display, 0, 2);
         _volume = Math.Clamp(_saved.Volume, 0, 100); _shuffle = _saved.Shuffle; _repeat = (Repeat)Math.Clamp(_saved.Repeat, 0, 2);
         _vol.Value = _volume;

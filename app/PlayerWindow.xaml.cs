@@ -210,6 +210,7 @@ public partial class PlayerWindow : Window
     {
         InitializeComponent();
         WindowTheme.DarkTitleBar(this);
+        WindowTheme.OwnTaskbarButton(this, "Utylix.Player");
         Width = Math.Clamp(_state.Width, 640, SystemParameters.WorkArea.Width);
         Height = Math.Clamp(_state.Height, 420, SystemParameters.WorkArea.Height);
         PlaylistBox.ItemsSource = _list;

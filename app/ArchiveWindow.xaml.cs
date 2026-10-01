@@ -26,6 +26,7 @@ public partial class ArchiveWindow : Window
     private ArchiveWindow()
     {
         InitializeComponent();
+        WindowTheme.OwnTaskbarButton(this, "Utylix.Archives");
         WindowTheme.DarkTitleBar(this);
         Host.Content = Page;
         Page.TitleChanged += t => Title = t + " - Utylix Archives";

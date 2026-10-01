@@ -557,7 +557,8 @@ public partial class App : Application
     /// <summary>Hides every Utylix window that is showing (so a capture never contains Utylix); the returned action shows them again.</summary>
     public static Action HideForCapture()
     {
-        var shown = Current.Windows.Cast<Window>().Where(w => w.IsVisible && w is not CaptureOverlay).ToList();
+        // the video player and the photo viewer stay: what they show is exactly what a snip of the screen is for
+        var shown = Current.Windows.Cast<Window>().Where(w => w.IsVisible && w is not (CaptureOverlay or PlayerWindow or ViewerWindow)).ToList();
         foreach (var w in shown) w.Hide();
         return () => { foreach (var w in shown) { try { w.Show(); } catch (InvalidOperationException) { /* closed meanwhile */ } } };
     }

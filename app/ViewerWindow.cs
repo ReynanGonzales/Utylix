@@ -159,6 +159,7 @@ public sealed class ViewerWindow : Window
         FontFamily = new FontFamily("Segoe UI");
         try { Icon = BitmapFrame.Create(new Uri("pack://application:,,,/photos.ico")); } catch (Exception e) when (e is IOException or UriFormatException) { }
         WindowTheme.DarkTitleBar(this);
+        WindowTheme.OwnTaskbarButton(this, "Utylix.Photos");
         SourceInitialized += (_, _) => { if (!App.IsDarkTheme) ForceDarkTitle(); };
 
         _image.RenderTransform = new TransformGroup { Children = { _rotate, _scale } };
