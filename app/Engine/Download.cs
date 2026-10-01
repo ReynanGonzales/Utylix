@@ -81,6 +81,10 @@ public sealed partial class Download
     private long _sessionDone0;     // bytes we already had when this run started
     private long _sessionBytes;     // bytes fetched in this run
     private List<Segment> _segments = new();
+    private readonly List<Segment> _orphans = new();   // parts whose connection was refused by the server's connection limit: the others take them over
+    private int _active;                               // connections working right now
+    /// <summary>What a server showed it allows (some answer "403" to the 4th connection at once): remembered per host while Utylix runs.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> HostCap = new(StringComparer.OrdinalIgnoreCase);
     private long? _size;                 // null = not probed yet, -1 = unknown length
     private bool _resumable;
     private DlStatus _status = DlStatus.Queued;
@@ -318,12 +322,17 @@ public sealed partial class Download
         }
     }
 
+    private string HostKey() { try { return new Uri(Url).Host; } catch (UriFormatException) { return ""; } }
+
+    /// <summary>How many connections to open at once: the setting, or less if this server already turned some away.</summary>
+    private int Allowed() => HostCap.TryGetValue(HostKey(), out int cap) ? Math.Max(1, Math.Min(_connections, cap)) : _connections;
+
     private void FreshSegments()
     {
         long total = _size ?? -1;
         if (_resumable)
         {
-            int n = (int)Math.Max(1, Math.Min(_connections, total / MinSegment));
+            int n = (int)Math.Max(1, Math.Min(Allowed(), total / MinSegment));
             long step = total / n;
             _segments = Enumerable.Range(0, n).Select(i => new Segment
             {
@@ -442,6 +451,36 @@ public sealed partial class Download
         }
     }
 
+    /// <summary>Called when a connection has finished its part: the next part to do (a refused one first), or null (and this connection is done).</summary>
+    private Segment? NextSegment()
+    {
+        lock (_lock)
+        {
+            Segment? next = null;
+            int i = _orphans.FindIndex(o => o.Remaining > 0);
+            if (i >= 0) { next = _orphans[i]; _orphans.RemoveAt(i); }
+            next ??= Steal();
+            if (next == null) _active--;
+            return next;
+        }
+    }
+
+    /// <summary>
+    /// The server refused this connection ("403", "429", "503") while others work: it limits connections per person. Stop using this one,
+    /// leave its part for the others, and remember the number that works. False when this is the only connection (then it is a real refusal).
+    /// </summary>
+    private bool TryShed(Segment seg)
+    {
+        lock (_lock)
+        {
+            if (_active <= 1) return false;
+            _active--;
+            _orphans.Add(seg);
+            HostCap[HostKey()] = Math.Max(1, _active);
+            return true;
+        }
+    }
+
     private async Task WorkerAsync(Segment? seg, CancellationTokenSource cts)
     {
         var ct = cts.Token;
@@ -455,6 +494,7 @@ public sealed partial class Download
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception e)
             {
+                if (e is HttpStatusException { Code: 403 or 429 or 503 } && TryShed(seg)) return;
                 fails++;
                 Interlocked.Increment(ref _retries);
                 if (Net.IsFatal(e) || fails > MaxRetries)
@@ -469,7 +509,7 @@ public sealed partial class Download
             }
             fails = 0;
             if (ct.IsCancellationRequested) return;
-            seg = Steal();
+            seg = NextSegment();
         }
     }
 
@@ -509,12 +549,16 @@ public sealed partial class Download
         lock (_lock)
         {
             todo = _segments.Where(s => s.Remaining > 0).ToList();
-            while (_resumable && todo.Count > 0 && todo.Count < _connections)
+            int allowed = Allowed();
+            while (_resumable && todo.Count > 0 && todo.Count < allowed)
             {
                 var created = Steal();
                 if (created == null) break;
                 todo.Add(created);
             }
+            _orphans.Clear();
+            if (todo.Count > allowed) { _orphans.AddRange(todo.Skip(allowed)); todo = todo.Take(allowed).ToList(); }     // more parts than this server lets us open
+            _active = todo.Count;
         }
         var all = Task.WhenAll(todo.Select(s => Task.Run(() => WorkerAsync(s, cts))));
         var lastSave = DateTime.UtcNow;
