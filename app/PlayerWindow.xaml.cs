@@ -233,9 +233,9 @@ public partial class PlayerWindow : Window
         Video.Clicked += () => { _click.Stop(); _click.Start(); };
         Video.DoubleClicked += () => { _click.Stop(); ToggleFullscreen(); };
         Video.RightClicked += ShowContextMenu;
-        Video.Moved += ShowBar;
+        Video.Moved += () => ShowBar(fromMouse: true);
         Video.Wheel += dir => ChangeVolume(dir * 5);
-        MouseMove += (_, _) => ShowBar();
+        MouseMove += (_, _) => ShowBar(fromMouse: true);
         SeekSlider.AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((_, _) => _pointerOnSlider = true), true);
         SeekSlider.AddHandler(PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler(async (_, _) => { await System.Threading.Tasks.Task.Delay(350); _pointerOnSlider = false; }), true);
     }
@@ -916,9 +916,22 @@ public partial class PlayerWindow : Window
         if (PlaylistMenuItem.IsChecked) { PlaylistPanel.Visibility = Visibility.Visible; PlaylistColumn.Width = new GridLength(300); }
     }
 
-    private void ShowBar()
+    private System.Drawing.Point _cursorAt;
+
+    /// <summary>
+    /// Shows the controls in full screen and restarts the time they stay. "fromMouse": only when the pointer really moved. Windows also
+    /// sends a "mouse moved" message when a window appears or goes away under a pointer that is standing still (which the controls' own
+    /// window does), and counting that as movement kept the controls on screen for ever.
+    /// </summary>
+    private void ShowBar(bool fromMouse = false)
     {
         if (!_fullscreen) return;
+        if (fromMouse)
+        {
+            var at = System.Windows.Forms.Cursor.Position;
+            if (at == _cursorAt) return;
+            _cursorAt = at;
+        }
         Video.CursorHidden = false;
         _bar?.Show();
         _hide.Stop();
@@ -929,7 +942,8 @@ public partial class PlayerWindow : Window
     {
         _hide.Stop();
         if (!_fullscreen) return;
-        if (_bar != null && _bar.IsMouseOver) { _hide.Start(); return; }             // still using the controls
+        if (_bar != null && System.Windows.Input.Mouse.LeftButton == MouseButtonState.Pressed) { _hide.Start(); return; }       // dragging the seek bar or the volume: keep them
+        _cursorAt = System.Windows.Forms.Cursor.Position;                              // (the controls go even when the pointer rests on them)
         _bar?.Hide();
         Video.CursorHidden = true;
     }
@@ -1004,7 +1018,7 @@ public partial class PlayerWindow : Window
             Content = controls;
             Loaded += (_, _) => Top = screen.Bottom - ActualHeight - 30;
             PreviewKeyDown += (s, e) => owner.OnKeyDown(s, e);
-            MouseMove += (_, _) => owner.ShowBar();
+            MouseMove += (_, _) => owner.ShowBar(fromMouse: true);
         }
 
         /// <summary>Take the controls back out before the window closes (they go back into the player).</summary>
