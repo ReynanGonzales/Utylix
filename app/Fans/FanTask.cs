@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -14,13 +13,18 @@ namespace IdmClone;
 /// the current user, "run with highest privileges, only when asked". Afterwards Utylix starts that task without any prompt.
 ///
 /// The task runs the copy in Program Files, never the program in the user's own folder: a file anyone can change must not be run with
-/// administrator rights. The copy is checked against the running program; after an update it has to be set up again (one prompt).
+/// administrator rights. After an update of Utylix the copy that was approved before keeps working (nothing is asked again) as long as
+/// it speaks the same language as the program: <see cref="Generation"/> is raised only when the two stop understanding each other.
 /// </summary>
 internal static class FanTask
 {
     public const string Name = "Utylix Fan Helper";
     public static string HelperDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Utylix", "FanHelper");
     public static string HelperExe => Path.Combine(HelperDir, "Utylix.exe");
+    private static string GenerationFile => Path.Combine(HelperDir, "generation.txt");
+
+    /// <summary>Raise this when the helper and the program can no longer work with an older copy of each other (then one prompt sets it up again).</summary>
+    private const string Generation = "1";
 
     private static int Schtasks(string arguments, out string output)
     {
@@ -33,7 +37,7 @@ internal static class FanTask
 
     public static bool Exists() => Schtasks($"/query /tn \"{Name}\"", out _) == 0;
 
-    /// <summary>The task exists and the copy it runs is exactly this program.</summary>
+    /// <summary>The task exists and the copy it runs, though perhaps from an older version, still works with this program.</summary>
     public static async Task<bool> IsReadyAsync()
     {
         return await Task.Run(() =>
@@ -42,17 +46,11 @@ internal static class FanTask
             {
                 string? self = Environment.ProcessPath;
                 if (self == null || !File.Exists(HelperExe) || !Exists()) return false;
-                if (new FileInfo(self).Length != new FileInfo(HelperExe).Length) return false;
-                return Hash(self) == Hash(HelperExe);
+                string have = File.Exists(GenerationFile) ? File.ReadAllText(GenerationFile).Trim() : "1";       // copies made before this file existed are generation 1
+                return have == Generation;
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
         });
-    }
-
-    private static string Hash(string path)
-    {
-        using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        return Convert.ToHexString(SHA256.HashData(f));
     }
 
     /// <summary>Starts the helper through the task: no prompt.</summary>
@@ -111,6 +109,7 @@ internal static class FanTask
             string tmp = HelperExe + ".new";
             File.Copy(self, tmp, true);
             File.Move(tmp, HelperExe, true);
+            File.WriteAllText(GenerationFile, Generation);
 
             string xml = $@"<?xml version=""1.0"" encoding=""UTF-16""?>
 <Task version=""1.2"" xmlns=""http://schemas.microsoft.com/windows/2004/02/mit/task"">

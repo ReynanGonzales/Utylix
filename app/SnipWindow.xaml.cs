@@ -165,9 +165,12 @@ public partial class SnipWindow : Window
             else
             {
                 var kind = _mode == Mode.Window ? CaptureOverlay.Kind.Window : _mode == Mode.FreeForm ? CaptureOverlay.Kind.FreeForm : CaptureOverlay.Kind.Rectangle;
-                _overlay = new CaptureOverlay(shot, area, kind);
+                _overlay = new CaptureOverlay(shot, area, kind, "capture", modeBar: true);
                 _overlay.ShowDialog();
                 result = _overlay.Result;
+                // the person may have switched the kind of snip on the bar: that becomes the mode (the text detector keeps its own)
+                if (_overlay.ChosenKind != kind)
+                    _mode = _overlay.ChosenKind switch { CaptureOverlay.Kind.FreeForm => Mode.FreeForm, CaptureOverlay.Kind.Window => Mode.Window, CaptureOverlay.Kind.Full => Mode.Full, _ => Mode.Rectangle };
                 if (_overlay.SelectedArea is { } taken) _placeAt = taken;
                 _overlay = null;
             }

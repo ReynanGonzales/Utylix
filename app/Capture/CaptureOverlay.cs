@@ -16,12 +16,15 @@ namespace IdmClone;
 /// </summary>
 public sealed class CaptureOverlay : Window
 {
-    public enum Kind { Rectangle, Window, FreeForm }
+    public enum Kind { Rectangle, Window, FreeForm, Full }
 
     private readonly BitmapSource _shot;
     private readonly Int32Rect _area;
-    private readonly Kind _kind;
-    private readonly List<ScreenWindow> _windows;
+    private Kind _kind;
+    private List<ScreenWindow> _windows;
+    private readonly string _what;
+    private readonly TextBlock _hintText = new() { Foreground = Brushes.White, FontSize = 13.5, FontFamily = new FontFamily("Segoe UI") };
+    private readonly Dictionary<Kind, RadioButton> _modeButtons = new();
     private readonly double _scale = ScreenGrab.Scale;
 
     private readonly Canvas _canvas = new();
@@ -46,9 +49,13 @@ public sealed class CaptureOverlay : Window
     /// <summary>The chosen area in screen pixels, or null when cancelled.</summary>
     public Int32Rect? SelectedArea { get; private set; }
 
+    /// <summary>The kind of snip in use when the overlay closed (the person can switch it with the bar at the top).</summary>
+    public Kind ChosenKind => _kind;
+
     /// <param name="what">What is being chosen, for the hint at the top ("capture" or e.g. "record").</param>
-    public CaptureOverlay(BitmapSource shot, Int32Rect area, Kind kind, string what = "capture")
+    public CaptureOverlay(BitmapSource shot, Int32Rect area, Kind kind, string what = "capture", bool modeBar = false)
     {
+        _what = what;
         _shot = shot;
         _area = area;
         _kind = kind;
@@ -71,21 +78,19 @@ public sealed class CaptureOverlay : Window
         var hint = new Border
         {
             Background = new SolidColorBrush(Color.FromArgb(225, 20, 24, 34)), CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 7, 14, 7),
-            Child = new TextBlock
-            {
-                Text = kind == Kind.Window ? $"Click a window to {what} it   ·   Esc to cancel"
-                     : kind == Kind.FreeForm ? $"Draw around the object to {what}   ·   Esc to cancel"
-                     : $"Drag to select the area to {what}   ·   Esc to cancel",
-                Foreground = Brushes.White, FontSize = 13.5, FontFamily = new FontFamily("Segoe UI"),
-            },
+            Child = _hintText,
         };
+        _hintText.Text = HintFor(kind);
+        FrameworkElement? bar = modeBar ? BuildModeBar() : null;
         _canvas.Children.Add(picture);
         _canvas.Children.Add(_dim);
         _canvas.Children.Add(_frame);
         _canvas.Children.Add(_line);
         _canvas.Children.Add(_label);
         _canvas.Children.Add(hint);
-        hint.Loaded += (_, _) => { Canvas.SetLeft(hint, Math.Max(0, (Width - hint.ActualWidth) / 2)); Canvas.SetTop(hint, 24); };
+        if (bar != null) _canvas.Children.Add(bar);
+        hint.SizeChanged += (_, _) => { Canvas.SetLeft(hint, Math.Max(0, (Width - hint.ActualWidth) / 2)); Canvas.SetTop(hint, bar == null ? 24 : 78); };
+        if (bar != null) bar.SizeChanged += (_, _) => { Canvas.SetLeft(bar, Math.Max(0, (Width - bar.ActualWidth) / 2)); Canvas.SetTop(bar, 20); };
         Content = _canvas;
         UpdateDim();
 
@@ -96,6 +101,64 @@ public sealed class CaptureOverlay : Window
         KeyDown += (_, e) => { if (e.Key == Key.Escape) Finish(null); };
         Loaded += (_, _) => { ScreenGrab.ForceForeground(new System.Windows.Interop.WindowInteropHelper(this).Handle); Activate(); Focus(); };
         Deactivated += (_, _) => { if (IsLoaded) Finish(null); };     // clicked elsewhere / Alt+Tab: never leave a dimmed screen behind
+    }
+
+    private string HintFor(Kind k) => k == Kind.Window ? $"Click a window to {_what} it   ·   Esc to cancel"
+        : k == Kind.FreeForm ? $"Draw around the object to {_what}   ·   Esc to cancel"
+        : $"Drag to select the area to {_what}   ·   Esc to cancel";
+
+    /// <summary>The bar at the top, like the Snipping Tool's: change the kind of snip while choosing.</summary>
+    private FrameworkElement BuildModeBar()
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        var border = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(235, 20, 24, 34)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x2B, 0x31, 0x45)), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10), Padding = new Thickness(6), Child = row, Cursor = Cursors.Arrow,
+        };
+        void Add(Kind k, string glyph, string label)
+        {
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            content.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 16, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            content.Children.Add(new TextBlock { Text = label, FontFamily = new FontFamily("Segoe UI"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+            var b = new RadioButton { Content = content, IsChecked = k == _kind, Template = ModeButtonTemplate(), Margin = new Thickness(2, 0, 2, 0), Cursor = Cursors.Hand, Focusable = false };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(b, "OverlayMode" + k);
+            System.Windows.Automation.AutomationProperties.SetName(b, label);
+            b.Checked += (_, _) => { if (k != _kind || k == Kind.Full) SwitchTo(k); };
+            _modeButtons[k] = b;
+            row.Children.Add(b);
+        }
+        Add(Kind.FreeForm, "", "Free-form");
+        Add(Kind.Rectangle, "", "Rectangle");
+        Add(Kind.Window, "", "Window");
+        Add(Kind.Full, "", "Full screen");
+        return border;
+    }
+
+    private static ControlTemplate ModeButtonTemplate()
+    {
+        const string xaml = "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='RadioButton'>" +
+            "<Border x:Name='bd' CornerRadius='7' Padding='12,7' Background='Transparent'><ContentPresenter TextElement.Foreground='White' /></Border>" +
+            "<ControlTemplate.Triggers>" +
+            "<Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='Background' Value='#33FFFFFF' /></Trigger>" +
+            "<Trigger Property='IsChecked' Value='True'><Setter TargetName='bd' Property='Background' Value='#FF5B8DEF' /></Trigger>" +
+            "</ControlTemplate.Triggers></ControlTemplate>";
+        return (ControlTemplate)System.Windows.Markup.XamlReader.Parse(xaml);
+    }
+
+    private void SwitchTo(Kind k)
+    {
+        if (_done) return;
+        if (k == Kind.Full) { _kind = k; Finish(new Rect(0, 0, Width, Height)); return; }
+        _kind = k;
+        _windows = k == Kind.Window ? ScreenGrab.VisibleWindows() : new();
+        _start = null; _points.Clear(); _line.Points = new PointCollection(); _selection = Rect.Empty;
+        _frame.Visibility = _label.Visibility = Visibility.Collapsed;
+        if (IsMouseCaptured) ReleaseMouseCapture();
+        Cursor = k == Kind.Window ? Cursors.Hand : Cursors.Cross;
+        _hintText.Text = HintFor(k);
+        foreach (var (key, b) in _modeButtons) b.IsChecked = key == k;
+        UpdateDim();
     }
 
     private void UpdateDim()
