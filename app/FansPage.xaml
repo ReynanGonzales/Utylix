@@ -28,6 +28,8 @@
 
             <WrapPanel x:Name="Cards" Margin="0,4,0,0" />
 
+            <StackPanel x:Name="Extra" />
+
             <Border x:Name="SafetyCard" Style="{StaticResource Section}" Margin="0,12,0,0" Padding="16,12" Visibility="Collapsed">
                 <StackPanel>
                     <TextBlock Text="Safety" FontWeight="SemiBold" />

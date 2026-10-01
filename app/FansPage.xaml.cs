@@ -37,6 +37,9 @@ public partial class FansPage : UserControl
     private string _layout = "";
     private bool _building, _busy;
 
+    /// <summary>A place between the fan cards and the safety settings, for the dashboard to put something (the downloads).</summary>
+    public Panel ExtraSlot => Extra;
+
     public FansPage()
     {
         InitializeComponent();
@@ -367,15 +370,24 @@ public partial class FansPage : UserControl
             var control = _sensors.FirstOrDefault(s => s.Id == id);
             var fan = control == null ? null : FanOf(control);
             card.Rpm.Text = fan?.Value is double rpm ? rpm.ToString("0", CultureInfo.InvariantCulture) + " RPM" : "– RPM";
-            double speed = fan?.Value ?? 0;
+            // the icon only turns while it can be seen (a hidden or minimized window would still use the graphics card for nothing)
+            bool shown = IsVisible && Window.GetWindow(this)?.WindowState != WindowState.Minimized;
+            double speed = shown ? fan?.Value ?? 0 : 0;
             if (card.Spin != null && Math.Abs(speed - card.LastRpm) > Math.Max(60, card.LastRpm * 0.15))        // the icon turns as fast as the fan (roughly)
             {
                 card.LastRpm = speed;
                 card.Spin.BeginAnimation(RotateTransform.AngleProperty, speed <= 0 ? null
-                    : new System.Windows.Media.Animation.DoubleAnimation(0, 360, TimeSpan.FromSeconds(Math.Clamp(1200.0 / speed, 0.25, 6))) { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever });
+                    : SlowFrames(new System.Windows.Media.Animation.DoubleAnimation(0, 360, TimeSpan.FromSeconds(Math.Clamp(1200.0 / speed, 0.5, 6))) { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever }));
             }
             card.Now.Text = control?.Value is double pct ? (control.Auto ? "PC decides, now " : "set, now ") + pct.ToString("0", CultureInfo.InvariantCulture) + " %" : "";
         }
+    }
+
+    /// <summary>A small icon does not need 60 pictures a second: 20 is smooth enough and costs the graphics card a third.</summary>
+    private static System.Windows.Media.Animation.DoubleAnimation SlowFrames(System.Windows.Media.Animation.DoubleAnimation a)
+    {
+        System.Windows.Media.Animation.Timeline.SetDesiredFrameRate(a, 20);
+        return a;
     }
 
     // ---------- safety ----------
