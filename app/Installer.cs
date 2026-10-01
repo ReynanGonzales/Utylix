@@ -144,12 +144,27 @@ internal static partial class Installer
     }
 
     /// <summary>Starts the installed program as the normal user (even from the administrator copy of this window).</summary>
-    private static void Launch(string exe)
+    private static void Launch(string exe, string? argument = null)
     {
         try
         {
-            if (IsAdmin) Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { exe }, UseShellExecute = false });    // Explorer runs it without administrator rights
-            else Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe)! });
+            if (IsAdmin)
+            {
+                // Explorer runs what it is given without administrator rights; it cannot pass arguments, so it is given a small script
+                string target = exe;
+                if (argument != null)
+                {
+                    target = Path.Combine(Path.GetTempPath(), "utylix_start.cmd");
+                    File.WriteAllText(target, "@echo off" + Environment.NewLine + "start " + (char)34 + (char)34 + " " + (char)34 + exe + (char)34 + " " + argument + Environment.NewLine);
+                }
+                Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { target }, UseShellExecute = false });
+            }
+            else
+            {
+                var psi = new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe)! };
+                if (argument != null) psi.ArgumentList.Add(argument);
+                Process.Start(psi);
+            }
         }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
     }

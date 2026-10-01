@@ -90,6 +90,8 @@ public partial class SettingsWindow : Window
 
     private void ShowAll_Click(object sender, RoutedEventArgs e) => ShowSettingsFor(null);
 
+    private void ExtensionHelp_Click(object sender, RoutedEventArgs e) => ExtensionFiles.ShowHelp(this);
+
     private void CheckUpdates_Click(object sender, RoutedEventArgs e) => AppUpdateWindow.ShowWindow(_manager);
 
     private void UpdateToken_Click(object sender, RoutedEventArgs e)

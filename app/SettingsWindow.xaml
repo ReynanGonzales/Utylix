@@ -37,6 +37,7 @@
                                    Text="Turn it off if you don't want a button over videos. Right-click on a video → Download with Utylix always keeps working." />
                         <CheckBox x:Name="ClipboardBox" Margin="0,10,0,0" Content="Offer to download links I copy (a small popup appears)" />
                         <CheckBox x:Name="BrowserStartBox" Margin="0,10,0,0" Content="Let the browser start Utylix when it is closed" />
+                        <Button Content="How to add the browser extension…" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Margin="0,8,0,0" Click="ExtensionHelp_Click" />
 
                         <TextBlock Text="What to capture" FontWeight="SemiBold" Margin="0,18,0,8" />
                         <RadioButton x:Name="AllRadio" GroupName="mode" Foreground="{DynamicResource TextBrush}"

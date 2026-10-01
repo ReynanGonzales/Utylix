@@ -23,6 +23,8 @@
     <Resource Include="player.png" />
     <Resource Include="archive.ico" />
     <Resource Include="archive.png" />
+    <!-- the browser extension travels inside Utylix.exe and is unpacked into the data folder, so the installer needs no extra files -->
+    <EmbeddedResource Include="..\extension\**\*" LogicalName="ext/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

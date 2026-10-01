@@ -116,6 +116,7 @@ public partial class App : Application
         AppUpdater.CleanLeftovers();
         ApplyTheme();
         _manager = new Manager(dataDir);
+        _ = System.Threading.Tasks.Task.Run(() => ExtensionFiles.Ensure());           // the browser extension is unpacked next to the settings (and kept current)
         // another Windows user (signed in at the same time) or another program may hold 6800: take the next free port
         int chosen = 0;
         foreach (int candidate in explicitPort ? new[] { port } : Enumerable.Range(port, 31))
@@ -218,6 +219,7 @@ public partial class App : Application
 
     private static (string Op, List<string> Files)? ParseTool(string[] args)
     {
+        if (args.Contains("--extension-help")) return ("extension", new List<string>());    // shows how to add the browser extension
         if (args.Contains("--snip")) return ("snip", new List<string>());                  // opens the Snip window
         if (args.Contains("--brightness")) return ("brightness", new List<string>());       // opens the brightness panel
         int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play");
@@ -233,6 +235,7 @@ public partial class App : Application
         else if (op == "brightness") BrightnessWindow.ShowPanel();
         else if (op == "update") AppUpdateWindow.ShowWindow(_manager!);
         else if (op == "snip") SnipWindow.Get(_manager!).Open();
+        else if (op == "extension") ExtensionFiles.ShowHelp();
     }
 
     /// <summary>Asks before the one-time download of the AI model; true when the model is there.</summary>
@@ -640,6 +643,7 @@ public partial class App : Application
         menu.Items.Add("Downloads", null, (_, _) => Dispatcher.Invoke(() => ShowTab("downloads")));
         menu.Items.Add("Multi Convert", null, (_, _) => Dispatcher.Invoke(() => ShowTab("converter")));
         menu.Items.Add("Screen Capture", null, (_, _) => Dispatcher.Invoke(() => SnipWindow.Get(_manager!).Open()));      // opens the window like the Snipping Tool; Win + S snips at once
+        menu.Items.Add("Browser extension…", null, (_, _) => Dispatcher.Invoke(() => ExtensionFiles.ShowHelp()));
         menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
         menu.Items.Add("Screen Recorder", null, (_, _) => Dispatcher.Invoke(() => ShowTab("recorder")));
         menu.Items.Add("Brightness", null, (_, _) => Dispatcher.Invoke(BrightnessWindow.ShowPanel));

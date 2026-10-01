@@ -246,10 +246,12 @@ internal static partial class Installer
         var status = Text("Getting ready…", margin: new Thickness(0, 12, 0, 0)); status.MinHeight = 22;
         var startNow = Check("Start Utylix now", "SetupStartNow", true);
         startNow.Visibility = Visibility.Collapsed;
+        var showExtension = Check("Show me how to add the browser extension", "SetupExtension", true, "Downloads from the browser go to Utylix through it. It is built into Utylix: this shows the three clicks.");
+        showExtension.Visibility = Visibility.Collapsed;
         A(bar, "SetupProgress"); A(status, "SetupStatus");
         var installing = new StackPanel();
         installing.Children.Add(Text("Please wait while Utylix is set up. You can keep using your PC.", muted: true));
-        installing.Children.Add(bar); installing.Children.Add(status); installing.Children.Add(startNow);
+        installing.Children.Add(bar); installing.Children.Add(status); installing.Children.Add(startNow); installing.Children.Add(showExtension);
 
         var pages = new[] { welcome, where, features, downloadsPage, installing };
         var titles = new[] { "Welcome to Utylix", "Where to install", "Right-click menus and startup", "Extra parts to download", "Installing" };
@@ -353,6 +355,7 @@ internal static partial class Installer
                 status.Text = "All done." + (c.AutoStart ? " Utylix will start with Windows." : "") + " Explorer's right-click menus appear as soon as Utylix starts."
                               + (failed.Count > 0 ? "\n\nThese could not be downloaded (you can get them later inside Utylix):\n - " + string.Join("\n - ", failed) : "");
                 startNow.Visibility = Visibility.Visible;
+                showExtension.Visibility = Visibility.Visible;
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException)
             {
@@ -371,7 +374,12 @@ internal static partial class Installer
 
         next.Click += async (_, _) =>
         {
-            if (page == 4 && installedExe != null) { if (startNow.IsChecked == true) Launch(installedExe); window.Close(); return; }
+            if (page == 4 && installedExe != null)
+            {
+                if (showExtension.IsChecked == true) Launch(installedExe, "--extension-help");       // starts Utylix too (or tells the running one)
+                else if (startNow.IsChecked == true) Launch(installedExe);
+                window.Close(); return;
+            }
             if (page == 1 && string.IsNullOrWhiteSpace(dirBox.Text)) { MessageBox.Show("Choose a folder to install into.", "Utylix Setup"); return; }
             if (page < 3) { Show(page + 1); return; }
             if (page == 3) await DoInstall(Current());
