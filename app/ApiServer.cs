@@ -120,7 +120,7 @@ public sealed class ApiServer
             else if (method == "GET" && path == "/api/ping")
                 Send(ctx, 200, new
                 {
-                    ok = true, app = "idm-clone", user = ApiPort.UserId, version = "1.0.0", capture = CaptureSettings(),
+                    ok = true, app = "idm-clone", user = ApiPort.UserId, version = "1.0.0", extension = ExtensionFiles.EmbeddedVersion, capture = CaptureSettings(),
                     tools = new { ytdlp = Tools.HasYtDlp, ffmpeg = Tools.HasFfmpeg },   // is video-site support installed?
                 }, null);
             else if (method == "GET" && path == "/api/downloads")

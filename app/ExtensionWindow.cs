@@ -20,6 +20,21 @@ internal static class ExtensionFiles
     private const string Prefix = "ext/";
     public static string Dir => Path.Combine(App.DataDir, "extension");
 
+    /// <summary>The version of the extension inside this program (from its manifest), so the extension can tell when it is out of date.</summary>
+    public static string EmbeddedVersion { get; } = ReadEmbeddedVersion();
+
+    private static string ReadEmbeddedVersion()
+    {
+        try
+        {
+            using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream(Prefix + "manifest.json");
+            if (s == null) return "";
+            using var doc = System.Text.Json.JsonDocument.Parse(s);
+            return doc.RootElement.GetProperty("version").GetString() ?? "";
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or KeyNotFoundException or IOException) { return ""; }
+    }
+
     /// <summary>Unpacks (or refreshes) the extension folder. Returns its path.</summary>
     public static string Ensure()
     {
@@ -103,7 +118,7 @@ internal static class ExtensionFiles
         panel.Children.Add(new TextBlock { Text = "4.  The Utylix icon appears next to the address bar. Click the puzzle piece and pin it if you like.", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 0), TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock
         {
-            Text = "After Utylix is updated, press the round reload arrow on the Utylix extension (same page) once, so the browser picks up the new version.",
+            Text = "After Utylix is updated, the extension reloads itself the next time the browser talks to Utylix. If it ever does not, press the round reload arrow on the Utylix extension (same page) once.",
             FontSize = 12, Foreground = (Brush)R("MutedBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0),
         });
         var close = new Button { Content = "Close", Style = (Style)R("DialogPrimary"), IsDefault = true, IsCancel = true, MinWidth = 100, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };

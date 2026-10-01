@@ -39,8 +39,27 @@ async function pingServer() {
     const ok = j.app === 'idm-clone' && (!serverUser || j.user === serverUser);
     if (ok && j.capture) capture = j.capture;             // settings come from the app
     if (ok) tools = j.tools || {};
+    if (ok && j.extension) reloadIfAppHasNewer(j.extension);
     return ok;
   } catch { return false; /* not running */ }
+}
+
+// After Utylix is updated it writes the new extension files into the folder the browser loaded this extension from, and tells us the
+// version in its ping. The browser does not look at that folder by itself, so when the app's version is newer we reload ourselves.
+// (Once per version: if the folder was not really updated, we do not try again and again.)
+function newerThan(a, b) {
+  const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); }
+  return false;
+}
+async function reloadIfAppHasNewer(appVersion) {
+  try {
+    if (!newerThan(appVersion, chrome.runtime.getManifest().version)) return;
+    const { reloadedFor } = await chrome.storage.local.get('reloadedFor');
+    if (reloadedFor === appVersion) return;
+    await chrome.storage.local.set({ reloadedFor: appVersion });
+    chrome.runtime.reload();
+  } catch { /* try again at the next ping */ }
 }
 
 let infoAt = 0;
