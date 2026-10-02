@@ -99,6 +99,27 @@ State on 2026-10-02 (v1.4.0, not yet released on GitHub):
   the folder build's apphost as a content file) and installs the folder; the updater downloads `Utylix-Setup.exe` and runs it with
   `--setup-auto` instead of swapping one exe; the fan helper's protected copy must copy the whole folder; build.bat / InstallerBuilder.bat
   change. For one transition release ALSO attach a `Utylix.exe` (older copies look for that asset name).
+  Detailed design (worked out 2026-10-02, nothing coded yet; `setup/` folder is empty):
+  1. `setup/UtylixSetup.csproj`: tiny **net48** WinExe (.NET Framework 4.8 is built into Windows 10/11, so it needs nothing installed).
+     The zipped program folder is APPENDED to the stub exe, followed by an 8-byte length + 8-byte magic "UTYLIXPK". The stub reads its
+     own file, unzips to %TEMP%\UtylixSetup\<hash>\ with a small dark progress window, starts the extracted `Utylix.exe --setup <its own
+     args>`, waits, then tries to delete the temp folder. Result: Utylix-Setup.exe ~65 MB (smaller than today's 87 MB single exe).
+  2. `Installer.Install` copies the whole folder (AppContext.BaseDirectory, recursively, skipping *.pdb / .old) instead of one exe, with
+     byte progress; writes a manifest `utylix-files.txt` (relative paths); removes files of the old manifest that are no longer shipped;
+     EstimatedSize = sum. Uninstall deletes exactly the manifest's files (cmd script after exit), then empty folders; no manifest = old
+     single-exe behaviour. NOTE the all-users dir C:\Program Files\Utylix contains the FanHelper subfolder: never delete/copy it.
+  3. New `--setup-update --dir <dir>`: no wizard, small "Updating Utylix…" window: StopRunning, copy files, RefreshAppsEntry, start
+     `Utylix.exe --minimized --updated`; keeps shortcuts / startup / right-click choices as they are (`--setup-auto` would reset them).
+     Elevate (runas) when the dir isn't writable (all-users install).
+  4. `AppUpdater`: asset `Utylix-Setup.exe` (sha256 from GitHub's asset `digest`, as now); Apply = run it with `--setup-update --dir
+     <this program's folder>` and quit. Same path for single-file and folder copies (a single-file copy is `typeof(App).Assembly.Location
+     == ""`). Old 1.4.0-and-earlier copies only know `Utylix.exe` -> keep attaching a single-file `Utylix.exe` for a while.
+  5. `FanTask.Install`: copy the whole program folder to the helper dir (skip a FanHelper subfolder); keep `Generation` unless the pipe
+     protocol changes (old single-exe helpers keep working).
+  6. build.bat: publish folder (no PublishSingleFile) -> zip -> build stub -> append -> `D:\Utylix\Utylix-Setup.exe`; also publish the
+     single-file `Utylix.exe` for older copies / portable use. A `tools\pack-setup.ps1` can do the zip + append.
+  7. Afterwards: update the "update the installed copy" routine (run `Utylix-Setup.exe --setup-update --dir
+     "%LOCALAPPDATA%\Programs\Utylix"`), and measure idle private memory vs the 138 MB of the single-file build.
 - Next, in order: reduce to a target size ("under 2 MB"), Explorer right-click shortcuts (reduce, combine, pictures -> PDF), phone-photo
   cleanup (crop, straighten, black & white), resize pages (A4 / Letter / Long 8.5x13), stamps + date tool, real redaction, organize pages /
   merge / split / pictures <-> PDF, OCR (Windows.Media.Ocr, offline), page numbers / watermark / header-footer, PDF -> Word and -> Excel.
