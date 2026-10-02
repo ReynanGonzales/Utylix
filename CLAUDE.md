@@ -12,9 +12,12 @@ user-facing description of every feature.
 - `app/` - the program. Namespace is `IdmClone` (old name) for the UI, `IdmClone.Engine` for the engines.
   - `App.xaml.cs` startup, tray menu, command-line modes, single instance + per-user port (6800+, `port.txt`), `HideForCapture`.
   - `ShellWindow` (main tabs), `DashboardPage` (opened by the logo), `FansPage` + `Fans/` (fan control), `DownloadsPage`, `ConverterPage`,
-    `RecorderPage`, `SnipWindow` + `Capture/`, `PlayerWindow` (VLC), `MusicWindow`, `ViewerWindow`, `ArchiveWindow`, `SettingsWindow`.
+    `RecorderPage`, `SnipWindow` + `Capture/`, `PlayerWindow` (VLC), `MusicWindow`, `ViewerWindow`, `ArchiveWindow`, `SettingsWindow`,
+    `PdfWindow` (+ `.Edit` / `.EditText` / `.Text` / `.Forms` partial files), `PdfReduceWindow`, `PdfPrintWindow`, `PdfSignatureWindow`
+    ("Utylix Editor", `--pdf`). `UMessage` replaces every `MessageBox` (themed; `UMessage.Ask` for buttons that say what they do).
   - `Engine/` - `Download*.cs` (segmented HTTP, yt-dlp media, torrent), `TorrentService.cs` (MonoTorrent), `Manager.cs` (list, config,
-    scheduler), `AppUpdater.cs`, `VlcEngine.cs`, `Tools.cs` (yt-dlp/ffmpeg).
+    scheduler), `AppUpdater.cs`, `VlcEngine.cs`, `Tools.cs` (yt-dlp/ffmpeg), `Pdfium.cs` + `PdfFile.cs` / `PdfFile.Forms.cs` (PDFium),
+    `PdfCompressor.cs`, `PdfMarks.cs` (writing edits / comments into pages), `PdfText.cs` (text, links, bookmarks), `PdfTextEdit.cs` (changing existing text).
   - `ApiServer.cs` local API on 127.0.0.1 used by the extension and by second copies of the exe (`/api/add`, `/api/tool`, ...).
   - `ShellMenu.cs` Explorer/registry integration (idempotent: it must not rewrite unchanged values, or Windows distrusts default apps).
   - `Installer.cs` + `InstallWizard.cs`: Utylix.exe doubles as the installer (`Utylix-Setup.exe`, `--setup`) and uninstaller (`--uninstall`).
@@ -44,6 +47,17 @@ the updater loops/never offers), attach `Utylix.exe` (and `Utylix-Setup.exe`, sa
 - **Torrents** (MonoTorrent 3.0.2): no uTP, its DHT bootstraps poorly on some networks; trackers are tried one after another, so `Download.Torrent.cs`
   adds a few public trackers to magnet links and `TorrentService` raises half-open connections / shortens the timeout. Weak swarms are slow by nature.
 - **Downloads**: servers that limit connections answer 403/429/503 to the extra ones; `Download.cs` sheds those connections (`TryShed`) instead of failing.
+- **PDF**: PDFium (`pdfium.dll` from bblanchon.PDFium.Win32, own P/Invokes in `Engine/Pdfium.cs`) is not thread-safe: every call goes
+  through `lock (Pdfium.Sync)`. "Reduce file size" reads each picture with PDFium, but writes with PDFsharp (matching pictures by a SHA-256 of
+  their stored bytes): PDFium can't replace a picture without leaving the old one in the file. Protected PDFs are only changed with the
+  owner password and get the same passwords/permissions back; "Smallest" (pages re-made as pictures with PDFium) is refused for them.
+  Never let a reduced copy come out less protected than the original. Coordinates of the editor are points from the top-left of the page
+  *as shown*; `PageMapping` (PdfText.cs) converts to page space via FPDF_DeviceToPage (handles /Rotate and crop boxes - test turned pages).
+  Edits are flattened into the page (FPDFPage_GenerateContent); comments (highlight/underline/strike/notes) are real annotations.
+  Popups (ToolTip, ContextMenu, ComboBox lists) inherit the dark window's white text: give them themed styles (App.xaml ThemedMenu...),
+  and note the app-wide implicit TextBlock style beats inherited Foreground inside templates (set Foreground on the TextBlock itself).
+  Still planned: target-size reduce, Explorer shortcuts, phone-photo cleanup, resize pages, stamps, redaction, organize/merge/split,
+  pictures <-> PDF, OCR, page numbers / watermark, PDF -> Word / Excel.
 - **Snip**: `App.HideForCapture` hides Utylix windows but keeps the video player and photo viewer visible.
 - **Taskbar**: Player/Archives/Music/Photos use their own AppUserModelID (`WindowTheme.OwnTaskbarButton`).
 - A second copy of the exe started with a tool flag (`--play`, `--view`, `--torrent`, `--snip`, ...) forwards to the running copy through `/api/tool`.
@@ -62,5 +76,31 @@ Legal test torrents: Sintel / Big Buck Bunny / Tears of Steel (WebTorrent), Debi
 - Animated GIFs show only the first frame in the photo viewer.
 
 ## The owner
-Prefers hands-on verified changes, often writes in Taglish, tests by using the app daily, runs it from the tray (installed in
-`C:\Program Files\Utylix`), builds in `D:\Utylix`. Releases are made by the owner on GitHub (upload `Utylix.exe`).
+Prefers hands-on verified changes, often writes in Taglish, tests by using the app daily, runs it from the tray, builds in `D:\Utylix`.
+Releases are made by the owner on GitHub (upload `Utylix.exe`). On the work PC Utylix is installed per user in
+`%LOCALAPPDATA%\Programs\Utylix` (Start menu / desktop / startup / "Open with" all run that copy).
+Standing wishes (all said explicitly):
+- **Readable text everywhere**: check every popup, list, menu, tooltip, selection state in light AND dark Windows theme before handing over.
+- **After every build, update the installed copy** (stop only that process - never the FanHelper -, copy the new build over it, start it with
+  `--minimized`). Utylix is single-instance: an old running copy silently "wins" otherwise.
+- **Keep Utylix light**: heavy engines load on first use; nothing new polls in the background; measure idle memory / CPU after big features.
+- **Push often**: commit + push after every finished step and keep the plan below current - sessions can end suddenly (usage limit), and
+  the owner continues at home on another PC.
+
+## Plan (kept current - continue from here)
+State on 2026-10-02 (v1.4.0, not yet released on GitHub):
+- Done: Utylix Editor (PDF) - viewer, Reduce file size, own print window, editing (text, sign, pictures, shapes, white-out, pen), Edit text
+  (change existing text), comments (highlight/underline/strike/notes), search/select/copy, links, bookmarks, form filling. Themed `UMessage`
+  boxes everywhere. "Open with" shows Utylix Editor / Photos / Player / Archive with their own logos; the plain "Utylix" entry is hidden.
+  Settings > Apps shows the right version (Installer.RefreshAppsEntry).
+- **In progress - packaging as a program folder** (decided with the owner): instead of one single-file exe, publish self-contained into a
+  folder (Utylix.exe + DLLs + .NET, ~150 MB, works offline). Reasons: less memory (no in-memory unpacking), faster start, fewer antivirus
+  false alarms, smaller updates. Plan: `Utylix-Setup.exe` stays ONE file (single-file build with IncludeAllContentForSelfExtract, carrying
+  the folder build's apphost as a content file) and installs the folder; the updater downloads `Utylix-Setup.exe` and runs it with
+  `--setup-auto` instead of swapping one exe; the fan helper's protected copy must copy the whole folder; build.bat / InstallerBuilder.bat
+  change. For one transition release ALSO attach a `Utylix.exe` (older copies look for that asset name).
+- Next, in order: reduce to a target size ("under 2 MB"), Explorer right-click shortcuts (reduce, combine, pictures -> PDF), phone-photo
+  cleanup (crop, straighten, black & white), resize pages (A4 / Letter / Long 8.5x13), stamps + date tool, real redaction, organize pages /
+  merge / split / pictures <-> PDF, OCR (Windows.Media.Ocr, offline), page numbers / watermark / header-footer, PDF -> Word and -> Excel.
+  Later maybe: paragraph re-flow editing, making new form fields, certificate signatures, batch processing.
+- Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.

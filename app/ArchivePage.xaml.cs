@@ -484,7 +484,7 @@ public partial class ArchivePage : UserControl
             string? file = ArchiveService.SafeTarget(temp, item.FullPath);
             if (file == null || !File.Exists(file)) { SetStatus("Couldn't get that file out of the archive.", true); return; }
             if (Util.IsRunnable(file) &&
-                MessageBox.Show(Window.GetWindow(this), $"\"{item.Name}\" is a program or script. Opening it will run it.\n\nRun it?", "Utylix", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                UMessage.Show(Window.GetWindow(this), $"\"{item.Name}\" is a program or script. Opening it will run it.\n\nRun it?", "Utylix", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
                 return;
             Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
             SetStatus("", false);

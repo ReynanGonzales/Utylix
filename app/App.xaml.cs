@@ -100,10 +100,13 @@ public partial class App : Application
             return;
         }
 
+        // just a file name (an old "Open with" entry Windows made by itself, or a file dropped on Utylix.exe): the right part of Utylix opens it
+        string[] args = PlainFile(e.Args) ?? e.Args;
+
         // "Convert" from Explorer's right-click menu: --convert-to jpg "a.png" ...   or   --convert "a.png" ...
-        var convert = ParseConvert(e.Args);
-        var archiveCmd = ParseArchive(e.Args);       // "Extract here", "Add to ZIP", "Open with Utylix" ...
-        var toolCmd = ParseTool(e.Args);             // "Remove background", "Play with Utylix"
+        var convert = ParseConvert(args);
+        var archiveCmd = ParseArchive(args);         // "Extract here", "Add to ZIP", "Open with Utylix" ...
+        var toolCmd = ParseTool(args);               // "Remove background", "Play with Utylix"
 
         // One copy per Windows user session ("Local" is per session). The port is NOT part of the name: another user signed in at
         // the same time has their own copy, which simply takes the next free port (kept in port.txt in each user's data folder).
@@ -137,7 +140,7 @@ public partial class App : Application
         }
         if (chosen == 0)
         {
-            MessageBox.Show($"Utylix could not find a free port to listen on (it tried 127.0.0.1:{port} to {(explicitPort ? port : port + 30)}).\nAnother program is probably using them.",
+            UMessage.Show($"Utylix could not find a free port to listen on (it tried 127.0.0.1:{port} to {(explicitPort ? port : port + 30)}).\nAnother program is probably using them.",
                 "Utylix", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
             return;
@@ -183,6 +186,9 @@ public partial class App : Application
             ShellMenu.RegisterBackground(dataDir, _manager.Config.ExplorerBgMenu);     // right-click -> Remove background
             ShellMenu.RegisterPlayer(dataDir, _manager.Config.ExplorerPlayMenu);       // right-click -> Play with Utylix, and "Open with"
             ShellMenu.RegisterViewer(dataDir);                                         // "Open with" Utylix on pictures
+            ShellMenu.RegisterPdf(dataDir);                                            // "Open with" Utylix PDF on .pdf files
+            Installer.RefreshAppsEntry();                                              // the version shown in Settings > Apps
+            ShellMenu.HidePlainExeFromOpenWith();                                      // (only the named entries: Utylix Editor, Utylix Photos, ...)
             ShellMenu.RegisterTorrent(_manager.Config.TorrentHandler);                 // magnet links and .torrent files can be opened with Utylix
         }
         _quickBackground = new QuickBackground((title, text, error, reveal) => Dispatcher.BeginInvoke(() =>
@@ -212,6 +218,7 @@ public partial class App : Application
         if (toolCmd != null)                                                               // started by the right-click menu: no main window
         {
             if (toolCmd.Value.Op == "view") { _ephemeral = true; ViewerWindow.AnyClosed += MaybeQuitAfterArchive; }            // a double-clicked picture: go away when the viewer is closed
+            if (toolCmd.Value.Op == "pdf") { _ephemeral = true; PdfWindow.AnyClosed += MaybeQuitAfterArchive; }                // a double-clicked PDF: go away when its window is closed
             if (toolCmd.Value.Op == "play") { _ephemeral = true; PlayerWindow.AnyClosed += MaybeQuitAfterArchive; MusicWindow.AnyClosed += MaybeQuitAfterArchive; }   // a double-clicked video: go away when the player is closed
             HandleTool(toolCmd.Value.Op, toolCmd.Value.Files);
         }
@@ -228,15 +235,32 @@ public partial class App : Application
     // ---------- Remove background / Play (Explorer right-click) ----------
     private QuickBackground? _quickBackground;
 
+    /// <summary>"Utylix.exe a.pdf" (no command): the command that file needs (--pdf, --view, --play, --torrent, --archive-open), or null.</summary>
+    private static string[]? PlainFile(string[] args)
+    {
+        if (args.Length == 0 || args.Any(a => a.StartsWith("--", StringComparison.Ordinal))) return null;
+        if (args.All(TorrentSource.IsMagnet)) return new[] { "--torrent" }.Concat(args).ToArray();
+        var files = args.Where(a => a.Length > 0 && File.Exists(a)).ToArray();
+        if (files.Length == 0) return null;
+        string f = files[0], ext = Path.GetExtension(f).TrimStart('.');
+        string? flag = PdfWindow.IsPdf(f) ? "--pdf"
+                     : ViewerWindow.IsViewable(f) ? "--view"
+                     : PlayerMedia.IsPlayable(f) ? "--play"
+                     : ext.Equals("torrent", StringComparison.OrdinalIgnoreCase) ? "--torrent"
+                     : ArchiveService.Extensions.Contains(ext, StringComparer.OrdinalIgnoreCase) ? "--archive-open"
+                     : null;
+        return flag == null ? null : new[] { flag }.Concat(files).ToArray();
+    }
+
     private static (string Op, List<string> Files)? ParseTool(string[] args)
     {
         if (args.Contains("--extension-help")) return ("extension", new List<string>());    // shows how to add the browser extension
         if (args.Contains("--snip")) return ("snip", new List<string>());                  // opens the Snip window
         if (args.Contains("--brightness")) return ("brightness", new List<string>());       // opens the brightness panel
-        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent" or "--view");
+        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent" or "--view" or "--pdf");
         if (i < 0) return null;
         var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).ToList();
-        return files.Count == 0 ? null : (args[i] == "--remove-bg" ? "remove-bg" : args[i] == "--torrent" ? "torrent" : args[i] == "--view" ? "view" : "play", files);
+        return files.Count == 0 ? null : (args[i] == "--remove-bg" ? "remove-bg" : args[i] == "--torrent" ? "torrent" : args[i] == "--view" ? "view" : args[i] == "--pdf" ? "pdf" : "play", files);
     }
 
     private void HandleTool(string op, List<string> files)
@@ -251,6 +275,7 @@ public partial class App : Application
             if (videos.Count > 0) PlayerWindow.Open(videos);
         }
         else if (op == "view") ViewerWindow.Open(files);
+        else if (op == "pdf") PdfWindow.Open(files);
         else if (op == "torrent") { foreach (var source in files.Where(TorrentSource.Is)) _manager!.Add(source, null, null); ShowTab("downloads"); }
         else if (op == "brightness") BrightnessWindow.ShowPanel();
         else if (op == "update") AppUpdateWindow.ShowWindow(_manager!);
@@ -280,6 +305,13 @@ public partial class App : Application
             {
                 var r = http.PostAsync($"http://127.0.0.1:{port}/api/tool", new StringContent(json, System.Text.Encoding.UTF8, "application/json")).GetAwaiter().GetResult();
                 if (r.IsSuccessStatusCode) return;
+                if (r.StatusCode == System.Net.HttpStatusCode.BadRequest)
+                {
+                    // the running copy is an older Utylix that can't do this yet: say so (instead of silently doing nothing)
+                    UMessage.Show("An older Utylix is running and can't do this yet.\n\nExit it (right-click the Utylix icon by the clock > Exit), then try again.",
+                                    "Utylix " + AppUpdater.CurrentText, MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
             }
             catch (Exception) { /* not listening yet */ }
             Thread.Sleep(250);
@@ -293,13 +325,13 @@ public partial class App : Application
 
     private void MaybeQuitAfterArchive()
     {
-        if (!_ephemeral || ArchiveWindow.Count > 0 || PlayerWindow.Count > 0 || ViewerWindow.Count > 0 || MusicWindow.Count > 0 || (_shell?.IsVisible ?? false) || _manager == null) return;
+        if (!_ephemeral || ArchiveWindow.Count > 0 || PlayerWindow.Count > 0 || ViewerWindow.Count > 0 || MusicWindow.Count > 0 || PdfWindow.Count > 0 || (_shell?.IsVisible ?? false) || _manager == null) return;
         if (_manager.All().Any(d => d.Status is DlStatus.Downloading or DlStatus.Queued)) return;      // it is doing something else too
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (_ephemeral && ArchiveWindow.Count == 0 && PlayerWindow.Count == 0 && ViewerWindow.Count == 0 && MusicWindow.Count == 0 && !(_shell?.IsVisible ?? false)) Quit();
+            if (_ephemeral && ArchiveWindow.Count == 0 && PlayerWindow.Count == 0 && ViewerWindow.Count == 0 && MusicWindow.Count == 0 && PdfWindow.Count == 0 && !(_shell?.IsVisible ?? false)) Quit();
         };
         timer.Start();
     }
@@ -668,6 +700,7 @@ public partial class App : Application
         menu.Items.Add("Browser extension…", null, (_, _) => Dispatcher.Invoke(() => ExtensionFiles.ShowHelp()));
         menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
         menu.Items.Add("Photo viewer…", null, (_, _) => Dispatcher.Invoke(ViewerWindow.Browse));
+        menu.Items.Add("PDF editor…", null, (_, _) => Dispatcher.Invoke(PdfWindow.Browse));
         menu.Items.Add("Music player", null, (_, _) => Dispatcher.Invoke(MusicWindow.OpenEmpty));
         menu.Items.Add("Music: play / pause", null, (_, _) => MusicWindow.TogglePlayFromOutside());
         menu.Items.Add("Music: next song", null, (_, _) => MusicWindow.NextFromOutside());

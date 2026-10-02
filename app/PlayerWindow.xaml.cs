@@ -819,14 +819,14 @@ public partial class PlayerWindow : Window
     }
 
     private void Shortcuts_Click(object sender, RoutedEventArgs e) =>
-        MessageBox.Show(this,
+        UMessage.Show(this,
             "Space  play / pause\nF or double-click  full screen (Esc leaves)\nLeft / Right  back / forward 10 s  (Shift 3 s, Ctrl 1 min)\nUp / Down or mouse wheel  volume\nM  mute\n" +
             "[  ]  slower / faster    =  normal speed\nN / P  next / previous    S  stop\nE  next frame\nV  next subtitle track    B  next audio track\nG / H  subtitle delay −/+ 50 ms    J / K  audio delay −/+ 50 ms\n" +
             "A  aspect ratio    Shift+S  snapshot\nCtrl+O  open file    Ctrl+F  open folder    Ctrl+N  network stream\nCtrl+L  playlist    Ctrl+H  minimal view    Ctrl+T  always on top    Ctrl+Q  quit",
             "Keyboard shortcuts", MessageBoxButton.OK, MessageBoxImage.Information);
 
     private void About_Click(object sender, RoutedEventArgs e) =>
-        MessageBox.Show(this, "Utylix Player\n\nPlays video and music with libvlc, the engine inside VLC (videolan.org).\nEverything around it is part of Utylix.", "About", MessageBoxButton.OK, MessageBoxImage.Information);
+        UMessage.Show(this, "Utylix Player\n\nPlays video and music with libvlc, the engine inside VLC (videolan.org).\nEverything around it is part of Utylix.", "About", MessageBoxButton.OK, MessageBoxImage.Information);
 
     // ---------- playlist panel, minimal view ----------
     private void TogglePlaylist()

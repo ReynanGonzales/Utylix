@@ -76,7 +76,7 @@ public partial class DownloadsPage : UserControl
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is not { } item) return;
-        if (MessageBox.Show(Window.GetWindow(this), "Cancel this download and discard what was downloaded?", "Utylix",
+        if (UMessage.Show(Window.GetWindow(this), "Cancel this download and discard what was downloaded?", "Utylix",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             _manager.Remove(item.Id, false);
         RefreshList();
@@ -91,7 +91,7 @@ public partial class DownloadsPage : UserControl
     private void Delete_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is not { } item) return;
-        if (MessageBox.Show(Window.GetWindow(this), $"Remove from the list and delete \"{item.FileName}\" from disk?", "Utylix",
+        if (UMessage.Show(Window.GetWindow(this), $"Remove from the list and delete \"{item.FileName}\" from disk?", "Utylix",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             _manager.Remove(item.Id, true);
         RefreshList();

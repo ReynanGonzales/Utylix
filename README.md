@@ -254,6 +254,19 @@ A quick, dark window for pictures. Open one from Explorer (right-click > Open wi
 - Ctrl+C copies the picture, Delete moves it to the Recycle Bin, Esc closes.
 - It reads what Windows can decode: JPEG, PNG, GIF (first frame), BMP, TIFF, ICO; WebP, HEIC and AVIF need Microsoft's free codec extensions from the Store (the window says so).
 
+## Utylix Editor (PDF)
+
+Utylix Editor reads, fills in, edits, signs, prints and shrinks PDFs with PDFium (the PDF engine inside Chrome), offline. Open one from Explorer (right-click > Open with > Utylix Editor, or make it the default for .pdf in Windows' Default apps), from the Dashboard / tray ("PDF editor…"), or drop PDFs on the window.
+
+- The pages sit in one column; only the pages on screen are drawn, sharp at any zoom. Ctrl + wheel or Ctrl+`=` / Ctrl+`-` zoom, Ctrl+2 fits the width, Ctrl+0 shows the whole page, Ctrl+1 is 100 %.
+- The page box jumps to a page; F4 shows the small pages at the side, or the **Bookmarks** (the PDF's table of contents). Ctrl+R turns the pages (for looking only).
+- **Text**: drag to select (double-click a word, triple-click a line), Ctrl+C copies, Ctrl+A selects the page; Ctrl+F (or the magnifier) searches the whole PDF, Enter / F3 for the next. Links work (web links ask first); pointing at a note shows its text. Right-click: copy, highlight / underline / strike out the selection, add a note, search.
+- **Forms**: a PDF with fields says so in a blue bar. Click a field to type (Tab: the next one), tick boxes and round options, pick from lists; a signature field opens "Your signature". Ctrl+S or Save keeps the values in the PDF (drawn into it, so every reader shows them). XFA forms can't be filled.
+- **Edit**: Edit text (click a line of the PDF's own text and change it: the same font when the PDF has the letters, else the same Windows font, else one like it), Text (type anywhere), Sign (draw, type or a photo of your signature; remembered), Picture, Check / Cross, Highlight / Underline / Strike (on text; Highlight also as a box), Note (a real PDF comment), Pen, Shapes (box, circle, line, arrow), White-out (covers; it doesn't erase what is under it). Select moves / resizes, Delete removes, Ctrl+Z / Ctrl+Y undo / redo. Save writes into the PDF, Save as… into a new one; a protected PDF stays protected.
+- **Print**: Utylix's own print window with a preview of every sheet: printer and its own settings, copies, pages ("1-3, 5", odd / even, reverse), fit / actual size / shrink big pages, 1 to 16 pages per sheet, orientation, paper (with Long 8.5 × 13 when the printer has it), colour or black and white, two-sided, quality.
+- Ctrl+O opens another PDF; PDFs with an open password ask for it.
+- **Reduce file size**, like Acrobat's: Recommended (pictures and scans at 150 dpi, text and links untouched), Smaller (110 dpi, lower quality), or Smallest (each page becomes one picture; for scans that are still too big, text can't be selected afterwards). Pictures that are really grey are stored grey, and fonts or pictures stored many times over are kept once. The original is never changed: the smaller copy is saved where you choose. A PDF protected against changes needs its owner (permissions) password, and the smaller copy keeps the same passwords and permissions ("Smallest" isn't offered for protected PDFs).
+
 ## Music player
 
 Songs open in their own player (videos still open in the Video Player): a playlist with cover art (from the file, or a `cover.jpg` / `folder.jpg` next to it), shuffle, repeat (off / all / one), and the keyboard's media keys (play-pause, next, previous) while it is open. Open one song from Explorer and the rest of its folder follows it. "Add folder…" adds a folder and its folders; "Show: …" switches the list and the player between song + artist, artist only and song only; "Small player" hides the list. The tray menu has "Music: play / pause" and "Music: next song".

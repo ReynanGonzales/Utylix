@@ -301,7 +301,7 @@ public partial class SettingsWindow : Window
             var config = System.Text.Json.JsonSerializer.Deserialize<Config>(System.IO.File.ReadAllText(dlg.FileName))
                          ?? throw new System.IO.IOException("That file is empty.");
             ApplyAndRegister(config);
-            MessageBox.Show(this, "Settings imported.", "Utylix", MessageBoxButton.OK, MessageBoxImage.Information);
+            UMessage.Show(this, "Settings imported.", "Utylix", MessageBoxButton.OK, MessageBoxImage.Information);
             DialogResult = true;
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
@@ -392,9 +392,9 @@ public partial class SettingsWindow : Window
                 else failed = true;
             }
             if (changes.Count > 0)
-                MessageBox.Show(string.Join(Environment.NewLine, changes) + Environment.NewLine + Environment.NewLine + "It takes effect after you sign out of Windows and in again.",
+                UMessage.Show(string.Join(Environment.NewLine, changes) + Environment.NewLine + Environment.NewLine + "It takes effect after you sign out of Windows and in again.",
                                 "Utylix", MessageBoxButton.OK, MessageBoxImage.Information);
-            if (failed) MessageBox.Show("Windows would not let Utylix change this setting.", "Utylix", MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (failed) UMessage.Show("Windows would not let Utylix change this setting.", "Utylix", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         catch (Exception ex)
         {

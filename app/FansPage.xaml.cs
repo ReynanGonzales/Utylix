@@ -412,12 +412,12 @@ public partial class FansPage : UserControl
 
     private async void RemoveTask_Click(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show("Remove the automatic start of fan control from this PC?" + Environment.NewLine + Environment.NewLine + "The protected copy and the Windows task are deleted (Windows asks for permission). Fan control then works only when you press Start.", "Utylix", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (UMessage.Show("Remove the automatic start of fan control from this PC?" + Environment.NewLine + Environment.NewLine + "The protected copy and the Windows task are deleted (Windows asks for permission). Fan control then works only when you press Start.", "Utylix", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         await FanSettings.Client.StopAsync();
         SetOff();
         bool ok = await FanTask.RemoveWithPromptAsync();
         _settings.AutoStart = false; AutoBox.IsChecked = false; _settings.Save();
-        MessageBox.Show(ok ? "Removed. The fans are under the PC's own control." : "It could not be removed (permission refused?). The fans are under the PC's own control.", "Utylix");
+        UMessage.Show(ok ? "Removed. The fans are under the PC's own control." : "It could not be removed (permission refused?). The fans are under the PC's own control.", "Utylix");
     }
 
     private void Unused_Click(object sender, RoutedEventArgs e)

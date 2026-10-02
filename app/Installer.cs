@@ -61,6 +61,24 @@ internal static partial class Installer
 
     private static bool IsInstalledCopy => Installed() is { } i && SameFolder(i.Dir, Path.GetDirectoryName(Environment.ProcessPath));
 
+    /// <summary>
+    /// The installed copy keeps its line in Windows' list of apps up to date. An update only replaces Utylix.exe, so without this,
+    /// Settings > Apps went on showing the version first installed.
+    /// </summary>
+    public static void RefreshAppsEntry()
+    {
+        try
+        {
+            if (Installed() is not { } i || !SameFolder(i.Dir, Path.GetDirectoryName(Environment.ProcessPath))) return;
+            using var k = Root(i.AllUsers).OpenSubKey(UninstallKey, writable: true);
+            if (k == null) return;
+            if (k.GetValue("DisplayVersion") as string != AppUpdater.CurrentText) k.SetValue("DisplayVersion", AppUpdater.CurrentText);
+            int size = (int)(new FileInfo(Environment.ProcessPath!).Length / 1024);
+            if (k.GetValue("EstimatedSize") is not int old || old != size) k.SetValue("EstimatedSize", size, RegistryValueKind.DWord);
+        }
+        catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException) { /* (an all-users install without admin rights: left as it is) */ }
+    }
+
     /// <summary>Should this start show the installer instead of the program?</summary>
     public static bool WantsSetup(string[] args)
     {
@@ -207,12 +225,12 @@ internal static partial class Installer
         {
             // installed for everyone: removing it needs administrator rights
             try { Process.Start(new ProcessStartInfo(self) { UseShellExecute = true, Verb = "runas", ArgumentList = { "--uninstall" } }); }
-            catch (System.ComponentModel.Win32Exception) { MessageBox.Show("Administrator permission was not given, so Utylix was not removed.", "Uninstall Utylix", MessageBoxButton.OK, MessageBoxImage.Information); }
+            catch (System.ComponentModel.Win32Exception) { UMessage.Show("Administrator permission was not given, so Utylix was not removed.", "Uninstall Utylix", MessageBoxButton.OK, MessageBoxImage.Information); }
             return;
         }
-        if (MessageBox.Show("Remove Utylix from this PC?\n\nYour downloaded files, recordings and screenshots stay where they are.",
+        if (UMessage.Show("Remove Utylix from this PC?\n\nYour downloaded files, recordings and screenshots stay where they are.",
                 "Uninstall Utylix", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-        bool wipe = MessageBox.Show("Also delete Utylix's own settings, download list and the video tools it downloaded (yt-dlp, ffmpeg, the player engine, the AI model)?\n\n" +
+        bool wipe = UMessage.Show("Also delete Utylix's own settings, download list and the video tools it downloaded (yt-dlp, ffmpeg, the player engine, the AI model)?\n\n" +
                                     "Choose No to keep them in case you install Utylix again.", "Uninstall Utylix", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
         // a progress window like the installer's, paced so each step can be followed
         var bar = new ProgressBar { Height = 10, Minimum = 0, Maximum = 100, Margin = new Thickness(0, 18, 0, 0), Foreground = (Brush)Application.Current.FindResource("AccentBrush") };
@@ -260,6 +278,7 @@ internal static partial class Installer
             ShellMenu.RegisterPlayer(dataDir, false);
             ShellMenu.RegisterTorrent(false);
             ShellMenu.RegisterViewer(null);
+            ShellMenu.RegisterPdf(null);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
         Thread.Sleep(800);

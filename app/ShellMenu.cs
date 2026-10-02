@@ -116,6 +116,7 @@ public static class ShellMenu
                 using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + PlayProgId);
                 SetIfDifferent(progId, "", "Video or music (played with Utylix)");
                 using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", icon);
+                AppIdentity(progId, "Utylix Player", icon, "Plays videos and music");
                 using var cmd = progId.CreateSubKey(@"shell\open\command");
                 SetIfDifferent(cmd, "", $"\"{exe}\" --play \"%1\"");
             }
@@ -172,6 +173,7 @@ public static class ShellMenu
                 using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + PictureProgId);
                 SetIfDifferent(progId, "", "Picture (opened with Utylix)");
                 using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", icon);
+                AppIdentity(progId, "Utylix Photos", icon, "Shows pictures");
                 using var cmd = progId.CreateSubKey(@"shell\open\command");
                 SetIfDifferent(cmd, "", $"\"{exe}\" --view \"%1\"");
             }
@@ -189,6 +191,41 @@ public static class ShellMenu
                     using var owp = Registry.CurrentUser.OpenSubKey($@"Software\Classes\.{ext}\OpenWithProgids", writable: true);
                     owp?.DeleteValue(PictureProgId, throwOnMissingValue: false);
                 }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
+    }
+
+    // ---------- PDFs ----------
+    private const string PdfProgId = "Utylix.PdfFile";
+
+    /// <summary>
+    /// Utylix PDF in the "Open with" list of .pdf files (so it can be chosen as the default in Windows), never taking over the PDF
+    /// program already chosen. Pass null to remove it.
+    /// </summary>
+    public static void RegisterPdf(string? dataDir)
+    {
+        try
+        {
+            string exe = Environment.ProcessPath!;
+            bool enabled = dataDir != null;
+            if (enabled)
+            {
+                string icon = OwnIcon(dataDir!, "pdf", IconOf(exe));
+                using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + PdfProgId);
+                SetIfDifferent(progId, "", "PDF document (opened with Utylix)");
+                using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", icon);
+                AppIdentity(progId, "Utylix Editor", icon, "Reads, edits, signs and shrinks PDFs");
+                using var cmd = progId.CreateSubKey(@"shell\open\command");
+                SetIfDifferent(cmd, "", $"\"{exe}\" --pdf \"%1\"");
+                using var owp = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.pdf\OpenWithProgids");
+                if (!owp.GetValueNames().Contains(PdfProgId)) owp.SetValue(PdfProgId, new byte[0], RegistryValueKind.None);
+            }
+            else
+            {
+                Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + PdfProgId, throwOnMissingSubKey: false);
+                using var owp = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.pdf\OpenWithProgids", writable: true);
+                owp?.DeleteValue(PdfProgId, throwOnMissingValue: false);
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
@@ -270,6 +307,34 @@ public static class ShellMenu
         if (key.GetValue(name) as string != value) key.SetValue(name, value);
     }
 
+    /// <summary>
+    /// The name and logo "Open with" shows for one kind of Utylix file (like Microsoft Edge does for its PDFs): "Utylix Editor" with the
+    /// PDF logo, "Utylix Photos", ... instead of a plain "Utylix" with the main logo for everything.
+    /// </summary>
+    private static void AppIdentity(RegistryKey progId, string name, string icon, string description)
+    {
+        using var app = progId.CreateSubKey("Application");
+        SetIfDifferent(app, "ApplicationName", name);
+        if (icon.Length > 0) SetIfDifferent(app, "ApplicationIcon", icon);
+        SetIfDifferent(app, "ApplicationDescription", description);
+        SetIfDifferent(app, "ApplicationCompany", "Utylix");
+    }
+
+    /// <summary>
+    /// Windows adds a plain "Utylix" to "Open with" by itself when Utylix.exe is ever picked through "Choose another app". That entry
+    /// duplicated the proper ones (Utylix Editor, Utylix Photos, ...), so it is hidden. (Utylix still understands a plain file name.)
+    /// </summary>
+    public static void HidePlainExeFromOpenWith()
+    {
+        try
+        {
+            string name = Path.GetFileName(Environment.ProcessPath!);
+            using var app = Registry.CurrentUser.CreateSubKey($@"Software\Classes\Applications\{name}");
+            if (app.GetValue("NoOpenWith") == null) app.SetValue("NoOpenWith", "");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
+    }
+
     // ---------- archives ----------
     private const string ArchiveVerb = "Utylix.Archive", ProgId = "Utylix.ArchiveFile";
 
@@ -304,6 +369,7 @@ public static class ShellMenu
                 using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + ProgId);
                 progId.SetValue("", "Archive (opened with Utylix)");
                 if (icon.Length > 0) { using var di = progId.CreateSubKey("DefaultIcon"); di.SetValue("", icon); }
+                AppIdentity(progId, "Utylix Archive", icon, "Opens and makes ZIP, RAR, 7z and other archives");
                 using var cmd = progId.CreateSubKey(@"shell\open\command");
                 cmd.SetValue("", $"\"{exe}\" --archive-open \"%1\"");
             }

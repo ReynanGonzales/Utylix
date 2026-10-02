@@ -1,0 +1,231 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+
+namespace IdmClone.Engine;
+
+public enum PdfFontKind { Sans, Serif, Mono }
+
+/// <summary>Something to add to a page. Coordinates are in points (1/72 inch) from the top-left corner of the page as it is shown.</summary>
+public abstract record PdfMark(int Page);
+
+/// <summary>Lines of text. Baseline of line i = Top + i * LineSpacing * Size + Baseline * Size (the font's own numbers, as WPF shows them).</summary>
+public sealed record PdfTextMark(int Page, Point TopLeft, string Text, PdfFontKind Font, bool Bold, double Size, Color Color, double LineSpacing, double Baseline) : PdfMark(Page);
+
+/// <summary>One figure of a path: a start, then lines (Curve = false, only To) or curves (C1, C2, To).</summary>
+public sealed record PdfFigure(Point Start, IReadOnlyList<PdfSegment> Segments, bool Closed);
+public readonly record struct PdfSegment(Point C1, Point C2, Point To, bool Curve)
+{
+    public static PdfSegment Line(Point to) => new(default, default, to, false);
+    public static PdfSegment Bezier(Point c1, Point c2, Point to) => new(c1, c2, to, true);
+}
+
+/// <summary>Lines and shapes. Stroke / Fill null = none; Multiply = like a highlighter (the text under it stays dark).</summary>
+public sealed record PdfPathMark(int Page, IReadOnlyList<PdfFigure> Figures, Color? Stroke, double Width, Color? Fill, bool Multiply) : PdfMark(Page);
+
+/// <summary>A picture in a box: JPEG bytes as they are, or pixels (BGRA, transparency kept).</summary>
+public sealed record PdfImageMark(int Page, Rect Box, byte[]? Jpeg, BitmapSource? Pixels) : PdfMark(Page);
+
+/// <summary>
+/// A real PDF comment (other readers list it and can remove it): highlight / underline / strike-out over the given text boxes
+/// (Subtype 9 / 10 / 12), or a sticky note (Subtype 1, Rects[0] is its icon, Contents its text).
+/// </summary>
+public sealed record PdfAnnotMark(int Page, int Subtype, IReadOnlyList<Rect> Rects, Color Color, string? Contents) : PdfMark(Page);
+
+/// <summary>Writes marks into the pages of an open PDF (they become part of the page, seen the same in every PDF reader).</summary>
+public static class PdfMarkWriter
+{
+    public static void Apply(PdfFile pdf, IEnumerable<PdfMark> marks)
+    {
+        var byPage = marks.GroupBy(m => m.Page).OrderBy(g => g.Key).ToList();
+        lock (Pdfium.Sync)
+        {
+            IntPtr doc = pdf.Handle;
+            var fonts = new Dictionary<string, IntPtr>();
+            try
+            {
+                foreach (var group in byPage)
+                {
+                    IntPtr page = Pdfium.FPDF_LoadPage(doc, group.Key);
+                    if (page == IntPtr.Zero) throw new IOException("Page " + (group.Key + 1) + " can't be changed.");
+                    try
+                    {
+                        Pdfium.FPDF_GetPageSizeByIndexF(doc, group.Key, out var size);
+                        var map = new PageMapping(page, size.Width, size.Height);
+                        var changes = group.OfType<PdfReplaceTextMark>().ToList();
+                        if (changes.Count > 0) PdfTextRuns.Replace(doc, page, changes, fonts);     // (first: it works with the page's own numbering of its pieces)
+                        foreach (var mark in group)
+                        {
+                            switch (mark)
+                            {
+                                case PdfTextMark t: WriteText(doc, page, map, t, fonts); break;
+                                case PdfPathMark p: WritePath(page, map, p); break;
+                                case PdfImageMark i: WriteImage(doc, page, map, i); break;
+                                case PdfAnnotMark a: WriteAnnot(page, map, a); break;
+                            }
+                        }
+                        if (Pdfium.FPDFPage_GenerateContent(page) == 0) throw new IOException("Page " + (group.Key + 1) + " couldn't be written.");
+                    }
+                    finally { Pdfium.FPDF_ClosePage(page); }
+                }
+            }
+            finally { foreach (var f in fonts.Values) Pdfium.FPDFFont_Close(f); }
+        }
+    }
+
+    private static (uint R, uint G, uint B, uint A) Rgba(Color c) => (c.R, c.G, c.B, c.A);
+
+    // ---------- text ----------
+    private static void WriteText(IntPtr doc, IntPtr page, PageMapping map, PdfTextMark t, Dictionary<string, IntPtr> fonts)
+    {
+        string[] lines = t.Text.Replace("\r\n", "\n").Split('\n');
+        IntPtr font = Font(doc, t.Font, t.Bold, !lines.All(StandardFontCanShow), fonts);
+        var (r, g, b, a) = Rgba(t.Color);
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].Length == 0) continue;
+            IntPtr obj = Pdfium.FPDFPageObj_CreateTextObj(doc, font, (float)t.Size);
+            if (obj == IntPtr.Zero) throw new IOException("The text couldn't be added.");
+            Pdfium.FPDFText_SetText(obj, lines[i]);
+            Pdfium.FPDFPageObj_SetFillColor(obj, r, g, b, a);
+            var baseline = map.ToPage(new Point(t.TopLeft.X, t.TopLeft.Y + (i * t.LineSpacing + t.Baseline) * t.Size));
+            Pdfium.FPDFPageObj_Transform(obj, map.Right.X, map.Right.Y, map.Up.X, map.Up.Y, baseline.X, baseline.Y);
+            Pdfium.FPDFPage_InsertObject(page, obj);
+        }
+    }
+
+    /// <summary>The 14 standard PDF fonts show only the Windows-1252 letters (enough for English and Filipino, with ñ).</summary>
+    private static bool StandardFontCanShow(string s) =>
+        s.All(c => (c >= 0x20 && c <= 0x7E) || (c >= 0xA0 && c <= 0xFF) || "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".IndexOf(c) >= 0);
+
+    private static IntPtr Font(IntPtr doc, PdfFontKind kind, bool bold, bool unicode, Dictionary<string, IntPtr> fonts)
+    {
+        string key = $"{kind}{bold}{unicode}";
+        if (fonts.TryGetValue(key, out var f)) return f;
+        if (!unicode)
+        {
+            string name = kind switch
+            {
+                PdfFontKind.Serif => bold ? "Times-Bold" : "Times-Roman",
+                PdfFontKind.Mono => bold ? "Courier-Bold" : "Courier",
+                _ => bold ? "Helvetica-Bold" : "Helvetica",
+            };
+            f = Pdfium.FPDFText_LoadStandardFont(doc, name);                  // (nothing is embedded: every PDF reader has these)
+        }
+        else
+        {
+            // letters the standard fonts lack (₱, Greek, ...): the matching Windows font is embedded
+            string file = kind switch { PdfFontKind.Serif => bold ? "timesbd.ttf" : "times.ttf", PdfFontKind.Mono => bold ? "courbd.ttf" : "cour.ttf", _ => bold ? "arialbd.ttf" : "arial.ttf" };
+            byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), file));
+            f = Pdfium.FPDFText_LoadFont(doc, data, (uint)data.Length, Pdfium.FontTrueType, 1);
+        }
+        if (f == IntPtr.Zero) throw new IOException("The font couldn't be loaded.");
+        fonts[key] = f;
+        return f;
+    }
+
+    // ---------- lines and shapes ----------
+    private static void WritePath(IntPtr page, PageMapping map, PdfPathMark p)
+    {
+        foreach (var fig in p.Figures)
+        {
+            var s = map.ToPage(fig.Start);
+            IntPtr path = Pdfium.FPDFPageObj_CreateNewPath((float)s.X, (float)s.Y);
+            if (path == IntPtr.Zero) throw new IOException("A shape couldn't be added.");
+            foreach (var seg in fig.Segments)
+            {
+                var to = map.ToPage(seg.To);
+                if (seg.Curve)
+                {
+                    var c1 = map.ToPage(seg.C1); var c2 = map.ToPage(seg.C2);
+                    Pdfium.FPDFPath_BezierTo(path, (float)c1.X, (float)c1.Y, (float)c2.X, (float)c2.Y, (float)to.X, (float)to.Y);
+                }
+                else Pdfium.FPDFPath_LineTo(path, (float)to.X, (float)to.Y);
+            }
+            if (fig.Closed) Pdfium.FPDFPath_Close(path);
+            if (p.Stroke is Color sc)
+            {
+                var (r, g, b, a) = Rgba(sc);
+                Pdfium.FPDFPageObj_SetStrokeColor(path, r, g, b, a);
+                Pdfium.FPDFPageObj_SetStrokeWidth(path, (float)p.Width);
+                Pdfium.FPDFPageObj_SetLineJoin(path, 1);                     // round
+                Pdfium.FPDFPageObj_SetLineCap(path, 1);
+            }
+            if (p.Fill is Color fc)
+            {
+                var (r, g, b, a) = Rgba(fc);
+                Pdfium.FPDFPageObj_SetFillColor(path, r, g, b, a);
+            }
+            Pdfium.FPDFPath_SetDrawMode(path, p.Fill != null ? Pdfium.FillWinding : Pdfium.FillNone, p.Stroke != null ? 1 : 0);
+            if (p.Multiply) Pdfium.FPDFPageObj_SetBlendMode(path, "Multiply");
+            Pdfium.FPDFPage_InsertObject(page, path);
+        }
+    }
+
+    // ---------- comments ----------
+    private static void WriteAnnot(IntPtr page, PageMapping map, PdfAnnotMark a)
+    {
+        if (a.Rects.Count == 0) return;
+        IntPtr annot = Pdfium.FPDFPage_CreateAnnot(page, a.Subtype);
+        if (annot == IntPtr.Zero) throw new IOException("The comment couldn't be added.");
+        try
+        {
+            double l = double.MaxValue, b = double.MaxValue, r = double.MinValue, t = double.MinValue;
+            foreach (var box in a.Rects)
+            {
+                var tl = map.ToPage(box.TopLeft); var tr = map.ToPage(box.TopRight); var bl = map.ToPage(box.BottomLeft); var br = map.ToPage(box.BottomRight);
+                foreach (var p in new[] { tl, tr, bl, br }) { l = Math.Min(l, p.X); r = Math.Max(r, p.X); b = Math.Min(b, p.Y); t = Math.Max(t, p.Y); }
+                if (a.Subtype != Pdfium.AnnotText)
+                {
+                    // (the order readers expect: upper left, upper right, lower left, lower right - of the text as read)
+                    var q = new Pdfium.QuadF { X1 = (float)tl.X, Y1 = (float)tl.Y, X2 = (float)tr.X, Y2 = (float)tr.Y, X3 = (float)bl.X, Y3 = (float)bl.Y, X4 = (float)br.X, Y4 = (float)br.Y };
+                    Pdfium.FPDFAnnot_AppendAttachmentPoints(annot, ref q);
+                }
+            }
+            var rect = new Pdfium.RectF { Left = (float)l, Bottom = (float)b, Right = (float)r, Top = (float)t };
+            Pdfium.FPDFAnnot_SetRect(annot, ref rect);
+            Pdfium.FPDFAnnot_SetColor(annot, 0, a.Color.R, a.Color.G, a.Color.B, 255);
+            if (!string.IsNullOrEmpty(a.Contents)) Pdfium.FPDFAnnot_SetStringValue(annot, "Contents", a.Contents);
+            Pdfium.FPDFAnnot_SetStringValue(annot, "M", "D:" + DateTime.Now.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        finally { Pdfium.FPDFPage_CloseAnnot(annot); }
+    }
+
+    // ---------- pictures ----------
+    private static void WriteImage(IntPtr doc, IntPtr page, PageMapping map, PdfImageMark m)
+    {
+        IntPtr obj = Pdfium.FPDFPageObj_NewImageObj(doc);
+        if (obj == IntPtr.Zero) throw new IOException("The picture couldn't be added.");
+        if (m.Jpeg != null)
+        {
+            if (!Pdfium.LoadJpeg(obj, m.Jpeg)) throw new IOException("The picture couldn't be added.");
+        }
+        else if (m.Pixels != null)
+        {
+            BitmapSource src = m.Pixels.Format == PixelFormats.Bgra32 ? m.Pixels : new FormatConvertedBitmap(m.Pixels, PixelFormats.Bgra32, null, 0);
+            int w = src.PixelWidth, h = src.PixelHeight, stride = w * 4;
+            var pixels = new byte[stride * h];
+            src.CopyPixels(pixels, stride, 0);
+            var pin = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+            try
+            {
+                IntPtr bmp = Pdfium.FPDFBitmap_CreateEx(w, h, Pdfium.BitmapBgra, pin.AddrOfPinnedObject(), stride);
+                if (bmp == IntPtr.Zero) throw new IOException("The picture couldn't be added.");
+                try { if (Pdfium.FPDFImageObj_SetBitmap(IntPtr.Zero, 0, obj, bmp) == 0) throw new IOException("The picture couldn't be added."); }
+                finally { Pdfium.FPDFBitmap_Destroy(bmp); }
+            }
+            finally { pin.Free(); }
+        }
+        else return;
+        // the picture's square (0..1, upwards) onto its box
+        var bottomLeft = map.ToPage(new Point(m.Box.Left, m.Box.Bottom));
+        var right = map.Right * m.Box.Width; var up = map.Up * m.Box.Height;
+        Pdfium.FPDFImageObj_SetMatrix(obj, right.X, right.Y, up.X, up.Y, bottomLeft.X, bottomLeft.Y);
+        Pdfium.FPDFPage_InsertObject(page, obj);
+    }
+}

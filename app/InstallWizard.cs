@@ -339,7 +339,7 @@ internal static partial class Installer
                 }
                 catch (System.ComponentModel.Win32Exception)
                 {
-                    MessageBox.Show("Administrator permission was not given, so nothing was installed.\n\nChoose \"Just for me\" on the second page, or try again.", "Utylix Setup", MessageBoxButton.OK, MessageBoxImage.Information);
+                    UMessage.Show("Administrator permission was not given, so nothing was installed.\n\nChoose \"Just for me\" on the second page, or try again.", "Utylix Setup", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 return;
             }
@@ -380,7 +380,7 @@ internal static partial class Installer
                 else if (startNow.IsChecked == true) Launch(installedExe);
                 window.Close(); return;
             }
-            if (page == 1 && string.IsNullOrWhiteSpace(dirBox.Text)) { MessageBox.Show("Choose a folder to install into.", "Utylix Setup"); return; }
+            if (page == 1 && string.IsNullOrWhiteSpace(dirBox.Text)) { UMessage.Show("Choose a folder to install into.", "Utylix Setup"); return; }
             if (page < 3) { Show(page + 1); return; }
             if (page == 3) await DoInstall(Current());
         };

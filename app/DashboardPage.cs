@@ -56,6 +56,7 @@ public sealed class DashboardPage : UserControl
         Tile("", "Record the screen", "DashRecord", () => App.Show("recorder"));
         Tile("", "Video player", "DashPlayer", () => App.Show("player"));
         Tile("", "Photo viewer", "DashPhotos", ViewerWindow.Browse);
+        Tile("", "PDF editor", "DashPdf", PdfWindow.Browse);
         Tile("", "Music player", "DashMusic", MusicWindow.OpenEmpty);
         Tile("", "Convert files", "DashConvert", () => App.Show("converter"));
         Tile("", "Downloads", "DashDownloads", () => App.Show("downloads"));
