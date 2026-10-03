@@ -30,7 +30,7 @@ public sealed partial class PdfFile : IDisposable
     public string Path { get; }
     public string? Password { get; }
     public long Length { get; }
-    public int PageCount { get; }
+    public int PageCount { get; private set; }
     /// <summary>The file is encrypted (it has an open password, or an owner password that limits changes).</summary>
     public bool IsProtected { get; }
     /// <summary>The permission bits of a protected file (print = 4, change = 8, copy = 16, comment = 32, fill forms = 256, assemble = 1024, high-quality print = 2048).</summary>

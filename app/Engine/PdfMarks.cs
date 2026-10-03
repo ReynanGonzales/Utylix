@@ -15,7 +15,7 @@ public enum PdfFontKind { Sans, Serif, Mono }
 public abstract record PdfMark(int Page);
 
 /// <summary>Lines of text. Baseline of line i = Top + i * LineSpacing * Size + Baseline * Size (the font's own numbers, as WPF shows them).</summary>
-public sealed record PdfTextMark(int Page, Point TopLeft, string Text, PdfFontKind Font, bool Bold, double Size, Color Color, double LineSpacing, double Baseline) : PdfMark(Page);
+public sealed record PdfTextMark(int Page, Point TopLeft, string Text, PdfFontKind Font, bool Bold, double Size, Color Color, double LineSpacing, double Baseline, string? FontName = null, double Angle = 0, Point? Pivot = null) : PdfMark(Page);
 
 /// <summary>One figure of a path: a start, then lines (Curve = false, only To) or curves (C1, C2, To).</summary>
 public sealed record PdfFigure(Point Start, IReadOnlyList<PdfSegment> Segments, bool Closed);
@@ -90,7 +90,7 @@ public static class PdfMarkWriter
     private static void WriteText(IntPtr doc, IntPtr page, PageMapping map, PdfTextMark t, Dictionary<string, IntPtr> fonts)
     {
         string[] lines = t.Text.Replace("\r\n", "\n").Split('\n');
-        IntPtr font = Font(doc, t.Font, t.Bold, !lines.All(StandardFontCanShow), fonts);
+        IntPtr font = Font(doc, t.Font, t.Bold, !lines.All(StandardFontCanShow), fonts, t.FontName);
         var (r, g, b, a) = Rgba(t.Color);
         for (int i = 0; i < lines.Length; i++)
         {
@@ -99,8 +99,16 @@ public static class PdfMarkWriter
             if (obj == IntPtr.Zero) throw new IOException("The text couldn't be added.");
             Pdfium.FPDFText_SetText(obj, lines[i]);
             Pdfium.FPDFPageObj_SetFillColor(obj, r, g, b, a);
-            var baseline = map.ToPage(new Point(t.TopLeft.X, t.TopLeft.Y + (i * t.LineSpacing + t.Baseline) * t.Size));
-            Pdfium.FPDFPageObj_Transform(obj, map.Right.X, map.Right.Y, map.Up.X, map.Up.Y, baseline.X, baseline.Y);
+            var shown = new Point(t.TopLeft.X, t.TopLeft.Y + (i * t.LineSpacing + t.Baseline) * t.Size);
+            double turn = t.Angle * Math.PI / 180, cos = Math.Cos(turn), sin = Math.Sin(turn);
+            if (t.Angle != 0 && t.Pivot is Point pivot)
+            {
+                double dx = shown.X - pivot.X, dy = shown.Y - pivot.Y;                       // (turned clockwise around the pivot, like a stamp on the page)
+                shown = new Point(pivot.X + dx * cos - dy * sin, pivot.Y + dx * sin + dy * cos);
+            }
+            var baseline = map.ToPage(shown);
+            // the text's own right / up directions, turned: shown right = (cos, sin), shown up = (sin, -cos)
+            Pdfium.FPDFPageObj_Transform(obj, map.Right.X * cos - map.Up.X * sin, map.Right.Y * cos - map.Up.Y * sin, map.Right.X * sin + map.Up.X * cos, map.Right.Y * sin + map.Up.Y * cos, baseline.X, baseline.Y);
             Pdfium.FPDFPage_InsertObject(page, obj);
         }
     }
@@ -109,11 +117,18 @@ public static class PdfMarkWriter
     private static bool StandardFontCanShow(string s) =>
         s.All(c => (c >= 0x20 && c <= 0x7E) || (c >= 0xA0 && c <= 0xFF) || "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".IndexOf(c) >= 0);
 
-    private static IntPtr Font(IntPtr doc, PdfFontKind kind, bool bold, bool unicode, Dictionary<string, IntPtr> fonts)
+    private static IntPtr Font(IntPtr doc, PdfFontKind kind, bool bold, bool unicode, Dictionary<string, IntPtr> fonts, string? family = null)
     {
-        string key = $"{kind}{bold}{unicode}";
+        // a font chosen by name: the Windows font is embedded (when it can't be found, the plain kind is used)
+        string? file = family == null ? null : PdfFonts.FileFor(family, bold);
+        string key = file != null ? "file:" + file : $"{kind}{bold}{unicode}";
         if (fonts.TryGetValue(key, out var f)) return f;
-        if (!unicode)
+        if (file != null)
+        {
+            byte[] chosen = File.ReadAllBytes(file);
+            f = Pdfium.FPDFText_LoadFont(doc, chosen, (uint)chosen.Length, Pdfium.FontTrueType, 1);
+        }
+        else if (!unicode)
         {
             string name = kind switch
             {
@@ -126,8 +141,8 @@ public static class PdfMarkWriter
         else
         {
             // letters the standard fonts lack (₱, Greek, ...): the matching Windows font is embedded
-            string file = kind switch { PdfFontKind.Serif => bold ? "timesbd.ttf" : "times.ttf", PdfFontKind.Mono => bold ? "courbd.ttf" : "cour.ttf", _ => bold ? "arialbd.ttf" : "arial.ttf" };
-            byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), file));
+            string plain = kind switch { PdfFontKind.Serif => bold ? "timesbd.ttf" : "times.ttf", PdfFontKind.Mono => bold ? "courbd.ttf" : "cour.ttf", _ => bold ? "arialbd.ttf" : "arial.ttf" };
+            byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), plain));
             f = Pdfium.FPDFText_LoadFont(doc, data, (uint)data.Length, Pdfium.FontTrueType, 1);
         }
         if (f == IntPtr.Zero) throw new IOException("The font couldn't be loaded.");

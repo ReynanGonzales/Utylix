@@ -86,8 +86,15 @@ public sealed partial class PdfWindow
         public string Label = "";
         public string? DateText;
 
+        public double AngleDeg;                          // turned clockwise around the middle of the box
+
         public override Rect Bounds => Box;
         public override bool KeepAspect => true;
+        public override bool CanRotate => true;
+        public override double Angle => AngleDeg;
+        public override void SetAngle(double degrees) => AngleDeg = degrees;
+        public override bool Hit(Point p) => Inflate(Box, 3).Contains(AngleDeg == 0 ? p : Rot(p, Centre, -AngleDeg));
+        Point Centre => new(Box.X + Box.Width / 2, Box.Y + Box.Height / 2);
         public override EditItem Clone() => (StampItem)MemberwiseClone();
         public override void MoveBy(Vector d) => Box.Offset(d);
         public override void ResizeTo(Rect r) => Box = r;
@@ -160,20 +167,37 @@ public sealed partial class PdfWindow
             }
             canvas.Children.Add(Line(Label, ms, mp));
             if (!string.IsNullOrEmpty(DateText)) canvas.Children.Add(Line(DateText!, ss, sp));
+            if (AngleDeg != 0) canvas.RenderTransform = new RotateTransform(AngleDeg, Centre.X, Centre.Y);
             return canvas;
         }
+
+        static PdfFigure Turned(PdfFigure f, Point c, double deg) => new(Rot(f.Start, c, deg),
+            f.Segments.Select(s => new PdfSegment(s.Curve ? Rot(s.C1, c, deg) : default, s.Curve ? Rot(s.C2, c, deg) : default, Rot(s.To, c, deg), s.Curve)).ToList(), f.Closed);
 
         public override IEnumerable<PdfMark> Marks()
         {
             var figures = Outlines(out double outer, out double inner);
+            var c = Centre;
+            if (AngleDeg != 0) figures = figures.Select(f => Turned(f, c, AngleDeg)).ToList();
             yield return new PdfPathMark(Page, new[] { figures[0] }, Color, outer, null, false);
             yield return new PdfPathMark(Page, new[] { figures[1] }, Color, inner, null, false);
             var (ms, mp, ss, sp) = Layout();
-            foreach (var m in new TextItem { Page = Page, TopLeft = mp, Text = Label, Font = PdfFontKind.Sans, Bold = true, FontSize = ms, Color = Color }.Marks()) yield return m;
+            foreach (var m in new TextItem { Page = Page, TopLeft = mp, Text = Label, Font = PdfFontKind.Sans, Bold = true, FontSize = ms, Color = Color }.Marks()) yield return TurnedText(m, c);
             if (!string.IsNullOrEmpty(DateText))
-                foreach (var m in new TextItem { Page = Page, TopLeft = sp, Text = DateText!, Font = PdfFontKind.Sans, Bold = true, FontSize = ss, Color = Color }.Marks()) yield return m;
+                foreach (var m in new TextItem { Page = Page, TopLeft = sp, Text = DateText!, Font = PdfFontKind.Sans, Bold = true, FontSize = ss, Color = Color }.Marks()) yield return TurnedText(m, c);
         }
+
+        PdfMark TurnedText(PdfMark m, Point centre) => AngleDeg != 0 && m is PdfTextMark t ? t with { Angle = AngleDeg, Pivot = centre } : m;
     }
+
+    /// <summary>A point turned clockwise (as seen on the page, y pointing down) by degrees around a centre.</summary>
+    private static Point Rot(Point p, Point c, double degrees)
+    {
+        double a = degrees * Math.PI / 180, cos = Math.Cos(a), sin = Math.Sin(a), dx = p.X - c.X, dy = p.Y - c.Y;
+        return new Point(c.X + dx * cos - dy * sin, c.Y + dx * sin + dy * cos);
+    }
+
+    private double _stampAngle;                      // the tilt of the last stamp the person turned: the next stamp starts with it
 
     // ---------- placing ----------
     private void PlaceStamp(PageView pv, Point at)
@@ -184,13 +208,13 @@ public sealed partial class PdfWindow
         var box = new Rect(at.X - size.Width / 2, at.Y - size.Height / 2, size.Width, size.Height);
         // inside the page
         box.X = Math.Clamp(box.X, 0, Math.Max(0, pv.Overlay.Width - box.Width)); box.Y = Math.Clamp(box.Y, 0, Math.Max(0, pv.Overlay.Height - box.Height));
-        Add(new StampItem { Page = pv.Index, Box = box, Label = _stampLabel, DateText = date, Color = _toolColors[EditTool.Stamp] }, select: true);
+        Add(new StampItem { Page = pv.Index, Box = box, Label = _stampLabel, DateText = date, Color = _toolColors[EditTool.Stamp], AngleDeg = _stampAngle }, select: true);
     }
 
     private void PlaceDate(PageView pv, Point at)
     {
         string text = PdfStampSettings.Today(PdfStampSettings.Current.DateFormat);
-        Add(new TextItem { Page = pv.Index, TopLeft = new Point(at.X - 1, at.Y - _textSize * 0.6), Text = text, Font = _font, Bold = _bold, FontSize = _textSize, Color = _toolColors[EditTool.Date] }, select: true);
+        Add(new TextItem { Page = pv.Index, TopLeft = new Point(at.X - 1, at.Y - _textSize * 0.6), Text = text, Font = _font, FontName = _fontName, Bold = _bold, FontSize = _textSize, Color = _toolColors[EditTool.Date] }, select: true);
     }
 
     // ---------- the menus (click the tool again, or right-click it) ----------
@@ -227,7 +251,7 @@ public sealed partial class PdfWindow
             menu.Items.Add(new Separator());
             foreach (string recent in settings.Recent)
             {
-                var item = new MenuItem { Header = recent };
+                var item = new MenuItem { Header = recent, IsChecked = _stampLabel == recent };
                 item.Click += (_, _) => { ChooseStamp(recent, null); PickStampTool(); };
                 menu.Items.Add(item);
             }

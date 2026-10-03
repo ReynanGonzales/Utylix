@@ -67,13 +67,19 @@
                                     <ColumnDefinition Width="24" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <ContentPresenter ContentSource="Icon" VerticalAlignment="Center" HorizontalAlignment="Left" />
                                 <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center" />
                                 <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Margin="24,0,0,0" Opacity="0.55" VerticalAlignment="Center" />
+                                <TextBlock x:Name="Tick" Grid.Column="3" Text="&#x2713;" FontFamily="Segoe UI Symbol" FontWeight="Bold" FontSize="14" Foreground="#5B8DEF" Margin="14,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="Bd" Property="Background" Value="#225B8DEF" />
+                            </Trigger>
                             <Trigger Property="IsHighlighted" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource LineBrush}" />
                             </Trigger>

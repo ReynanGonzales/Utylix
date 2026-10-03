@@ -193,10 +193,23 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
     names the pages). Kept letters are separate objects, so a plain byte search for kept words fails: prove with `GetText`, not grep.
     Tested: text, rotated page, form-wrapped page, PNG + JPG scans, metadata, orphan JPEG gone, real window drag + Save + Redact all.
     Not covered: AcroForm field values, and pages with shared forms lose selectable text.
-  - **#7 Organize pages / split / pictures <-> PDF**: a page-grid window (thumbnails): drag to reorder, rotate, delete, insert pages
-    from another PDF or pictures, extract selected pages to a new PDF, split every N pages / by ranges, save pages as PNG/JPG (render at a
-    chosen dpi). Pdfium.cs already has FPDF_MovePages, FPDFPage_Delete, FPDF_ImportPagesByIndex, FPDFPage_SetRotation. Merging = #2's
-    Combine window (reachable from the editor too).
+  - **#7 PART DONE** 2026-10-03 (not released): the owner's priority list was 1 turn pages (saved), 2 swap pages, 3 delete pages, 4 "resize the
+    pdf from..." (message was cut off: ASK what was meant; "Page size" (#4) already makes a copy on A4 / Letter / Long). 1-3 are in the
+    editor's side strip: `PdfWindow.Pages.cs` (buttons above the thumbnails, right-click menu, Extended multi-select, drag to reorder with a
+    blue line = `PdfThumb.TopLine/BottomLine`, Delete key) + `Engine/PdfFile.Pages.cs` (`TurnPages` /FPDFPage_SetRotation, `MovePages`
+    FPDF_MovePages - `destination` = where the FIRST moved page ends up -, `DeletePages`, `Restore(bytes)`; `PageCount` is now settable; the form
+    environment is closed and re-opened around structural changes). Changes are made in the open document at once and written by Save.
+    UNDO: `PageOp` keeps `SaveToBytes()` of the document BEFORE each change in `_pageUndo` (max 15 / 400 MB); Undo/Redo use the item stacks first, then
+    these. Edits pending on the pages are applied into the document first (`PreparePageOp`; item positions would not fit turned / moved pages), unsaved
+    Redact boxes block page changes (redaction is verified at Save). Tested: engine (moves, delete, turn, restore, saved rotation), real window
+    (turn right, move up, delete, undo, redo, Save -> file order verified). Mouse drag reorder was NOT verified by my scripted mouse (the owner was
+    using the window at the same time) - check it. NOT done of the old #7 idea: insert pages from another PDF / pictures, extract, split, save as
+    PNG/JPG, a page grid window.
+  - Also done 2026-10-03 with #7: the colour dot in use has a white ring (`MarkColor`), menus show a tick on checked items (App.xaml
+    ThemedMenuItem ignored IsChecked before - that is why the chosen stamp never showed), font picker "More fonts" (`PdfWindow.Fonts.cs`,
+    `Engine/PdfFonts.cs`: installed .ttf families <= 8 MB, embedded whole with FPDFText_LoadFont when used; `TextItem.FontName`, `PdfTextMark.FontName`),
+    rotatable stamp (`StampItem.AngleDeg`, round handle above the frame, `DragMode.Rotate`, `PdfTextMark.Angle/Pivot`; the frame and handles are drawn in a
+    rotated Canvas; resize keeps the turned top-left corner fixed). Rotation is clockwise as seen (y down). Not rotatable yet: other items.
   - **#8 OCR (scans -> searchable)**: Windows.Media.Ocr (built into Windows, offline; the TFM already targets 10.0.19041). Render each
     page at ~300 dpi, OcrEngine.TryCreateFromUserProfileLanguages, then put each word as INVISIBLE text (text render mode 3; add
     FPDFTextObj_SetTextRenderMode) at its box, sized to the box. Afterwards search/select/copy work. Offer it when a page has no text.

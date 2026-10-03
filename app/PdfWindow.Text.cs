@@ -540,8 +540,9 @@ public sealed partial class PdfWindow
         _pagesTab = Tab("Pages", "PdfTabPages");
         _marksTab = Tab("Bookmarks", "PdfTabBookmarks");
         _pagesTab.IsChecked = true;
-        _pagesTab.Checked += (_, _) => { strip.Visibility = Visibility.Visible; _bookmarks.Visibility = Visibility.Collapsed; };
-        _marksTab.Checked += (_, _) => { strip.Visibility = Visibility.Collapsed; _bookmarks.Visibility = Visibility.Visible; };
+        var pageTools = PageTools();
+        _pagesTab.Checked += (_, _) => { strip.Visibility = Visibility.Visible; pageTools.Visibility = Visibility.Visible; _bookmarks.Visibility = Visibility.Collapsed; };
+        _marksTab.Checked += (_, _) => { strip.Visibility = Visibility.Collapsed; pageTools.Visibility = Visibility.Collapsed; _bookmarks.Visibility = Visibility.Visible; };
         _marksTab.IsEnabled = false;
         ScrollViewer.SetHorizontalScrollBarVisibility(_bookmarks, ScrollBarVisibility.Disabled);      // (long titles are cut with "…" instead)
         // the chosen entry: blue with white text, also when the list doesn't have the focus (Windows' own colour then is light grey: white on light grey)
@@ -558,6 +559,8 @@ public sealed partial class PdfWindow
         var panel = new DockPanel { Background = Bar };
         DockPanel.SetDock(tabs, Dock.Top);
         panel.Children.Add(tabs);
+        DockPanel.SetDock(pageTools, Dock.Top);
+        panel.Children.Add(pageTools);
         panel.Children.Add(body);
         return panel;
     }

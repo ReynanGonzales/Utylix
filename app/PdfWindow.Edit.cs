@@ -36,6 +36,10 @@ public sealed partial class PdfWindow
         public abstract void MoveBy(Vector d);
         public abstract void ResizeTo(Rect r);
         public virtual bool KeepAspect => false;
+        /// <summary>Items that can be turned (stamps): the angle in degrees, clockwise, around the middle of <see cref="Bounds"/>.</summary>
+        public virtual bool CanRotate => false;
+        public virtual double Angle => 0;
+        public virtual void SetAngle(double degrees) { }
         public virtual bool Hit(Point p) => Inflate(Bounds, 3).Contains(p);
         protected static Rect Inflate(Rect r, double by) { r.Inflate(by, by); return r; }
     }
@@ -48,13 +52,15 @@ public sealed partial class PdfWindow
         public bool Bold;
         public double FontSize = 12;
 
-        public static FontFamily Family(PdfFontKind k) => new(k switch { PdfFontKind.Serif => "Times New Roman", PdfFontKind.Mono => "Courier New", _ => "Arial" });
+        public string? FontName;                       // a font chosen by name (any installed one); null = the kind above
+
+        public static FontFamily Family(PdfFontKind k, string? name = null) => new(name ?? k switch { PdfFontKind.Serif => "Times New Roman", PdfFontKind.Mono => "Courier New", _ => "Arial" });
 
         public override Rect Bounds
         {
             get
             {
-                var family = Family(Font);
+                var family = Family(Font, FontName);
                 var face = new Typeface(family, FontStyles.Normal, Bold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
                 var lines = (Text.Length == 0 ? " " : Text).Replace("\r\n", "\n").Split('\n');
                 double w = lines.Max(l => new FormattedText(l.Length == 0 ? " " : l, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, face, FontSize, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace);
@@ -64,15 +70,15 @@ public sealed partial class PdfWindow
         public override EditItem Clone() => (TextItem)MemberwiseClone();
         public override FrameworkElement Build()
         {
-            var t = new TextBlock { Text = Text, FontFamily = Family(Font), FontSize = FontSize, FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, Foreground = new SolidColorBrush(Color) };
+            var t = new TextBlock { Text = Text, FontFamily = Family(Font, FontName), FontSize = FontSize, FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, Foreground = new SolidColorBrush(Color) };
             Canvas.SetLeft(t, TopLeft.X); Canvas.SetTop(t, TopLeft.Y);
             return t;
         }
         public override IEnumerable<PdfMark> Marks()
         {
             if (Text.Trim().Length == 0) yield break;
-            var f = Family(Font);
-            yield return new PdfTextMark(Page, TopLeft, Text, Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline);
+            var f = Family(Font, FontName);
+            yield return new PdfTextMark(Page, TopLeft, Text, Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName);
         }
         public override void MoveBy(Vector d) => TopLeft += d;
         public override void ResizeTo(Rect r)
@@ -302,7 +308,8 @@ public sealed partial class PdfWindow
     private bool _bold;
 
     // dragging
-    private enum DragMode { None, Move, Resize, Draw, Ink }
+    private enum DragMode { None, Move, Resize, Draw, Ink, Rotate }
+    private double _rotateFrom, _rotateStart;                         // (the angle of the mouse and of the item when turning began)
     private DragMode _drag;
     private PageView? _dragPage;
     private Point _dragStart;
@@ -325,6 +332,29 @@ public sealed partial class PdfWindow
     private readonly Dictionary<PdfFontKind, RadioButton> _fontButtons = new();
     private ToggleButton _boldButton = null!;
     private Button _undoButton = null!, _redoButton = null!, _deleteButton = null!, _saveButton = null!;
+
+    private readonly List<(Button Button, Color Color)> _swatchButtons = new();
+    private Button _moreColor = null!;
+
+    /// <summary>Rings the colour dot that is in use (the selected item's colour, else the tool's); a colour that isn't a dot shows on the "…" button.</summary>
+    private void MarkColor()
+    {
+        if (_moreColor == null) return;
+        Color now = _selected != null && _selected is not ImageItem ? _selected.Color : _toolColors.TryGetValue(_tool, out var tc) ? tc : Colors.Black;
+        bool known = false;
+        foreach (var (b, c) in _swatchButtons)
+        {
+            bool same = c == now;
+            known |= same;
+            b.Tag = same ? "picked" : null;
+        }
+        if (known) { _moreColor.Content = "…"; _moreColor.ToolTip = "More colours"; }
+        else
+        {
+            _moreColor.Content = new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(now), BorderBrush = Brushes.White, BorderThickness = new Thickness(2) };
+            _moreColor.ToolTip = "Your colour (click for more colours)";
+        }
+    }
 
     private static readonly Color[] Swatches =
     {
@@ -388,14 +418,18 @@ public sealed partial class PdfWindow
         {
             var b = new Button
             {
-                Width = 20, Height = 20, Margin = new Thickness(2, 0, 2, 0), Focusable = false, ToolTip = ColorName(c), Cursor = Cursors.Hand,
+                Width = 24, Height = 24, Margin = new Thickness(1, 0, 1, 0), Focusable = false, ToolTip = ColorName(c), Cursor = Cursors.Hand,
+                // (the chosen colour gets a white ring with a gap; the ring is there even for the white dot)
                 Template = (ControlTemplate)XamlReader.Parse(
-                    "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'>" +
-                    "<Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Background='{TemplateBinding Background}' CornerRadius='10' BorderBrush='#55FFFFFF' BorderThickness='1' />" +
-                    "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='BorderBrush' Value='White' /><Setter TargetName='bd' Property='BorderThickness' Value='2' /></Trigger></ControlTemplate.Triggers></ControlTemplate>"),
+                    "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
+                    "<Grid><Border x:Name='ring' CornerRadius='12' BorderBrush='Transparent' BorderThickness='2' />" +
+                    "<Border x:Name='bd' Margin='3' Background='{TemplateBinding Background}' CornerRadius='9' BorderBrush='#55FFFFFF' BorderThickness='1' /></Grid>" +
+                    "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='BorderBrush' Value='White' /></Trigger>" +
+                    "<Trigger Property='Tag' Value='picked'><Setter TargetName='ring' Property='BorderBrush' Value='White' /></Trigger></ControlTemplate.Triggers></ControlTemplate>"),
                 Background = new SolidColorBrush(c),
             };
             b.Click += (_, _) => SetColor(c);
+            _swatchButtons.Add((b, c));
             _colorRow.Children.Add(b);
         }
         var more = new Button { Content = "…", Width = 24, Height = 22, Padding = new Thickness(0), Margin = new Thickness(3, 0, 0, 0), Focusable = false, ToolTip = "More colours", Background = Brushes.Transparent, Foreground = Brushes.White };
@@ -405,6 +439,7 @@ public sealed partial class PdfWindow
             if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) SetColor(Color.FromRgb(dlg.Color.R, dlg.Color.G, dlg.Color.B));
         };
         _colorRow.Children.Add(more);
+        _moreColor = more;
 
         var minus = SmallBar("", "Smaller", () => ChangeSize(-1));
         var plus = SmallBar("", "Bigger", () => ChangeSize(+1));
@@ -422,6 +457,7 @@ public sealed partial class PdfWindow
         _boldButton = new ToggleButton { Content = new TextBlock { Text = "B", FontWeight = FontWeights.Bold, Foreground = Brushes.White }, Template = ToggleTemplate(), Focusable = false, ToolTip = "Bold" };
         _boldButton.Click += (_, _) => SetFont(null, _boldButton.IsChecked == true);
         _fontRow.Children.Add(_boldButton);
+        _fontRow.Children.Add(FontPickerButton());
         _fontButtons[PdfFontKind.Sans].IsChecked = true;
 
         // undo, delete, save
@@ -537,7 +573,7 @@ public sealed partial class PdfWindow
     private void ResetEdits(bool keepEditing)
     {
         CloseTextBox(commit: false);
-        _items.Clear(); _undo.Clear(); _redo.Clear();
+        _items.Clear(); _undo.Clear(); _redo.Clear(); _pageUndo.Clear(); _pageRedo.Clear();
         _selected = null; _dirty = false; _drag = DragMode.None;
         _editing = keepEditing && _editing;
         if (_editBar != null) _editBar.Visibility = _editing ? Visibility.Visible : Visibility.Collapsed;
@@ -625,8 +661,13 @@ public sealed partial class PdfWindow
         _sizeLabel.Text = text ? "Size" : "Line";
         double size = item switch { TextItem t => t.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, _ => text ? _textSize : _lineWidth };
         _sizeText.Text = size.ToString(size < 10 ? "0.#" : "0", CultureInfo.InvariantCulture);
-        if (item is TextItem ti) { _fontButtons[ti.Font].IsChecked = true; _boldButton.IsChecked = ti.Bold; }
-        else if (text) { _fontButtons[_font].IsChecked = true; _boldButton.IsChecked = _bold; }
+        _syncingFont = true;                                       // (showing the font must not change it)
+        try
+        {
+            if (item is TextItem ti) { ShowFont(ti.Font, ti.FontName); _boldButton.IsChecked = ti.Bold; }
+            else if (text) { ShowFont(_font, _fontName); _boldButton.IsChecked = _bold; }
+        }
+        finally { _syncingFont = false; }
         bool run = item is RunEditItem || (item == null && _tool == EditTool.EditText);
         _toolHint.Text = run ? "Click on a line of text to change it. Enter or a click beside it finishes; Save puts it into the PDF." : "";
         _toolHint.Visibility = run ? Visibility.Visible : Visibility.Collapsed;
@@ -634,6 +675,8 @@ public sealed partial class PdfWindow
         _colorRow.Visibility = item is ImageItem || run || redact ? Visibility.Collapsed : Visibility.Visible;
         if (redact) { _toolHint.Text = "Drag over what must go. Saving removes it from the file for good (Save replaces the file: use Save as… to keep the original)."; _toolHint.Visibility = Visibility.Visible; }
         if (run) ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
+        if (item is StampItem) { _toolHint.Text = "Drag the round handle above the stamp to turn it (Shift: steps of 15°), the square corner to resize, the stamp itself to move."; _toolHint.Visibility = Visibility.Visible; }
+        MarkColor();
     }
 
     private void SetColor(Color c)
@@ -645,6 +688,7 @@ public sealed partial class PdfWindow
             RenderItems(_selected.Page);
         }
         else _toolColors[_tool] = c;
+        MarkColor();
     }
 
     private static readonly double[] TextSizes = { 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 60, 72 };
@@ -667,15 +711,18 @@ public sealed partial class PdfWindow
         UpdateProperties();
     }
 
-    private void SetFont(PdfFontKind? kind, bool? bold)
+    private void SetFont(PdfFontKind? kind, bool? bold, string? name = null)
     {
-        if (kind is PdfFontKind k) _font = k;
+        if (_syncingFont) return;
+        if (kind is PdfFontKind k) { _font = k; _fontName = null; if (_fontLabel != null) _fontLabel.Text = "More fonts"; }
+        if (name != null) _fontName = name;
         if (bold is bool b) _bold = b;
         var target = _typing ?? _selected as TextItem;
         if (target != null)
         {
             if (_typing == null) Snapshot();
-            if (kind is PdfFontKind k2) target.Font = k2;
+            if (kind is PdfFontKind k2) { target.Font = k2; target.FontName = null; }
+            if (name != null) target.FontName = name;
             if (bold is bool b2) target.Bold = b2;
             if (_textBox != null && _typing != null) StyleTextBox(_textBox, _typing);
             else RenderItems(target.Page);
@@ -686,7 +733,7 @@ public sealed partial class PdfWindow
     private void Snapshot()
     {
         _undo.Push(_items.Select(i => i.Clone()).ToList());
-        _redo.Clear();
+        _redo.Clear(); _pageRedo.Clear();
         _dirty = true;
         UpdateTitle();
         UpdateEditButtons();
@@ -695,7 +742,7 @@ public sealed partial class PdfWindow
     private void Undo()
     {
         CloseTextBox(commit: true);
-        if (_undo.Count == 0) return;
+        if (_undo.Count == 0) { PageHistory(redo: false); return; }
         _redo.Push(_items.Select(i => i.Clone()).ToList());
         Restore(_undo.Pop());
     }
@@ -703,7 +750,7 @@ public sealed partial class PdfWindow
     private void Redo()
     {
         CloseTextBox(commit: true);
-        if (_redo.Count == 0) return;
+        if (_redo.Count == 0) { PageHistory(redo: true); return; }
         _undo.Push(_items.Select(i => i.Clone()).ToList());
         Restore(_redo.Pop());
     }
@@ -720,8 +767,8 @@ public sealed partial class PdfWindow
 
     private void UpdateEditButtons()
     {
-        _undoButton.IsEnabled = _undo.Count > 0;
-        _redoButton.IsEnabled = _redo.Count > 0;
+        _undoButton.IsEnabled = _undo.Count > 0 || _pageUndo.Count > 0;
+        _redoButton.IsEnabled = _redo.Count > 0 || _pageRedo.Count > 0;
         _deleteButton.IsEnabled = _selected != null;
         _saveButton.IsEnabled = _dirty;
     }
@@ -776,21 +823,49 @@ public sealed partial class PdfWindow
         {
             double k = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);      // (screen pixels -> points)
             var r = _selected.Bounds;
-            var frame = new Rectangle { Width = r.Width + 6 * k, Height = r.Height + 6 * k, Stroke = new SolidColorBrush(Color.FromRgb(0x2F, 0x6B, 0xEA)), StrokeThickness = 1.2 * k, StrokeDashArray = new DoubleCollection { 4, 3 }, IsHitTestVisible = false };
+            var blue = new SolidColorBrush(Color.FromRgb(0x2F, 0x6B, 0xEA));
+            // (the frame and its handles turn with the item)
+            var group = new Canvas { IsHitTestVisible = false };
+            if (_selected.Angle != 0) group.RenderTransform = new RotateTransform(_selected.Angle, r.X + r.Width / 2, r.Y + r.Height / 2);
+            var frame = new Rectangle { Width = r.Width + 6 * k, Height = r.Height + 6 * k, Stroke = blue, StrokeThickness = 1.2 * k, StrokeDashArray = new DoubleCollection { 4, 3 }, IsHitTestVisible = false };
             Canvas.SetLeft(frame, r.X - 3 * k); Canvas.SetTop(frame, r.Y - 3 * k);
-            overlay.Children.Add(frame);
-            var handle = new Rectangle { Width = 9 * k, Height = 9 * k, Fill = Brushes.White, Stroke = new SolidColorBrush(Color.FromRgb(0x2F, 0x6B, 0xEA)), StrokeThickness = 1.5 * k, IsHitTestVisible = false };
+            group.Children.Add(frame);
+            var handle = new Rectangle { Width = 9 * k, Height = 9 * k, Fill = Brushes.White, Stroke = blue, StrokeThickness = 1.5 * k, IsHitTestVisible = false };
             Canvas.SetLeft(handle, r.Right + 3 * k - 4.5 * k); Canvas.SetTop(handle, r.Bottom + 3 * k - 4.5 * k);
-            overlay.Children.Add(handle);
+            group.Children.Add(handle);
+            if (_selected.CanRotate)
+            {
+                double cx = r.X + r.Width / 2;
+                var stem = new Line { X1 = cx, Y1 = r.Y - 3 * k, X2 = cx, Y2 = r.Y - (3 + RotateStem) * k, Stroke = blue, StrokeThickness = 1.2 * k, IsHitTestVisible = false };
+                var knob = new Ellipse { Width = 11 * k, Height = 11 * k, Fill = Brushes.White, Stroke = blue, StrokeThickness = 1.5 * k, IsHitTestVisible = false };
+                Canvas.SetLeft(knob, cx - 5.5 * k); Canvas.SetTop(knob, r.Y - (3 + RotateStem) * k - 5.5 * k);
+                group.Children.Add(stem); group.Children.Add(knob);
+            }
+            overlay.Children.Add(group);
         }
     }
+
+    private const double RotateStem = 22;            // (screen pixels from the frame to the round turning handle)
+
+    private Point CentreOf(Rect r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
 
     private bool OnHandle(PageView pv, Point p)
     {
         if (_selected == null || _selected.Page != pv.Index) return false;
         double k = 1 / Math.Max(0.01, pv.OverlayScale.ScaleX);
         var r = _selected.Bounds;
+        if (_selected.Angle != 0) p = Rot(p, CentreOf(r), -_selected.Angle);
         return (p - new Point(r.Right + 3 * k, r.Bottom + 3 * k)).Length <= 9 * k;
+    }
+
+    /// <summary>The round handle above a stamp that turns it.</summary>
+    private bool OnRotateHandle(PageView pv, Point p)
+    {
+        if (_selected == null || !_selected.CanRotate || _selected.Page != pv.Index) return false;
+        double k = 1 / Math.Max(0.01, pv.OverlayScale.ScaleX);
+        var r = _selected.Bounds;
+        if (_selected.Angle != 0) p = Rot(p, CentreOf(r), -_selected.Angle);
+        return (p - new Point(r.X + r.Width / 2, r.Y - (3 + RotateStem) * k)).Length <= 9 * k;
     }
 
     /// <summary>The overlays start listening (called for every page when the pages are made).</summary>
@@ -813,6 +888,18 @@ public sealed partial class PdfWindow
         CloseTextBox(commit: true);
         e.Handled = true;
         _dragPage = pv; _dragStart = p; _dragSnapshotTaken = false;
+        // the handles of the selected item (a stamp can be turned and resized while the Stamp tool is still on)
+        if (_tool is EditTool.Select or EditTool.Stamp && _selected != null)
+        {
+            if (OnRotateHandle(pv, p))
+            {
+                var c = CentreOf(_selected.Bounds);
+                _drag = DragMode.Rotate; _dragBox = _selected.Bounds; _rotateStart = _selected.Angle; _rotateFrom = Math.Atan2(p.Y - c.Y, p.X - c.X) * 180 / Math.PI;
+                pv.Overlay.CaptureMouse();
+                return;
+            }
+            if (_tool == EditTool.Stamp && OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected.Bounds; pv.Overlay.CaptureMouse(); return; }
+        }
         switch (_tool)
         {
             case EditTool.EditText:
@@ -830,7 +917,7 @@ public sealed partial class PdfWindow
             case EditTool.Text:
                 if (ItemAt(pv.Index, p) is TextItem existing) { EditText(existing, isNew: false); return; }
                 if (wasTyping) return;                                                 // (a click outside just finishes the text)
-                var text = new TextItem { Page = pv.Index, TopLeft = new Point(p.X - 1, p.Y - _textSize * 0.6), Font = _font, Bold = _bold, FontSize = _textSize, Color = _toolColors[EditTool.Text] };
+                var text = new TextItem { Page = pv.Index, TopLeft = new Point(p.X - 1, p.Y - _textSize * 0.6), Font = _font, FontName = _fontName, Bold = _bold, FontSize = _textSize, Color = _toolColors[EditTool.Text] };
                 EditText(text, isNew: true);
                 return;
             case EditTool.Check or EditTool.Cross:
@@ -895,9 +982,31 @@ public sealed partial class PdfWindow
             case DragMode.Resize when _selected != null:
             {
                 if (!_dragSnapshotTaken) { Snapshot(); _dragSnapshotTaken = true; }
-                double w = Math.Max(4, p.X - _dragBox.X), h = Math.Max(4, p.Y - _dragBox.Y);
+                // (a turned item keeps its top-left corner where it is on the page, and the mouse is measured along the item's own directions)
+                double angle = _selected.Angle;
+                var c0 = CentreOf(_dragBox);
+                var corner = angle == 0 ? _dragBox.TopLeft : Rot(_dragBox.TopLeft, c0, angle);
+                var along = angle == 0 ? p - corner : Rot(p, corner, -angle) - corner;
+                double w = Math.Max(4, along.X), h = Math.Max(4, along.Y);
                 if (_selected.KeepAspect && _dragBox.Width > 0) h = w * _dragBox.Height / _dragBox.Width;
-                _selected.ResizeTo(new Rect(_dragBox.X, _dragBox.Y, w, h));
+                var half = angle == 0 ? new Vector(w / 2, h / 2) : Rot(new Point(w / 2, h / 2), new Point(0, 0), angle) - new Point(0, 0);
+                var centre = corner + half;
+                _selected.ResizeTo(new Rect(centre.X - w / 2, centre.Y - h / 2, w, h));
+                RenderItems(pv.Index);
+                break;
+            }
+            case DragMode.Rotate when _selected != null:
+            {
+                var raw = e.GetPosition(pv.Overlay);                                   // (not held inside the page: turning goes on beyond its edge)
+                var c = CentreOf(_dragBox);
+                double deg = _rotateStart + (Math.Atan2(raw.Y - c.Y, raw.X - c.X) * 180 / Math.PI - _rotateFrom);
+                deg = ((deg % 360) + 540) % 360 - 180;                                 // -180 .. 180
+                double step = shift ? 15 : 45, snapped = Math.Round(deg / step) * step;
+                if (shift || Math.Abs(deg - snapped) < 2.5) deg = snapped;             // (it clicks into place near 0, 45, 90...)
+                if (Math.Abs(deg - _selected.Angle) < 0.01) return;
+                if (!_dragSnapshotTaken) { Snapshot(); _dragSnapshotTaken = true; }
+                _selected.SetAngle(deg);
+                if (_selected is StampItem) _stampAngle = deg;
                 RenderItems(pv.Index);
                 break;
             }
@@ -992,7 +1101,7 @@ public sealed partial class PdfWindow
 
     private void StyleTextBox(TextBox box, TextItem item)
     {
-        box.FontFamily = TextItem.Family(item.Font);
+        box.FontFamily = TextItem.Family(item.Font, item.FontName);
         box.FontSize = item.FontSize;
         box.FontWeight = item.Bold ? FontWeights.Bold : FontWeights.Normal;
         box.Foreground = new SolidColorBrush(item.Color);
@@ -1095,6 +1204,7 @@ public sealed partial class PdfWindow
             if (e.Key == Key.Escape) { CloseTextBox(commit: true); return true; }
             return false;                                                      // (the text box gets every other key)
         }
+        if (e.Key == Key.Delete && _strip.IsKeyboardFocusWithin) { DeleteSelectedPages(); return true; }          // (pages chosen at the side)
         switch (e.Key)
         {
             case Key.Z when ctrl && !shift: Undo(); return true;

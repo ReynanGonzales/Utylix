@@ -29,6 +29,11 @@ public sealed class PdfThumb : INotifyPropertyChanged
     public int Index { get; init; }
     public int Rotation { get; init; }
     public string Label => (Index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    // the blue line above / below while a page is dragged to a new place
+    private Brush _topLine = Brushes.Transparent, _bottomLine = Brushes.Transparent;
+    public Brush TopLine { get => _topLine; set { _topLine = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TopLine))); } }
+    public Brush BottomLine { get => _bottomLine; set { _bottomLine = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BottomLine))); } }
     public double Width { get; init; }
     public double Height { get; init; }
 
@@ -269,14 +274,21 @@ public sealed partial class PdfWindow : Window
         VirtualizingPanel.SetVirtualizationMode(_strip, VirtualizationMode.Recycling);
         _strip.ItemTemplate = (DataTemplate)XamlReader.Parse(
             "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><StackPanel HorizontalAlignment='Center'>" +
+            "<Border Height='3' CornerRadius='1.5' Background='{Binding TopLine}' Margin='0,0,0,3' />" +
             "<Border Background='White' Width='{Binding Width}' Height='{Binding Height}'><Image Source='{Binding Source}' Stretch='Fill' /></Border>" +
-            "<TextBlock Text='{Binding Label}' Foreground='#A7AEBF' FontSize='11' HorizontalAlignment='Center' Margin='0,4,0,0' /></StackPanel></DataTemplate>");
+            "<TextBlock Text='{Binding Label}' Foreground='#A7AEBF' FontSize='11' HorizontalAlignment='Center' Margin='0,4,0,0' />" +
+            "<Border Height='3' CornerRadius='1.5' Background='{Binding BottomLine}' Margin='0,3,0,0' /></StackPanel></DataTemplate>");
         _strip.ItemContainerStyle = (Style)XamlReader.Parse(
             "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListBoxItem'><Setter Property='Margin' Value='0,4' /><Setter Property='HorizontalContentAlignment' Value='Center' /><Setter Property='Template'><Setter.Value>" +
             "<ControlTemplate TargetType='ListBoxItem'><Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' BorderThickness='2' BorderBrush='Transparent' CornerRadius='3' Padding='6' Margin='10,0'><ContentPresenter HorizontalAlignment='Center' /></Border>" +
             "<ControlTemplate.Triggers><Trigger Property='IsSelected' Value='True'><Setter TargetName='bd' Property='BorderBrush' Value='#5B8DEF' /><Setter TargetName='bd' Property='Background' Value='#223B5998' /></Trigger>" +
             "<Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='BorderBrush' Value='#8FA9D9' /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>");
-        _strip.SelectionChanged += (_, _) => { if (!_syncingStrip && _strip.SelectedIndex >= 0) GoTo(_strip.SelectedIndex); };
+        SetUpStrip();
+        _strip.SelectionChanged += (_, _) =>
+        {
+            if (!_syncingStrip && _strip.SelectedItems.Count == 1) GoTo(_strip.SelectedIndex);         // (several chosen: the view stays)
+            UpdatePageTools();
+        };
         _stripBox.Child = SidePanel(_strip);
         _stripBox.BorderBrush = new SolidColorBrush(Color.FromRgb(0x12, 0x14, 0x1A));
         _stripBox.BorderThickness = new Thickness(0, 0, 1, 0);
@@ -573,6 +585,7 @@ public sealed partial class PdfWindow : Window
     private void SyncStrip()
     {
         if (_current < 0 || _current >= _thumbs.Count) return;
+        if (_strip.SelectedItems.Count > 1 && _strip.IsKeyboardFocusWithin) return;               // (a choice of several pages is kept while it is in use)
         _syncingStrip = true;
         try { _strip.SelectedIndex = _current; _strip.ScrollIntoView(_thumbs[_current]); }
         finally { _syncingStrip = false; }
