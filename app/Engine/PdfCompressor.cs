@@ -18,7 +18,10 @@ public enum PdfReduceLevel
     Smallest,
 }
 
-public sealed record PdfReduceResult(long Before, long After, int PicturesChanged, byte[]? Output)
+/// <param name="Fits">for "under a size": whether the copy fits (when not, Output is the smallest copy, if that is smaller at all)</param>
+/// <param name="CanTryPages">it didn't fit, and saving the pages as pictures may still get there</param>
+/// <param name="PagesArePictures">the copy's pages are pictures: text can't be selected or searched in it</param>
+public sealed record PdfReduceResult(long Before, long After, int PicturesChanged, byte[]? Output, bool Fits = true, bool CanTryPages = false, bool PagesArePictures = false)
 {
     public bool Helped => Output != null;
 }
@@ -35,32 +38,131 @@ public static class PdfCompressor
     /// <param name="ownerPassword">its owner (permissions) password, when the person gave it</param>
     public static PdfReduceResult Reduce(string path, string? openPassword, string? ownerPassword, PdfReduceLevel level, IProgress<(int Done, int Total)>? progress, CancellationToken cancel)
     {
-        byte[] original = File.ReadAllBytes(path);
-        string? password = ownerPassword ?? openPassword;
-        using var pdf = PdfFile.Open(path, password);
-        Protection? protection = null;
-        if (pdf.IsProtected)
-        {
-            // a protected PDF stays protected: it is only changed with the owner (permissions) password, like in Acrobat, and the
-            // smaller copy gets the same passwords and permissions back. Its pages are never re-made as pictures (that copy couldn't be).
-            if (level == PdfReduceLevel.Smallest) throw new PdfProtectedException("\"Smallest\" can't be used on a password-protected PDF, because the copy would lose its protection. Use Recommended or Smaller.");
-            if (!CanChange(original, password)) throw new PdfProtectedException(OwnerPasswordNeeded);
-            string owner = ownerPassword ?? openPassword ?? "";
-            if (owner.Length > 0 || !string.IsNullOrEmpty(openPassword)) protection = new Protection(openPassword ?? "", owner, pdf.Permissions);
-        }
+        using var job = Job.Start(path, openPassword, ownerPassword, pagesBecomePictures: level == PdfReduceLevel.Smallest);
         byte[]? output;
         int changed;
-        if (level == PdfReduceLevel.Smallest) { output = Rasterize(pdf, 100, 45, progress, cancel); changed = pdf.PageCount; }
+        if (level == PdfReduceLevel.Smallest) { output = Rasterize(job.Pdf, RenderPages(job.Pdf, new[] { new Step(100, 45) }, progress, cancel), 0); changed = job.Pdf.PageCount; }
         else
         {
-            var (dpi, quality) = level == PdfReduceLevel.Recommended ? (150, 72) : (110, 55);
-            var replacements = ShrinkPictures(pdf, dpi, quality, progress, cancel);
-            output = Repack(original, password, replacements.Count == 0 ? null : replacements, protection);
-            changed = replacements.Count;
+            var step = level == PdfReduceLevel.Recommended ? new Step(150, 72) : new Step(110, 55);
+            var pictures = ShrinkPictures(job.Pdf, new[] { step }, progress, cancel);
+            output = Repack(job.Original, job.Password, Pick(pictures, 0), job.Protection);
+            changed = pictures.Values.Count(c => c.PerStep[0] != null);
         }
         // only worth it when it really got smaller
-        if (output == null || output.Length >= original.Length * 0.97) return new PdfReduceResult(original.Length, original.Length, changed, null);
-        return new PdfReduceResult(original.Length, output.Length, changed, output);
+        long before = job.Original.Length;
+        if (output == null || output.Length >= before * 0.97) return new PdfReduceResult(before, before, changed, null);
+        return new PdfReduceResult(before, output.Length, changed, output);
+    }
+
+    /// <summary>
+    /// "Make it under 2 MB": pictures are made lighter step by step, only as much as needed, so the copy fits under <paramref name="target"/>
+    /// bytes. Text, links and form fields stay as they are. When even the lightest pictures don't fit, the result has Fits = false and the
+    /// smallest copy it could make (or no copy when that isn't smaller); <see cref="ReducePagesToSize"/> can then try it with pages as pictures.
+    /// </summary>
+    public static PdfReduceResult ReduceToSize(string path, string? openPassword, string? ownerPassword, long target, IProgress<(int Done, int Total)>? progress, CancellationToken cancel)
+    {
+        using var job = Job.Start(path, openPassword, ownerPassword, pagesBecomePictures: false);
+        long before = job.Original.Length;
+        if (before <= target) return new PdfReduceResult(before, before, 0, null);
+        var pictures = ShrinkPictures(job.Pdf, PictureSteps, progress, cancel);
+
+        // how big each step's pictures are together (a picture that doesn't get lighter keeps its stored bytes)
+        long[] stored = new long[PictureSteps.Length];
+        for (int s = 0; s < stored.Length; s++) stored[s] = pictures.Values.Sum(c => (long)(c.PerStep[s]?.Jpeg.Length ?? c.RawLength));
+        // the rest of the file (text, fonts, pages): first guessed from the original, then measured from each try
+        long rest = before - pictures.Values.Sum(c => (long)c.RawLength);
+
+        // steps go from best looking to smallest: when a step doesn't fit, the better ones don't either, and the other way round
+        int failed = -1, fits = PictureSteps.Length;
+        byte[]? fitting = null, smallest = null;
+        for (int tries = 0; tries < 6 && failed + 1 < fits; tries++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            int s = failed + 1;
+            while (s < fits - 1 && rest + stored[s] > target * 0.98) s++;
+            var output = Repack(job.Original, job.Password, Pick(pictures, s), job.Protection);
+            if (output == null) break;
+            rest = output.Length - stored[s];
+            if (output.Length <= target) { fits = s; fitting = output; }
+            else
+            {
+                failed = s;
+                if (smallest == null || output.Length < smallest.Length) smallest = output;
+            }
+        }
+        if (fitting != null) return new PdfReduceResult(before, fitting.Length, pictures.Values.Count(c => c.PerStep[fits] != null), fitting);
+        bool canPages = !job.Pdf.IsProtected;
+        if (smallest == null || smallest.Length >= before * 0.97) return new PdfReduceResult(before, before, 0, null, Fits: false, CanTryPages: canPages);
+        return new PdfReduceResult(before, smallest.Length, pictures.Values.Count(c => c.PerStep[^1] != null), smallest, Fits: false, CanTryPages: canPages);
+    }
+
+    /// <summary>Like <see cref="ReduceToSize"/>, but every page becomes one picture (text can't be selected afterwards), as sharp as still fits.</summary>
+    public static PdfReduceResult ReducePagesToSize(string path, string? openPassword, long target, IProgress<(int Done, int Total)>? progress, CancellationToken cancel)
+    {
+        using var job = Job.Start(path, openPassword, null, pagesBecomePictures: true);
+        long before = job.Original.Length;
+        var pages = RenderPages(job.Pdf, PageSteps, progress, cancel);
+        byte[]? smallest = null;
+        // a page costs about half a KB besides its picture
+        int s = 0;
+        while (s < PageSteps.Length - 1 && pages.Sum(p => (long)p[s].Length) + job.Pdf.PageCount * 512L > target * 0.98) s++;
+        for (; s < PageSteps.Length; s++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            var output = Rasterize(job.Pdf, pages, s);
+            if (output == null) break;
+            if (output.Length <= target) return new PdfReduceResult(before, output.Length, job.Pdf.PageCount, output, PagesArePictures: true);
+            if (smallest == null || output.Length < smallest.Length) smallest = output;
+        }
+        if (smallest == null || smallest.Length >= before * 0.97) return new PdfReduceResult(before, before, 0, null, Fits: false, PagesArePictures: true);
+        return new PdfReduceResult(before, smallest.Length, job.Pdf.PageCount, smallest, Fits: false, PagesArePictures: true);
+    }
+
+    /// <summary>Picture quality steps for "under a size", best looking first: pixels per inch on paper and JPEG quality.</summary>
+    private static readonly Step[] PictureSteps =
+    {
+        new(200, 80), new(150, 72), new(125, 62), new(110, 55), new(96, 48), new(80, 40), new(72, 34), new(60, 28), new(50, 24),
+    };
+    /// <summary>The same for pages saved as pictures.</summary>
+    private static readonly Step[] PageSteps =
+    {
+        new(150, 60), new(125, 52), new(100, 45), new(85, 40), new(72, 35), new(60, 30), new(50, 25),
+    };
+
+    private sealed record Step(int Dpi, int Quality);
+
+    /// <summary>The original bytes, the open PDF and the protection to give back; checks first whether this PDF may be changed.</summary>
+    private sealed class Job : IDisposable
+    {
+        public required byte[] Original;
+        public required string? Password;
+        public required PdfFile Pdf;
+        public Protection? Protection;
+
+        public static Job Start(string path, string? openPassword, string? ownerPassword, bool pagesBecomePictures)
+        {
+            byte[] original = File.ReadAllBytes(path);
+            string? password = ownerPassword ?? openPassword;
+            var pdf = PdfFile.Open(path, password);
+            var job = new Job { Original = original, Password = password, Pdf = pdf };
+            try
+            {
+                if (pdf.IsProtected)
+                {
+                    // a protected PDF stays protected: it is only changed with the owner (permissions) password, like in Acrobat, and the
+                    // smaller copy gets the same passwords and permissions back. Its pages are never re-made as pictures (that copy couldn't be).
+                    if (pagesBecomePictures) throw new PdfProtectedException("Pages can't be turned into pictures in a password-protected PDF, because the copy would lose its protection. Use Recommended or Smaller.");
+                    if (!CanChange(original, password)) throw new PdfProtectedException(OwnerPasswordNeeded);
+                    string owner = ownerPassword ?? openPassword ?? "";
+                    if (owner.Length > 0 || !string.IsNullOrEmpty(openPassword)) job.Protection = new Protection(openPassword ?? "", owner, pdf.Permissions);
+                }
+                return job;
+            }
+            catch { pdf.Dispose(); throw; }
+        }
+
+        public void Dispose() => Pdf.Dispose();
     }
 
     public const string OwnerPasswordNeeded = "This PDF is protected against changes. Making it smaller needs its owner (permissions) password.";
@@ -81,10 +183,24 @@ public static class PdfCompressor
     // ---------- pictures ----------
     private sealed record Replacement(byte[] Jpeg, int Width, int Height, bool Gray);
 
-    /// <summary>Goes through every picture of every page; gives the smaller JPEG for each picture worth replacing, by a fingerprint of its stored bytes.</summary>
-    private static Dictionary<string, Replacement> ShrinkPictures(PdfFile pdf, int targetDpi, int quality, IProgress<(int, int)>? progress, CancellationToken cancel)
+    /// <summary>A picture worth making lighter: its stored size, and its smaller JPEG for each step (null where that doesn't help).</summary>
+    private sealed record Candidate(int RawLength, Replacement?[] PerStep);
+
+    /// <summary>The replacements of one step, by the fingerprint of the stored bytes; null when there are none.</summary>
+    private static Dictionary<string, Replacement>? Pick(Dictionary<string, Candidate> pictures, int step)
     {
-        var result = new Dictionary<string, Replacement>();
+        var picked = new Dictionary<string, Replacement>();
+        foreach (var (key, c) in pictures) if (c.PerStep[step] is { } rep) picked[key] = rep;
+        return picked.Count == 0 ? null : picked;
+    }
+
+    /// <summary>
+    /// Goes through every picture of every page (each one once, by a fingerprint of its stored bytes) and makes its smaller JPEG for
+    /// every step. Each picture is read only once, and only the small JPEGs are kept.
+    /// </summary>
+    private static Dictionary<string, Candidate> ShrinkPictures(PdfFile pdf, Step[] steps, IProgress<(int, int)>? progress, CancellationToken cancel)
+    {
+        var result = new Dictionary<string, Candidate>();
         var seen = new HashSet<string>();
         for (int i = 0; i < pdf.PageCount; i++)
         {
@@ -101,9 +217,15 @@ public static class PdfCompressor
             // the slow part (scaling and JPEG) runs without holding PDFium
             foreach (var p in pictures)
             {
-                cancel.ThrowIfCancellationRequested();
-                var smaller = Shrink(p.Bitmap, p.Dpi, targetDpi, quality);
-                if (smaller != null && smaller.Jpeg.Length < p.RawLength * 0.8) result[p.Key] = smaller;
+                var (src, gray) = Prepare(p.Bitmap);
+                var perStep = new Replacement?[steps.Length];
+                for (int s = 0; s < steps.Length; s++)
+                {
+                    cancel.ThrowIfCancellationRequested();
+                    var smaller = Shrink(src, gray, p.Dpi, steps[s]);
+                    if (smaller.Jpeg.Length < p.RawLength * 0.8) perStep[s] = smaller;
+                }
+                result[p.Key] = new Candidate(p.RawLength, perStep);
             }
         }
         progress?.Report((pdf.PageCount, pdf.PageCount));
@@ -168,19 +290,32 @@ public static class PdfCompressor
         return picture;
     }
 
-    private static Replacement? Shrink(BitmapSource picture, double dpi, int targetDpi, int quality)
+    /// <summary>The picture in the form it is stored in: grey when it really is grey (much smaller), otherwise 24-bit colour.</summary>
+    private static (BitmapSource Source, bool Gray) Prepare(BitmapSource picture)
     {
+        bool gray = picture.Format == PixelFormats.Gray8 || LooksGray(picture);
         BitmapSource src = picture;
-        bool gray = src.Format == PixelFormats.Gray8 || LooksGray(src);
         if (gray && src.Format != PixelFormats.Gray8) src = new FormatConvertedBitmap(src, PixelFormats.Gray8, null, 0);
         else if (!gray && src.Format != PixelFormats.Bgr24) src = new FormatConvertedBitmap(src, PixelFormats.Bgr24, null, 0);
-        double scale = dpi > targetDpi * 1.05 ? targetDpi / dpi : 1.0;
+        if (src != picture)
+        {
+            // converted once, then used for every step
+            var converted = new WriteableBitmap(src);
+            converted.Freeze();
+            src = converted;
+        }
+        return (src, gray);
+    }
+
+    private static Replacement Shrink(BitmapSource src, bool gray, double dpi, Step step)
+    {
+        double scale = dpi > step.Dpi * 1.05 ? step.Dpi / dpi : 1.0;
         if (scale < 1)
         {
-            int w = Math.Max(1, (int)Math.Round(picture.PixelWidth * scale)), h = Math.Max(1, (int)Math.Round(picture.PixelHeight * scale));
-            src = new TransformedBitmap(src, new ScaleTransform((double)w / picture.PixelWidth, (double)h / picture.PixelHeight));
+            int w = Math.Max(1, (int)Math.Round(src.PixelWidth * scale)), h = Math.Max(1, (int)Math.Round(src.PixelHeight * scale));
+            src = new TransformedBitmap(src, new ScaleTransform((double)w / src.PixelWidth, (double)h / src.PixelHeight));
         }
-        byte[] jpeg = Jpeg(src, quality);
+        byte[] jpeg = Jpeg(src, step.Quality);
         return new Replacement(jpeg, src.PixelWidth, src.PixelHeight, gray);
     }
 
@@ -322,7 +457,32 @@ public static class PdfCompressor
     }
 
     // ---------- every page as one picture ----------
-    private static byte[]? Rasterize(PdfFile pdf, int dpi, int quality, IProgress<(int, int)>? progress, CancellationToken cancel)
+    /// <summary>Every page drawn once, as sharp as the first step, then saved as a JPEG for each step: [page][step].</summary>
+    private static List<byte[][]> RenderPages(PdfFile pdf, Step[] steps, IProgress<(int, int)>? progress, CancellationToken cancel)
+    {
+        var pages = new List<byte[][]>();
+        int dpi = steps[0].Dpi;
+        for (int i = 0; i < pdf.PageCount; i++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            progress?.Report((i, pdf.PageCount));
+            var size = pdf.PageSize(i);
+            int w = Math.Max(1, (int)Math.Round(size.Width / 72 * dpi)), h = Math.Max(1, (int)Math.Round(size.Height / 72 * dpi));
+            var (src, gray) = Prepare(pdf.Render(i, w, h, forScreen: false));
+            var jpegs = new byte[steps.Length][];
+            for (int s = 0; s < steps.Length; s++)
+            {
+                cancel.ThrowIfCancellationRequested();
+                jpegs[s] = Shrink(src, gray, dpi, steps[s]).Jpeg;
+            }
+            pages.Add(jpegs);
+        }
+        progress?.Report((pdf.PageCount, pdf.PageCount));
+        return pages;
+    }
+
+    /// <summary>A new PDF made of the pages' pictures of one step, each filling its page.</summary>
+    private static byte[]? Rasterize(PdfFile pdf, List<byte[][]> pages, int step)
     {
         Pdfium.Init();
         IntPtr target;
@@ -330,15 +490,10 @@ public static class PdfCompressor
         if (target == IntPtr.Zero) return null;
         try
         {
-            for (int i = 0; i < pdf.PageCount; i++)
+            for (int i = 0; i < pages.Count; i++)
             {
-                cancel.ThrowIfCancellationRequested();
-                progress?.Report((i, pdf.PageCount));
                 var size = pdf.PageSize(i);
-                int w = Math.Max(1, (int)Math.Round(size.Width / 72 * dpi)), h = Math.Max(1, (int)Math.Round(size.Height / 72 * dpi));
-                var picture = pdf.Render(i, w, h, forScreen: false);
-                bool gray = LooksGray(picture);
-                byte[] jpeg = Jpeg(gray ? new FormatConvertedBitmap(picture, PixelFormats.Gray8, null, 0) : picture, quality);
+                byte[] jpeg = pages[i][step];
                 lock (Pdfium.Sync)
                 {
                     IntPtr page = Pdfium.FPDFPage_New(target, i, size.Width, size.Height);
@@ -354,7 +509,6 @@ public static class PdfCompressor
                     finally { Pdfium.FPDF_ClosePage(page); }
                 }
             }
-            progress?.Report((pdf.PageCount, pdf.PageCount));
             using var ms = new MemoryStream();
             lock (Pdfium.Sync) if (!Pdfium.Save(target, ms)) return null;
             return ms.ToArray();

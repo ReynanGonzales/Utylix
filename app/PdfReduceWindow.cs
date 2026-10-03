@@ -20,7 +20,8 @@ public sealed class PdfReduceWindow : Window
     private readonly string? _password;          // the one the PDF was opened with
     private string? _ownerPassword;              // asked for when the PDF is protected against changes
     private bool _askedOwner;
-    private readonly RadioButton _recommended, _smaller, _smallest;
+    private readonly RadioButton _recommended, _smaller, _smallest, _toSize;
+    private readonly TextBox _limit = new() { Text = "2", Width = 58, Margin = new Thickness(8, 0, 6, 0), Padding = new Thickness(6, 3, 6, 3), VerticalContentAlignment = VerticalAlignment.Center };
     private readonly ProgressBar _bar = new() { Height = 6, Minimum = 0, Maximum = 1, Margin = new Thickness(0, 16, 0, 0), Visibility = Visibility.Collapsed };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0), MinHeight = 20 };
     private readonly Button _go = new() { Content = "Reduce", MinWidth = 120, Margin = new Thickness(0, 0, 10, 0) };
@@ -63,7 +64,25 @@ public sealed class PdfReduceWindow : Window
         _recommended = Choice("Recommended", "Pictures and scans are made lighter, still sharp to read and print. Text, links and form fields stay as they are.", "PdfReduceRecommended");
         _smaller = Choice("Smaller", "Pictures at lower quality. Good for sending by e-mail or uploading where the size is limited.", "PdfReduceSmaller");
         _smallest = Choice("Smallest (pages become pictures)", "For scans that are still too big. Every page is saved as one picture, so text can't be selected or searched afterwards.", "PdfReduceSmallest");
+        _toSize = Choice("Under a size", "As sharp as still fits under the size you set, for upload and e-mail limits. Text, links and form fields stay as they are.", "PdfReduceToSize");
         _recommended.IsChecked = true;
+        // "Under a size: [2] MB" with a few common limits. Typing in the box picks this choice.
+        var title = (StackPanel)_toSize.Content;
+        var line = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 3) };
+        title.Children.RemoveAt(0);
+        line.Children.Add(new TextBlock { Text = "Under", FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        System.Windows.Automation.AutomationProperties.SetAutomationId(_limit, "PdfReduceLimit");
+        _limit.GotKeyboardFocus += (_, _) => { _toSize.IsChecked = true; _limit.SelectAll(); };
+        line.Children.Add(_limit);
+        line.Children.Add(new TextBlock { Text = "MB", FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) });
+        foreach (var mb in new[] { "1", "2", "5", "10", "25" })
+        {
+            var chip = new Button { Content = mb + " MB", Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 5, 0), FontSize = 12 };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(chip, "PdfReduceLimit" + mb);
+            chip.Click += (_, _) => { _limit.Text = mb; _toSize.IsChecked = true; };
+            line.Children.Add(chip);
+        }
+        title.Children.Insert(0, line);
         root.Children.Add(_choices);
         root.Children.Add(new TextBlock { Text = "Your original file is not changed: you choose where the smaller copy is saved.", Opacity = 0.6, FontSize = 12, TextWrapping = TextWrapping.Wrap });
         root.Children.Add(_bar);
@@ -89,14 +108,49 @@ public sealed class PdfReduceWindow : Window
     private async Task GoAsync()
     {
         if (_saved != null) { Open(_saved); return; }          // (after saving, the button opens the smaller copy)
+        bool toSize = _toSize.IsChecked == true;
+        long target = 0;
+        string limit = "";
+        if (toSize && !TryLimit(out target, out limit)) { _status.Text = "Type the size in MB, for example 2 or 1.5."; _limit.Focus(); return; }
         _cts = new CancellationTokenSource();
         _go.IsEnabled = false; _choices.IsEnabled = false;
         _bar.Visibility = Visibility.Visible; _bar.Value = 0;
-        _status.Text = "Making it smaller…";
-        var progress = new Progress<(int Done, int Total)>(p => { _bar.Value = p.Total == 0 ? 0 : (double)p.Done / p.Total; _status.Text = $"Making it smaller… page {Math.Min(p.Done + 1, p.Total)} of {p.Total}"; });
+        string doing = "Making it smaller…";
+        _status.Text = doing;
+        var progress = new Progress<(int Done, int Total)>(p =>
+        {
+            _bar.Value = p.Total == 0 ? 0 : (double)p.Done / p.Total;
+            _status.Text = toSize && p.Done >= p.Total ? $"Finding the sharpest copy under {limit}…" : $"{doing} page {Math.Min(p.Done + 1, p.Total)} of {p.Total}";
+        });
         var level = Level;
         PdfReduceResult result;
-        try { result = await Task.Run(() => PdfCompressor.Reduce(_path, _password, _ownerPassword, level, progress, _cts.Token)); }
+        bool keepAsked = false;                                // the person already chose to keep a copy that doesn't fit
+        try
+        {
+            result = await Task.Run(() => toSize
+                ? PdfCompressor.ReduceToSize(_path, _password, _ownerPassword, target, progress, _cts.Token)
+                : PdfCompressor.Reduce(_path, _password, _ownerPassword, level, progress, _cts.Token));
+            if (toSize && !result.Fits && result.CanTryPages)
+            {
+                // keeping the text doesn't get there: saving every page as a picture usually does, but only when the person says so
+                string text = (result.Output != null ? $"With the text kept, the smallest Utylix can make it is {Bytes(result.After)}" : "With the text kept, Utylix can't make it much smaller")
+                    + $", which is not under {limit}.\n\nUtylix can save every page as a picture instead. That is usually much smaller, but text can't be selected, searched or copied in that copy.";
+                var buttons = new System.Collections.Generic.List<(string, MessageBoxResult)> { ("Save pages as pictures", MessageBoxResult.Yes) };
+                if (result.Output != null) buttons.Add(($"Keep text ({Bytes(result.After)})", MessageBoxResult.No));
+                buttons.Add(("Cancel", MessageBoxResult.Cancel));
+                var answer = UMessage.Ask(this, text, "Reduce file size", MessageBoxImage.Question, MessageBoxResult.Yes, MessageBoxResult.Cancel, buttons.ToArray());
+                if (answer == MessageBoxResult.Cancel) { Done("Nothing was saved."); return; }
+                if (answer == MessageBoxResult.No) keepAsked = true;
+                else
+                {
+                    doing = "Saving the pages as pictures…";
+                    _bar.Value = 0;
+                    _status.Text = doing;
+                    var pages = await Task.Run(() => PdfCompressor.ReducePagesToSize(_path, _password, target, progress, _cts.Token));
+                    if (pages.Fits || result.Output == null || (pages.Output != null && pages.After < result.After)) result = pages;
+                }
+            }
+        }
         catch (OperationCanceledException) { return; }
         catch (PdfProtectedException e) when (e.Message == PdfCompressor.OwnerPasswordNeeded)
         {
@@ -113,6 +167,17 @@ public sealed class PdfReduceWindow : Window
             return;
         }
         _bar.Value = 1;
+        if (toSize && result.Fits && !result.Helped) { Done($"It is already under {limit}: {Bytes(result.Before)}. Nothing needs to change."); return; }
+        if (toSize && !result.Fits)
+        {
+            if (!result.Helped) { Done($"Utylix can't make this PDF smaller than {limit}, or much smaller than it is."); return; }
+            if (!keepAsked && UMessage.Ask(this, $"Utylix can't get it under {limit}. The smallest copy it can make is {Bytes(result.After)} (was {Bytes(result.Before)}).\n\nSave that copy anyway?",
+                    "Reduce file size", MessageBoxImage.Question, MessageBoxResult.Yes, MessageBoxResult.Cancel, ("Save it", MessageBoxResult.Yes), ("Cancel", MessageBoxResult.Cancel)) != MessageBoxResult.Yes)
+            {
+                Done("Nothing was saved.");
+                return;
+            }
+        }
         if (!result.Helped)
         {
             Done(level == PdfReduceLevel.Smallest
@@ -145,7 +210,8 @@ public sealed class PdfReduceWindow : Window
 
         _saved = dlg.FileName;
         int percent = (int)Math.Round(100 - 100.0 * result.After / result.Before);
-        Done($"Done: {Bytes(result.Before)} → {Bytes(result.After)} ({percent}% smaller).\nSaved as {System.IO.Path.GetFileName(dlg.FileName)}");
+        Done($"Done: {Bytes(result.Before)} → {Bytes(result.After)} ({percent}% smaller{(toSize && result.Fits ? ", under " + limit : "")}).\nSaved as {System.IO.Path.GetFileName(dlg.FileName)}"
+            + (result.PagesArePictures ? "\nIts pages are pictures, so text can't be selected or searched in this copy." : ""));
         _go.Content = "Open it";
         _go.IsEnabled = true;
         var folder = new Button { Content = "Show in folder", MinWidth = 120, Margin = new Thickness(0, 0, 10, 0), Style = (Style)Application.Current.FindResource("DialogButton") };
@@ -161,6 +227,22 @@ public sealed class PdfReduceWindow : Window
     }
 
     private void Open(string path) { PdfWindow.Open(new[] { path }); Close(); }
+
+    /// <summary>The size typed in the box, in bytes: "2", "1.5", "1,5", "2 MB" or "500 KB". A megabyte counts as 1,000,000 bytes here, the
+    /// smaller of the two ways sites count it, so the copy fits either way.</summary>
+    private bool TryLimit(out long bytes, out string label)
+    {
+        bytes = 0; label = "";
+        string s = _limit.Text.Trim().ToLowerInvariant().Replace(',', '.');
+        double unit = 1_000_000;
+        if (s.EndsWith("kb")) { unit = 1_000; s = s[..^2]; }
+        else if (s.EndsWith("mb")) s = s[..^2];
+        else if (s.EndsWith('m')) s = s[..^1];
+        if (!double.TryParse(s.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double n) || n <= 0) return false;
+        bytes = (long)(n * unit);
+        label = n.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + (unit == 1_000 ? " KB" : " MB");
+        return bytes >= 20_000 && bytes <= 100_000_000_000;
+    }
 
     public static string Bytes(long n) => n >= 1048576
         ? (n / 1048576.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MB"

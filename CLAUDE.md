@@ -132,7 +132,12 @@ State on 2026-10-02 (v1.4.0, not yet released on GitHub):
      single-file `Utylix.exe` for older copies / portable use. A `tools\pack-setup.ps1` can do the zip + append.
   7. Afterwards: update the "update the installed copy" routine (run `Utylix-Setup.exe --setup-update --dir
      "%LOCALAPPDATA%\Programs\Utylix"`), and measure idle private memory vs the 138 MB of the single-file build.
-- Next, in order: reduce to a target size ("under 2 MB"), Explorer right-click shortcuts (reduce, combine, pictures -> PDF), phone-photo
+- DONE 2026-10-03 (not released): reduce to a target size. Reduce window choice "Under [2] MB" (+ 1/2/5/10/25 MB buttons; 1 MB =
+  1,000,000 bytes). `PdfCompressor.ReduceToSize` encodes every picture once per quality step (9 steps, 200 dpi q80 .. 50 dpi q24),
+  predicts each step's size and repacks only 1-3 times, keeping the sharpest step that fits. If none fits, it ASKS before
+  `ReducePagesToSize` (pages as pictures, 150 .. 50 dpi), and offers the smaller of the two if still too big. Tested on the 5 real PDFs:
+  2-10 s each. UMessage now widens for long button labels (SizeToContent, text MaxWidth 350).
+- Next, in order: Explorer right-click shortcuts (reduce, combine, pictures -> PDF), phone-photo
   cleanup (crop, straighten, black & white), resize pages (A4 / Letter / Long 8.5x13), stamps + date tool, real redaction, organize pages /
   merge / split / pictures <-> PDF, OCR (Windows.Media.Ocr, offline), page numbers / watermark / header-footer, PDF -> Word and -> Excel.
   Later maybe: paragraph re-flow editing, making new form fields, certificate signatures, batch processing.

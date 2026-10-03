@@ -45,7 +45,8 @@ public static class UMessage
         var result = onEscape;
         var w = new Window
         {
-            Title = caption, Width = 460, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = owner == null,
+            // 460 wide, or wider when the buttons need it (the text wraps at the same width either way)
+            Title = caption, MinWidth = 460, SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = owner == null,
             WindowStartupLocation = owner != null ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen,
             Background = bg, Foreground = fg, FontFamily = new FontFamily("Segoe UI"), FontSize = 13.5, Topmost = owner == null,
         };
@@ -73,7 +74,7 @@ public static class UMessage
             DockPanel.SetDock(badge, Dock.Left);
             body.Children.Add(badge);
         }
-        var message = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = fg, VerticalAlignment = VerticalAlignment.Center, LineHeight = 20 };
+        var message = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = fg, VerticalAlignment = VerticalAlignment.Center, LineHeight = 20, MaxWidth = sign.Length > 0 ? 350 : 400 };
         System.Windows.Automation.AutomationProperties.SetAutomationId(message, "UMessageText");
         body.Children.Add(message);
 
