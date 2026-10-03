@@ -82,7 +82,7 @@ internal static partial class Installer
     /// <summary>Should this start show the installer instead of the program?</summary>
     public static bool WantsSetup(string[] args)
     {
-        if (args.Contains("--setup") || args.Contains("--setup-auto")) return true;
+        if (args.Contains("--setup") || args.Contains("--setup-auto") || args.Contains("--setup-update")) return true;
         if (args.Length != 0 || IsInstalledCopy) return false;
         string name = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "");
         if (name.Contains("setup", StringComparison.OrdinalIgnoreCase)) return true;
@@ -102,35 +102,13 @@ internal static partial class Installer
         string dir = c.Dir; bool allUsers = c.AllUsers, desktopShortcut = c.Desktop, autoStart = c.AutoStart;
         if (string.IsNullOrWhiteSpace(dir)) throw new ArgumentException("Choose a folder.");
         dir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir)).TrimEnd('\\');
-        string self = Environment.ProcessPath ?? throw new IOException("Utylix cannot tell where it is.");
         string exe = Path.Combine(dir, ExeName);
 
         progress.Report((3, "Getting ready…")); Thread.Sleep(700);
         progress.Report((8, "Creating the folder…"));
         Directory.CreateDirectory(dir);
         Thread.Sleep(600);
-
-        if (!string.Equals(Path.GetFullPath(self), exe, StringComparison.OrdinalIgnoreCase))
-        {
-            progress.Report((12, "Closing the old copy, if one is running…"));
-            StopRunning(exe);
-            Thread.Sleep(500);
-            string tmp = exe + ".new";
-            using (var src = new FileStream(self, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var dst = new FileStream(tmp, FileMode.Create, FileAccess.Write))
-            {
-                var buf = new byte[1024 * 1024];
-                long done = 0; int n;
-                while ((n = src.Read(buf, 0, buf.Length)) > 0)
-                {
-                    dst.Write(buf, 0, n);
-                    done += n;
-                    progress.Report((12 + 58.0 * done / src.Length, $"Copying Utylix…  {done / 1048576} of {src.Length / 1048576} MB"));
-                    Thread.Sleep(35);
-                }
-            }
-            File.Move(tmp, exe, true);
-        }
+        long size = CopyProgram(dir, progress, 12, 70);
 
         progress.Report((74, "Creating shortcuts…")); Thread.Sleep(500);
         MakeShortcut(StartMenuLink(allUsers), exe);
@@ -148,7 +126,7 @@ internal static partial class Installer
             k.SetValue("UninstallString", $"\"{exe}\" --uninstall");
             k.SetValue("NoModify", 1, RegistryValueKind.DWord);
             k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-            k.SetValue("EstimatedSize", (int)(new FileInfo(exe).Length / 1024), RegistryValueKind.DWord);
+            k.SetValue("EstimatedSize", (int)(size / 1024), RegistryValueKind.DWord);
         }
 
         progress.Report((92, autoStart ? "Setting Utylix to run when Windows starts…" : "Almost done…")); Thread.Sleep(600);
@@ -161,8 +139,170 @@ internal static partial class Installer
         return exe;
     }
 
+    // ------------------------------------------------------------------------------------------------ the program's files
+
+    /// <summary>The list of the installed program's files (relative paths), kept in its folder: uninstalling removes exactly these.</summary>
+    private const string Manifest = "utylix-files.txt";
+
+    /// <summary>A single-file build (everything inside Utylix.exe) rather than a program folder.</summary>
+    public static bool IsSingleFile => string.IsNullOrEmpty(typeof(Installer).Assembly.Location);
+
+    /// <summary>The program's files (relative to its folder): every file of a program folder, or just the exe of a single-file build.</summary>
+    internal static List<string> ProgramFiles(out string sourceDir)
+    {
+        string self = Environment.ProcessPath ?? throw new IOException("Utylix cannot tell where it is.");
+        sourceDir = Path.GetDirectoryName(self)!;
+        if (IsSingleFile) return new List<string> { Path.GetFileName(self) };
+        string root = sourceDir;
+        return Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(root, f))
+            .Where(r => !r.StartsWith("FanHelper" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)       // (the fan helper's own protected copy)
+                        && !r.Equals(Manifest, StringComparison.OrdinalIgnoreCase) && !r.Equals(".complete", StringComparison.Ordinal)
+                        && !r.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase) && !r.EndsWith(".old", StringComparison.OrdinalIgnoreCase)
+                        && !r.EndsWith(".update", StringComparison.OrdinalIgnoreCase) && !r.EndsWith(".new", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Copies this program into <paramref name="dir"/> (a running copy there is closed first), writes the file list, and removes the
+    /// files an older version had that this one doesn't. Progress goes from <paramref name="from"/> to <paramref name="to"/> percent.
+    /// Returns the program's size in bytes.
+    /// </summary>
+    private static long CopyProgram(string dir, IProgress<(double, string)> progress, double from, double to)
+    {
+        var files = ProgramFiles(out string src);
+        long total = files.Sum(f => new FileInfo(Path.Combine(src, f)).Length);
+        if (SameFolder(src, dir)) return total;                                   // (already running from there)
+
+        progress.Report((from, "Closing the old copy, if one is running…"));
+        StopRunning(Path.Combine(dir, ExeName));
+        Thread.Sleep(500);
+        var installed = new List<string>();
+        long done = 0;
+        var buf = new byte[1024 * 1024];
+        foreach (string rel in files)
+        {
+            // a single-file build may be called Utylix-Setup.exe: installed, it is Utylix.exe
+            string name = IsSingleFile ? ExeName : rel;
+            string target = Path.Combine(dir, name), tmp = target + ".new";
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    using (var a = new FileStream(Path.Combine(src, rel), FileMode.Open, FileAccess.Read, FileShare.Read))
+                    using (var b = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+                    {
+                        int n;
+                        while ((n = a.Read(buf, 0, buf.Length)) > 0)
+                        {
+                            b.Write(buf, 0, n);
+                            done += n;
+                            progress.Report((from + (to - from) * done / Math.Max(1, total), $"Copying Utylix…  {done / 1048576} of {total / 1048576} MB"));
+                        }
+                    }
+                    File.Move(tmp, target, true);
+                    break;
+                }
+                catch (IOException) when (attempt < 20) { Thread.Sleep(300); }          // (a file still held a moment by the closing copy)
+            }
+            installed.Add(name);
+        }
+
+        // files of the version before that this one doesn't have any more
+        string list = Path.Combine(dir, Manifest);
+        try
+        {
+            if (File.Exists(list))
+                foreach (string old in File.ReadAllLines(list).Where(l => l.Length > 0).Except(installed, StringComparer.OrdinalIgnoreCase))
+                {
+                    string path = Path.GetFullPath(Path.Combine(dir, old));
+                    if (path.StartsWith(Path.GetFullPath(dir).TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) try { File.Delete(path); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                }
+            File.WriteAllLines(list, installed);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        return total;
+    }
+
+    /// <summary>
+    /// "--setup-update --dir X": the update of an installed (or any) copy: only the program's files are replaced; shortcuts, start with
+    /// Windows, right-click menus and settings stay as they are. Then the updated Utylix starts quietly.
+    /// </summary>
+    public static void RunUpdate(string[] args)
+    {
+        int d = Array.IndexOf(args, "--dir");
+        string dir = d >= 0 && d + 1 < args.Length ? args[d + 1] : Installed()?.Dir ?? UserDir;
+        dir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir)).TrimEnd('\\');
+        if (!IsAdmin && !CanWrite(dir))
+        {
+            // installed for all users (Program Files): the update needs administrator rights
+            try
+            {
+                var psi = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, Verb = "runas" };
+                foreach (var a in args) psi.ArgumentList.Add(a);
+                Process.Start(psi);
+            }
+            catch (System.ComponentModel.Win32Exception) { UMessage.Show("Administrator permission was not given, so Utylix was not updated.", "Update Utylix", MessageBoxButton.OK, MessageBoxImage.Information); }
+            return;
+        }
+        var bar = new ProgressBar { Height = 10, Minimum = 0, Maximum = 100, Margin = new Thickness(0, 16, 0, 0), Foreground = (Brush)Application.Current.FindResource("AccentBrush") };
+        var status = new TextBlock { Text = "Getting ready…", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0), MinHeight = 20 };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(status, "UpdateStatus");
+        var head = new StackPanel { Orientation = Orientation.Horizontal };
+        head.Children.Add(new Image { Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/logo.png")), Width = 40, Height = 40, Margin = new Thickness(0, 0, 14, 0) });
+        head.Children.Add(new TextBlock { Text = "Updating Utylix to " + AppUpdater.CurrentText, FontSize = 19, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        var panel = new StackPanel { Margin = new Thickness(26, 22, 26, 24) };
+        panel.Children.Add(head); panel.Children.Add(bar); panel.Children.Add(status);
+        var window = new Window
+        {
+            Title = "Update Utylix", Width = 500, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Content = panel, Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/app.ico")),
+            Background = (Brush)Application.Current.FindResource("BgBrush"), Foreground = (Brush)Application.Current.FindResource("TextBrush"), FontFamily = new FontFamily("Segoe UI"), FontSize = 13.5,
+        };
+        WindowTheme.DarkTitleBar(window);
+        string? error = null;
+        window.Loaded += async (_, _) =>
+        {
+            var progress = new Progress<(double Percent, string Text)>(p => { bar.Value = p.Percent; status.Text = p.Text; });
+            try
+            {
+                long size = await Task.Run(() => CopyProgram(dir, progress, 5, 95));
+                // the version shown in Settings > Apps, when this is the installed copy
+                if (Installed() is { } i && SameFolder(i.Dir, dir))
+                    try
+                    {
+                        using var k = Root(i.AllUsers).OpenSubKey(UninstallKey, writable: true);
+                        k?.SetValue("DisplayVersion", AppUpdater.CurrentText);
+                        k?.SetValue("EstimatedSize", (int)(size / 1024), RegistryValueKind.DWord);
+                    }
+                    catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException) { }
+                bar.Value = 100; status.Text = "Done. Starting Utylix…";
+                await Task.Delay(600);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { error = e.Message; }
+            window.Close();
+        };
+        window.ShowDialog();
+        if (error != null) { UMessage.Show("Utylix could not be updated:\n" + error, "Update Utylix", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        Launch(Path.Combine(dir, ExeName), "--minimized", "--updated");
+    }
+
+    private static bool CanWrite(string dir)
+    {
+        try
+        {
+            Directory.CreateDirectory(dir);
+            string probe = Path.Combine(dir, ".utylix-write-test");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+    }
+
     /// <summary>Starts the installed program as the normal user (even from the administrator copy of this window).</summary>
-    private static void Launch(string exe, string? argument = null)
+    private static void Launch(string exe, params string[] arguments)
     {
         try
         {
@@ -170,17 +310,17 @@ internal static partial class Installer
             {
                 // Explorer runs what it is given without administrator rights; it cannot pass arguments, so it is given a small script
                 string target = exe;
-                if (argument != null)
+                if (arguments.Length > 0)
                 {
                     target = Path.Combine(Path.GetTempPath(), "utylix_start.cmd");
-                    File.WriteAllText(target, "@echo off" + Environment.NewLine + "start " + (char)34 + (char)34 + " " + (char)34 + exe + (char)34 + " " + argument + Environment.NewLine);
+                    File.WriteAllText(target, "@echo off" + Environment.NewLine + "start " + (char)34 + (char)34 + " " + (char)34 + exe + (char)34 + " " + string.Join(" ", arguments) + Environment.NewLine);
                 }
                 Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { target }, UseShellExecute = false });
             }
             else
             {
                 var psi = new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe)! };
-                if (argument != null) psi.ArgumentList.Add(argument);
+                foreach (var a in arguments) psi.ArgumentList.Add(a);
                 Process.Start(psi);
             }
         }
@@ -307,9 +447,29 @@ internal static partial class Installer
             try { FanTask.RemoveWithPromptAsync().GetAwaiter().GetResult(); } catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
         }
         progress.Report((95, "Removing the program files…"));
-        // this exe cannot delete itself while it runs: a helper waits a moment, removes it and the folder (only if empty)
+        // the program cannot delete itself while it runs: a helper waits a moment, removes its files and the folder (only if empty)
         string dir = Path.GetDirectoryName(self)!;
+        string list = Path.Combine(dir, Manifest);
         string cmd = $"/c ping -n 4 127.0.0.1 >nul & del /f /q \"{self}\" \"{self}.old\" \"{self}.update\" & rmdir \"{dir}\"";
+        if (File.Exists(list))
+        {
+            // a program folder: exactly the files it was installed with (never anything else that may be in the folder)
+            try
+            {
+                var lines = new List<string> { "@echo off", "ping -n 4 127.0.0.1 >nul" };
+                var rels = File.ReadAllLines(list).Where(l => l.Length > 0 && !l.Contains("..")).ToList();
+                foreach (string rel in rels) lines.Add($"del /f /q \"{Path.Combine(dir, rel)}\" 2>nul");
+                lines.Add($"del /f /q \"{list}\" \"{self}.old\" \"{self}.update\" 2>nul");
+                foreach (string sub in rels.Select(r => Path.GetDirectoryName(r) ?? "").Where(s => s.Length > 0).Distinct().OrderByDescending(s => s.Length))
+                    lines.Add($"rmdir \"{Path.Combine(dir, sub)}\" 2>nul");
+                lines.Add($"rmdir \"{dir}\" 2>nul");
+                lines.Add("del \"%~f0\"");
+                string script = Path.Combine(Path.GetTempPath(), "utylix_uninstall.cmd");
+                File.WriteAllLines(script, lines);
+                cmd = $"/c \"{script}\"";
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
         Thread.Sleep(700);
         return cmd;
     }

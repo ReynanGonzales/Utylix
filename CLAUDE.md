@@ -26,14 +26,20 @@ user-facing description of every feature.
 - `branding/` icons and logos. `build.bat` / `InstallerBuilder.bat` build the exe / installer. `Uninstall.bat`.
 
 ## Build, run, release
-```
-cd app
-dotnet build Utylix.csproj -c Release
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish
-```
-Output `app/publish/Utylix.exe` (~87 MB, self-contained). The first run of a new build unpacks itself (slow once).
-Release = raise `<Version>` in `app/Utylix.csproj`, rebuild, create a GitHub release whose tag is `v<Version>` (the tag MUST equal the exe's version or
-the updater loops/never offers), attach `Utylix.exe` (and `Utylix-Setup.exe`, same file). Not a pre-release. `gh` is not installed on the owner's PC.
+`build.bat` makes everything (needs the .NET 10 SDK):
+- `app\publish\` - **the program folder** (Utylix.exe starter + Utylix.dll + ~300 files, .NET included, ~215 MB). This is how Utylix is
+  installed since 2026-10-03: it uses about a third of the memory of the single-file build (idle: 51 MB own memory vs 152 MB).
+- `Utylix-Setup.exe` (~86 MB) - `setup\SetupStub.cs` (C# 5, compiled by `tools\pack-setup.ps1` with Windows' own .NET Framework csc, so it
+  runs on any Windows 10/11) with the program folder appended as a ZIP + 8-byte length + "UTYLIXPK". It unpacks to %TEMP%\UtylixSetup\<id>\
+  and starts that Utylix.exe with `--setup` (the wizard) or the arguments it was given (`--setup-update --dir X`).
+- `Utylix.exe` - the same program as ONE single file (Utylix 1.4.0 and older look for this asset name when updating; also handy to carry).
+Installing copies the folder and writes `utylix-files.txt` (uninstall deletes exactly those files; files a newer version no longer ships
+are removed). `--setup-update --dir X` replaces only the files (shortcuts, startup, menus, settings untouched) and starts Utylix again;
+the updater runs `Utylix-Setup.exe` that way. Update the owner's installed copy after a build:
+`Utylix-Setup.exe --setup-update --dir "%LOCALAPPDATA%\Programs\Utylix"`.
+Release = raise `<Version>` in `app/Utylix.csproj`, run build.bat, create a GitHub release whose tag is `v<Version>` (the tag MUST equal the
+version or the updater loops / never offers), attach **`Utylix-Setup.exe` AND `Utylix.exe`** (updaters of 1.5+ prefer the setup; older
+ones need Utylix.exe). Not a pre-release. `gh` is installed on the work PC (logged in), not on the owner's home PC.
 
 ## Things that bit us (read before changing these areas)
 - **Editing C# through shell heredocs mangles backslashes** (`\\` collapses). Use the Edit/Write tools for code with Windows paths or registry keys.
@@ -93,14 +99,20 @@ State on 2026-10-02 (v1.4.0, not yet released on GitHub):
   (change existing text), comments (highlight/underline/strike/notes), search/select/copy, links, bookmarks, form filling. Themed `UMessage`
   boxes everywhere. "Open with" shows Utylix Editor / Photos / Player / Archive with their own logos; the plain "Utylix" entry is hidden.
   Settings > Apps shows the right version (Installer.RefreshAppsEntry).
-- **In progress - packaging as a program folder** (decided with the owner): instead of one single-file exe, publish self-contained into a
-  folder (Utylix.exe + DLLs + .NET, ~150 MB, works offline). Reasons: less memory (no in-memory unpacking), faster start, fewer antivirus
+- **DONE 2026-10-03 (not released yet) - packaging as a program folder**, see "Build, run, release". Tested: the owner's installed copy
+  was updated with `--setup-update` (42 s), runs from the folder, PDFs / forms work; idle memory 51 MB vs 152 MB. NOT yet tested: a
+  first install through the wizard on a clean PC, uninstall of a folder install, the fan helper's folder copy, the updater end to end
+  (needs a release that has Utylix-Setup.exe). The owner sometimes runs `D:\Utylix\Utylix.exe` (single file) instead of the installed
+  copy; then the installed one just hands over to it (single instance). History of the decision:
+  instead of one single-file exe, publish self-contained into a
+  folder (Utylix.exe + DLLs + .NET, ~300 files / 215 MB, works offline). Reasons: less memory (no in-memory unpacking), faster start, fewer antivirus
   false alarms, smaller updates. Plan: `Utylix-Setup.exe` stays ONE file (single-file build with IncludeAllContentForSelfExtract, carrying
   the folder build's apphost as a content file) and installs the folder; the updater downloads `Utylix-Setup.exe` and runs it with
   `--setup-auto` instead of swapping one exe; the fan helper's protected copy must copy the whole folder; build.bat / InstallerBuilder.bat
   change. For one transition release ALSO attach a `Utylix.exe` (older copies look for that asset name).
-  Detailed design (worked out 2026-10-02, nothing coded yet; `setup/` folder is empty):
-  1. `setup/UtylixSetup.csproj`: tiny **net48** WinExe (.NET Framework 4.8 is built into Windows 10/11, so it needs nothing installed).
+  Design as built (the starter ended up compiled with Windows' own csc instead of an SDK net48 project - no NuGet needed; the setup is
+  ~86 MB, not 65):
+  1. Starter: tiny .NET Framework 4.8 WinExe (built into Windows 10/11, so it needs nothing installed).
      The zipped program folder is APPENDED to the stub exe, followed by an 8-byte length + 8-byte magic "UTYLIXPK". The stub reads its
      own file, unzips to %TEMP%\UtylixSetup\<hash>\ with a small dark progress window, starts the extracted `Utylix.exe --setup <its own
      args>`, waits, then tries to delete the temp folder. Result: Utylix-Setup.exe ~65 MB (smaller than today's 87 MB single exe).

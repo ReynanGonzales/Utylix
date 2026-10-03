@@ -14,7 +14,11 @@ using System.Threading.Tasks;
 namespace IdmClone.Engine;
 
 /// <summary>A published Utylix version on GitHub.</summary>
-public sealed record ReleaseInfo(string Tag, Version Version, string Notes, string AssetApiUrl, long Size, string? Sha256, string? ShaAssetApiUrl);
+public sealed record ReleaseInfo(string Tag, Version Version, string Notes, string AssetApiUrl, long Size, string? Sha256, string? ShaAssetApiUrl, string AssetName = "Utylix.exe")
+{
+    /// <summary>The release carries the setup (a program folder is updated by running it), not just one exe.</summary>
+    public bool IsSetup => AssetName == "Utylix-Setup.exe";
+}
 
 /// <summary>Something went wrong while looking for or installing an update, in words the person can act on.</summary>
 public sealed class UpdateException : Exception
@@ -31,7 +35,8 @@ public sealed class UpdateException : Exception
 public static class AppUpdater
 {
     public const string Repo = "ReynanGonzales/Utylix";
-    private const string AssetName = "Utylix.exe";
+    private const string AssetName = "Utylix.exe";               // (older releases, and older copies of Utylix, use this one)
+    private const string SetupName = "Utylix-Setup.exe";         // preferred: it updates a program folder (and a single exe) in place
 
     /// <summary>Normally GitHub. A test can point it at a local server (only loopback addresses are accepted, see App).</summary>
     public static string ApiBase { get; set; } = "https://api.github.com";
@@ -125,21 +130,23 @@ public static class AppUpdater
             string notes = root.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() ?? "" : "";
 
             string? assetUrl = null, shaUrl = null, digest = null; long size = 0;
-            foreach (var a in root.GetProperty("assets").EnumerateArray())
+            var assets = root.GetProperty("assets").EnumerateArray().ToList();
+            string wanted = assets.Any(a => a.GetProperty("name").GetString() == SetupName) ? SetupName : AssetName;
+            foreach (var a in assets)
             {
                 string name = a.GetProperty("name").GetString() ?? "";
                 string url = a.GetProperty("url").GetString() ?? "";
-                if (name == AssetName)
+                if (name == wanted)
                 {
                     assetUrl = url;
                     size = a.GetProperty("size").GetInt64();
                     if (a.TryGetProperty("digest", out var d) && d.ValueKind == JsonValueKind.String && (d.GetString() ?? "").StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
                         digest = d.GetString()![7..].ToLowerInvariant();
                 }
-                else if (name == AssetName + ".sha256") shaUrl = url;
+                else if (name == wanted + ".sha256") shaUrl = url;
             }
             if (assetUrl == null) throw new UpdateException($"Release {tag} has no {AssetName} file attached.");
-            return new ReleaseInfo(tag, version, notes, assetUrl, size, digest, shaUrl);
+            return new ReleaseInfo(tag, version, notes, assetUrl, size, digest, shaUrl, wanted);
         }
     }
 
@@ -157,7 +164,7 @@ public static class AppUpdater
     /// <summary>Downloads the release and checks it against its published checksum. Returns the path of the verified file.</summary>
     public static async Task<string> DownloadAsync(ReleaseInfo release, string token, Action<string> status, CancellationToken ct)
     {
-        string dest = UpdatePath;
+        string dest = release.IsSetup ? Path.Combine(Path.GetTempPath(), $"Utylix-Setup-{release.Version.ToString(3)}.exe") : UpdatePath;
         try
         {
             status("Checking the published checksum…");
@@ -206,6 +213,16 @@ public static class AppUpdater
     /// </summary>
     public static void Apply(string newFile)
     {
+        if (Path.GetFileName(newFile).StartsWith("Utylix-Setup", StringComparison.OrdinalIgnoreCase))
+        {
+            // the setup replaces this program's files (it closes this copy first) and starts the new version
+            var setup = new ProcessStartInfo(newFile) { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() };
+            setup.ArgumentList.Add("--setup-update");
+            setup.ArgumentList.Add("--dir");
+            setup.ArgumentList.Add(Path.GetDirectoryName(ExePath)!);
+            Process.Start(setup);
+            return;
+        }
         string exe = ExePath, old = exe + ".old";
         try
         {

@@ -106,9 +106,14 @@ internal static class FanTask
                 finally { p.Dispose(); }
             }
             Directory.CreateDirectory(HelperDir);
-            string tmp = HelperExe + ".new";
-            File.Copy(self, tmp, true);
-            File.Move(tmp, HelperExe, true);
+            // the protected copy: the whole program folder (or the one exe of a single-file build), as Utylix.exe + its files
+            foreach (string rel in Installer.ProgramFiles(out string src))
+            {
+                string target = Path.Combine(HelperDir, Installer.IsSingleFile ? "Utylix.exe" : rel), tmp = target + ".new";
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(Path.Combine(src, rel), tmp, true);
+                File.Move(tmp, target, true);
+            }
             File.WriteAllText(GenerationFile, Generation);
 
             string xml = $@"<?xml version=""1.0"" encoding=""UTF-16""?>

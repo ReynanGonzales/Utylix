@@ -150,6 +150,7 @@ internal static partial class Installer
     /// <summary>Shows the setup wizard. Returns true when the app should carry on running from where it is (the "just run it" choice).</summary>
     public static bool RunSetup(string[] args)
     {
+        if (args.Contains("--setup-update")) { RunUpdate(args); return false; }          // an update: only the files, no wizard
         bool auto = args.Contains("--setup-auto");           // the administrator copy: installs at once with what was chosen
         var start = auto ? Choices.FromArgs(args) : null;
         bool runHere = false;
@@ -195,7 +196,7 @@ internal static partial class Installer
         where.Children.Add(scopeMe); where.Children.Add(scopeAll);
         where.Children.Add(Text("Install into", margin: new Thickness(0, 22, 0, 0)));
         where.Children.Add(pathRow);
-        where.Children.Add(Text("Utylix itself is one file, so this folder stays small. Your settings and history are kept separately in your user profile, so uninstalling and installing again does not lose them unless you ask.", 12, muted: true, margin: new Thickness(0, 14, 0, 0)));
+        where.Children.Add(Text("Utylix brings everything it needs in this folder (about 215 MB), so nothing else has to be installed. Your settings and history are kept separately in your user profile, so uninstalling and installing again does not lose them unless you ask.", 12, muted: true, margin: new Thickness(0, 14, 0, 0)));
 
         // ---- page 3: right-click features and startup ----
         var cConvert = Check("Convert", "SetupConvert", start?.Convert ?? ConfigFlag("explorer_convert_menu", true), "Right-click a picture, video or song -> Convert to another format");
