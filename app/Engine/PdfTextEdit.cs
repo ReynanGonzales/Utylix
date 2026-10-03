@@ -21,7 +21,7 @@ public sealed record PdfReplaceTextMark(int Page, int Index, string OldText, str
 internal static class PdfTextRuns
 {
     /// <summary>The pieces of text of a page (call under Pdfium.Sync).</summary>
-    public static List<PdfTextRun> Read(IntPtr doc, int index)
+    public static List<PdfTextRun> Read(IntPtr doc, int index, bool includeHidden = false)
     {
         var runs = new List<PdfTextRun>();
         Pdfium.FPDF_GetPageSizeByIndexF(doc, index, out var size);
@@ -36,7 +36,7 @@ internal static class PdfTextRuns
             {
                 IntPtr obj = Pdfium.FPDFPage_GetObject(page, k);
                 if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetType(obj) != Pdfium.ObjText) continue;
-                if (Pdfium.FPDFTextObj_GetTextRenderMode(obj) == Pdfium.TextInvisible) continue;      // (the hidden text of a scan made searchable)
+                if (!includeHidden && Pdfium.FPDFTextObj_GetTextRenderMode(obj) == Pdfium.TextInvisible) continue;      // (the hidden text of a scan made searchable)
                 string text = TextOf(obj, tp);
                 if (text.Trim().Length == 0) continue;
                 if (Pdfium.FPDFPageObj_GetMatrix(obj, out var m) == 0 || Pdfium.FPDFTextObj_GetFontSize(obj, out float fs) == 0) continue;

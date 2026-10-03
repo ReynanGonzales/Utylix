@@ -64,7 +64,7 @@ public sealed class PdfPagesDialog : Window
         {
             _every = new RadioButton { Content = "Every", Style = chipStyle, GroupName = "how", IsChecked = true };
             _ranges = new RadioButton { Content = "These pages", Style = chipStyle, GroupName = "how" };
-            _each = new RadioButton { Content = "One PDF for each page", Style = chipStyle, GroupName = "how" };
+            _each = new RadioButton { Content = "One PDF for each page", Style = chipStyle, GroupName = "how", HorizontalAlignment = HorizontalAlignment.Left };
             System.Windows.Automation.AutomationProperties.SetAutomationId(_every, "PdfSplitEvery");
             System.Windows.Automation.AutomationProperties.SetAutomationId(_ranges, "PdfSplitRanges");
             System.Windows.Automation.AutomationProperties.SetAutomationId(_each, "PdfSplitEach");
@@ -104,7 +104,7 @@ public sealed class PdfPagesDialog : Window
             root.Children.Add(new TextBlock { Text = "Pages", FontWeight = FontWeights.SemiBold });
             var which = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
             _chosen = new RadioButton { Content = selected.Count == 1 ? "The chosen page" : $"The {selected.Count} chosen pages", Style = chipStyle, GroupName = "which", IsChecked = selected.Count > 0 && selected.Count < pdf.PageCount };
-            _all = new RadioButton { Content = $"All {pdf.PageCount} pages", Style = chipStyle, GroupName = "which", IsChecked = !(selected.Count > 0 && selected.Count < pdf.PageCount) };
+            _all = new RadioButton { Content = $"All {pdf.PageCount} page{(pdf.PageCount == 1 ? "" : "s")}", Style = chipStyle, GroupName = "which", IsChecked = !(selected.Count > 0 && selected.Count < pdf.PageCount) };
             System.Windows.Automation.AutomationProperties.SetAutomationId(_chosen, "PdfPicChosen");
             System.Windows.Automation.AutomationProperties.SetAutomationId(_all, "PdfPicAll");
             if (selected.Count == 0 || selected.Count >= pdf.PageCount) _chosen.IsEnabled = false;

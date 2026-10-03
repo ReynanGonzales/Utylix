@@ -14,7 +14,26 @@ public sealed partial class PdfWindow
 {
     partial void AddMoreTools(ContextMenu menu, Action<string, Action, string> item)
     {
+        item("Page numbers, header, footer, watermark…", AddPageMarks, "PdfMenuMarks");
         item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");
+        item("Save as Word or Excel…", () => { if (_pdf != null && _path != null && CommitItems()) new PdfExportDialog(this, _pdf, _path, SelectedPages()).ShowDialog(); }, "PdfMenuExport");
+    }
+
+    // ---------- page numbers, header / footer, watermark ----------
+    private void AddPageMarks()
+    {
+        if (_pdf == null || _path == null) return;
+        var dialog = new PdfPageMarksDialog(this, _pdf, _path, _current);
+        if (dialog.ShowDialog() != true) return;
+        var pdf = _pdf;
+        string stem = Path.GetFileNameWithoutExtension(_path);
+        int first = dialog.FirstPage, last = dialog.LastPage;
+        var marks = PdfPageMarks.Build(pdf.PageCount, pdf.PageSize, stem, first, last, dialog.Line, dialog.Mark);
+        if (marks.Count == 0) { Toast("Nothing to add (check the pages and the text)"); return; }
+        int pages = last - first + 1;
+        string what = dialog.Line != null && dialog.Mark != null ? "Text and watermark" : dialog.Mark != null ? "Watermark" : "Text";
+        PageOp(p => PdfMarkWriter.Apply(p, marks), new[] { Math.Clamp(_current, 0, pdf.PageCount - 1) },
+               $"{what} added to {(pages == 1 ? "page " + (first + 1) : pages == pdf.PageCount ? "all pages" : $"pages {first + 1} to {last + 1}")}. Undo takes it away until you save");
     }
 
     // ---------- OCR ----------

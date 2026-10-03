@@ -1,4 +1,5 @@
 using System;
+using System.Windows;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -11,6 +12,42 @@ public sealed partial class PdfFile
 {
     /// <summary>The pages as they were, so a turned / moved / deleted page can come back: positions and texts read so far are no longer true.</summary>
     private void ForgetPages() { _texts.Clear(); _runs.Clear(); }
+
+    /// <summary>The pieces of upright text of a page, the hidden words of a scan made searchable included (for saving as Word or Excel). Not remembered.</summary>
+    public List<PdfTextRun> GetAllTextRuns(int index)
+    {
+        lock (Pdfium.Sync) { ThrowIfClosed(); return PdfTextRuns.Read(_doc, index, includeHidden: true); }
+    }
+
+    /// <summary>Where the pictures of a page are (as shown, points), without the ones that cover most of the page (a scan or a background).</summary>
+    public List<Rect> GetPictureBoxes(int index, double maxShareOfPage = 0.55)
+    {
+        var boxes = new List<Rect>();
+        lock (Pdfium.Sync)
+        {
+            ThrowIfClosed();
+            Pdfium.FPDF_GetPageSizeByIndexF(_doc, index, out var size);
+            IntPtr page = Pdfium.FPDF_LoadPage(_doc, index);
+            if (page == IntPtr.Zero) return boxes;
+            try
+            {
+                var map = new PageMapping(page, size.Width, size.Height);
+                int count = Pdfium.FPDFPage_CountObjects(page);
+                for (int k = 0; k < count; k++)
+                {
+                    IntPtr obj = Pdfium.FPDFPage_GetObject(page, k);
+                    if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetType(obj) != Pdfium.ObjImage) continue;
+                    if (Pdfium.FPDFPageObj_GetBounds(obj, out float l, out float b, out float r, out float t) == 0) continue;
+                    var box = map.ToShown(l, b, r, t);
+                    if (box.Width < 12 || box.Height < 12) continue;
+                    if (box.Width * box.Height > size.Width * size.Height * maxShareOfPage) continue;
+                    boxes.Add(box);
+                }
+            }
+            finally { Pdfium.FPDF_ClosePage(page); }
+        }
+        return boxes;
+    }
 
     /// <summary>The text of the pages is read again the next time it is asked for (after something was written into the pages).</summary>
     public void ForgetText() { lock (Pdfium.Sync) ForgetPages(); }

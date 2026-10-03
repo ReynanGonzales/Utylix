@@ -203,21 +203,30 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
     these. Edits pending on the pages are applied into the document first (`PreparePageOp`; item positions would not fit turned / moved pages), unsaved
     Redact boxes block page changes (redaction is verified at Save). Tested: engine (moves, delete, turn, restore, saved rotation), real window
     (turn right, move up, delete, undo, redo, Save -> file order verified). Mouse drag reorder was NOT verified by my scripted mouse (the owner was
-    using the window at the same time) - check it. NOT done of the old #7 idea: insert pages from another PDF / pictures, extract, split, save as
-    PNG/JPG, a page grid window.
+    using the window at the same time) - check it. Insert / extract / split / save as pictures were added right after (next entry). NOT done: a page grid window.
   - Also done 2026-10-03 with #7: the colour dot in use has a white ring (`MarkColor`), menus show a tick on checked items (App.xaml
     ThemedMenuItem ignored IsChecked before - that is why the chosen stamp never showed), font picker "More fonts" (`PdfWindow.Fonts.cs`,
     `Engine/PdfFonts.cs`: installed .ttf families <= 8 MB, embedded whole with FPDFText_LoadFont when used; `TextItem.FontName`, `PdfTextMark.FontName`),
     rotatable stamp (`StampItem.AngleDeg`, round handle above the frame, `DragMode.Rotate`, `PdfTextMark.Angle/Pivot`; the frame and handles are drawn in a
     rotated Canvas; resize keeps the turned top-left corner fixed). Rotation is clockwise as seen (y down). Not rotatable yet: other items.
-  - **#8 OCR (scans -> searchable)**: Windows.Media.Ocr (built into Windows, offline; the TFM already targets 10.0.19041). Render each
-    page at ~300 dpi, OcrEngine.TryCreateFromUserProfileLanguages, then put each word as INVISIBLE text (text render mode 3; add
-    FPDFTextObj_SetTextRenderMode) at its box, sized to the box. Afterwards search/select/copy work. Offer it when a page has no text.
-  - **#9 Page numbers / watermark / header-footer**: one dialog: text with {n} / {total} / {date} / {file}, position (6 spots), font,
-    size, colour, start number, page range, skip first page; watermark = big diagonal text or a picture with opacity (fill alpha).
-    Written as PdfMarks, with a live preview on the page.
-  - **#10 PDF -> Word and -> Excel**: Word: group text runs (PdfTextRuns gives position, font, size) into lines and paragraphs, keep
-    bold/italic/size, pictures inline, page breaks; write .docx as plain OOXML in a zip (no big library). Excel: find tables from text
-    positions (columns by x clusters, rows by y) -> .xlsx (plain OOXML). Scanned pages need #8 first.
+  - **#7 rest, #8, #9, #10 DONE** 2026-10-03 (not released; all in the "..." button above the thumbnails = `PdfWindow.PageMore.cs` +
+    `PdfWindow.Tools.cs`, menu items added through the partial method `AddMoreTools`):
+    - Pages: `Engine/PdfPageTools.cs` (Extract via FPDF_ImportPagesByIndex into a new doc, InsertPdf / InsertPicture then `PdfFile.Reload()` = save + `Restore`
+      so the source files can be closed, ParseRanges / Every / SavePictures), `PdfPagesDialog.cs` (split + save-as-pictures dialogs). `CommitItems()` writes
+      pending items into the document before anything that copies pages.
+    - **#8 OCR**: `Engine/PdfOcr.cs` (Windows.Media.Ocr, page drawn at 300 dpi, max 5000 px; `PdfTextMark.Invisible` = text render mode 3 + `Stretch` to fit
+      each word's box). Hidden text is skipped by `PdfTextRuns.Read` unless `includeHidden` (export wants it). Tested: synthetic scan, 15 words in 285 ms,
+      found by Search after save + reopen. Clear `PdfFile.ForgetText()` after writing marks (PdfMarkWriter.Apply does) or the text cache is stale.
+    - **#9 marks**: `Engine/PdfPageMarks.cs` (Build = the same marks go to the preview and into the PDF), `PdfPageMarksDialog.cs` (six spots, {n} {total} {date}
+      {file}, watermark text / picture, range, live preview). Picture opacity = alpha baked into the pixels (PDFium image objects have no alpha setter).
+    - **#10 export**: `Engine/PdfExport.cs` writes .docx / .xlsx by hand (zip of XML, no library): lines from baselines, paragraphs (break on big gap, early-ending
+      line (< 70 % of the 75th-percentile right edge), indent, size change, table rows), tab stops (right tabs for numbers), centred detection against the PAGE
+      centre (then both margins are made equal), one section per page, pictures cropped from a 150 dpi render of the page (pictures over 55 % of the page are
+      skipped = scans / backgrounds); Excel: cells split at gaps > 0.9 em, columns = x ranges covered by cells of multi-cell lines. `PdfExportDialog.cs`.
+      VALIDATED by opening the files with the real Word / Excel through COM (`scratchpad/readoffice.ps1`): Word is installed on the owner's PC, use it.
+    - Test technique: UIA cannot list modal dialogs of the app (they are missing from the process's top-level windows), but they exist: capture the screen.
+      A WPF ContextMenu's items are found from `RootElement.FindFirst(Descendants, AutomationId)`, not from the app window.
+    - NOT done / ideas: Word tables (real `w:tbl`), columns of text, rotated text; headers / footers as real Word headers; OCR of rotated pages or other
+      languages than the user's profile; insert pages by drag from Explorer.
   - Later maybe: paragraph re-flow editing, making new form fields, certificate (digital ID) signatures, batch processing of folders.
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.
