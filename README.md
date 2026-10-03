@@ -371,11 +371,6 @@ appears, one per archive, and if Utylix wasn't running it quits again when you c
 - The installer (when there is one) can make Utylix the default program for these types; until then choose *Open with →
   Utylix → Always* once for each type.
 
-## Coming from "IDM Clone"
-
-The first start of Utylix moves your old settings, history and tools from `%APPDATA%\IDMClone` to
-`%APPDATA%\Utylix` and updates "Start with Windows", the browser link and the right-click menu to the new file.
-
 ## Build from source
 
 `build.bat` (needs the .NET 10 SDK) publishes a fresh single-file, self-contained `Utylix.exe` into this folder
