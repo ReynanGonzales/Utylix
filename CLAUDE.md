@@ -112,7 +112,12 @@ Legal test torrents: Sintel / Big Buck Bunny / Tears of Steel (WebTorrent), Debi
 
 ## Open ideas / known gaps
 - Snip window text is hard to read when Windows is not in dark mode (reported, not fixed).
-- Music player: no equalizer, ReplayGain, gapless guarantee, or folder library; video player has no madVR-style enhancement.
+- Music player: DONE 2026-10-03 (1.5.0): `MusicSound.cs` = "Sound..." window (10-band equalizer via LibVLCSharp `Equalizer` + presets + preamp, speed `SetRate`,
+  "even out volume" = per-media `:audio-filter=normvol`, sleep timer), "Find a song..." box, the playlist (`Saved.Queue`) is restored only when the player is opened
+  EMPTY (tray menu). All applied on the player thread (`ApplySound` -> `Post`). Tested in the real window incl. the installed copy (preset -> sliders, custom
+  on slider move, 2x speed = clock 2x, sleep text, find, music.json saved on a normal close). NOT done: gapless playback, real ReplayGain tags, lyrics.
+  Video player has no madVR-style enhancement. Test trick: `--play a.wav b.wav --tools %APPDATA%\Utylix\tools` (a test copy needs the shared VLC engine; plain
+  file arguments only route when NO other flag is given).
 - Installer page to import a settings backup; optional PawnIO driver install for fan sensors; a QR maker; an extension reload notice.
 - Animated GIFs show only the first frame in the photo viewer.
 
