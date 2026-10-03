@@ -20,7 +20,7 @@ public sealed partial class PdfWindow
     private const string DragFormat = "utylix-pages";
     private readonly List<byte[]> _pageUndo = new(), _pageRedo = new();
     private StackPanel _pageTools = null!;
-    private Button _turnLeft = null!, _turnRight = null!, _moveUp = null!, _moveDown = null!, _deletePages = null!;
+    private Button _turnLeft = null!, _turnRight = null!, _moveUp = null!, _moveDown = null!, _deletePages = null!, _morePages = null!;
     private static readonly SolidColorBrush DropLine = new(Color.FromRgb(0x5B, 0x8D, 0xEF));
 
     // ---------- the buttons above the small pages ----------
@@ -43,8 +43,9 @@ public sealed partial class PdfWindow
         _moveUp = Make("", "Segoe MDL2 Assets", 12, "Move the page(s) up (you can also drag them)", "PdfPagesUp", () => MoveSelectedPages(-1));
         _moveDown = Make("", "Segoe MDL2 Assets", 12, "Move the page(s) down (you can also drag them)", "PdfPagesDown", () => MoveSelectedPages(1));
         _deletePages = Make("", "Segoe MDL2 Assets", 13, "Delete the page(s) (Delete key). Undo brings them back until you save.", "PdfPagesDelete", DeleteSelectedPages);
+        _morePages = Make("", "Segoe MDL2 Assets", 14, "More: add pages from a file, take pages out, split, save as pictures, make searchable (OCR)", "PdfPagesMore", ShowPagesMenu);
         _pageTools = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 4, 4, 4) };
-        foreach (var b in new[] { _turnLeft, _turnRight, _moveUp, _moveDown, _deletePages }) _pageTools.Children.Add(b);
+        foreach (var b in new[] { _turnLeft, _turnRight, _moveUp, _moveDown, _deletePages, _morePages }) _pageTools.Children.Add(b);
         return _pageTools;
     }
 
@@ -76,6 +77,9 @@ public sealed partial class PdfWindow
         Item("Move to the end", () => MoveSelectedPagesTo(int.MaxValue));
         menu.Items.Add(new Separator());
         Item("Delete", DeleteSelectedPages);
+        menu.Items.Add(new Separator());
+        Item("Add pages from a file…", InsertPagesFromFiles);
+        Item("Take the page(s) out as a new PDF…", ExtractSelectedPages);
         _strip.ContextMenu = Themed(menu);
     }
 
@@ -96,6 +100,7 @@ public sealed partial class PdfWindow
         _moveUp.IsEnabled = has && sel.Count > 0 && sel[0] > 0;
         _moveDown.IsEnabled = has && sel.Count > 0 && sel[^1] < _thumbs.Count - 1;
         _deletePages.IsEnabled = has && sel.Count > 0 && sel.Count < _thumbs.Count;
+        _morePages.IsEnabled = has;
     }
 
     // ---------- doing it ----------
@@ -135,7 +140,10 @@ public sealed partial class PdfWindow
     }
 
     /// <summary>Makes a change to the pages of the document: edits so far go into the pages, the old state is kept for Undo, the pages are drawn again.</summary>
-    private void PageOp(Action<PdfFile> change, IReadOnlyList<int> select, string message)
+    private void PageOp(Action<PdfFile> change, IReadOnlyList<int> select, string message) => PageOp(change, () => select, () => message);
+
+    /// <summary>As above, but the pages to choose afterwards and the message are worked out after the change (inserting pages: how many came in).</summary>
+    private void PageOp(Action<PdfFile> change, Func<IReadOnlyList<int>> select, Func<string> message)
     {
         if (!PreparePageOp()) return;
         var pdf = _pdf!;
@@ -145,7 +153,7 @@ public sealed partial class PdfWindow
             before = pdf.SaveToBytes();
             change(pdf);
         }
-        catch (Exception e) when (e is IOException or InvalidOperationException or OutOfMemoryException or ObjectDisposedException)
+        catch (Exception e) when (e is IOException or InvalidOperationException or OutOfMemoryException or ObjectDisposedException or PdfProtectedException)
         {
             if (before != null) { try { pdf.Restore(before); } catch (Exception) { } }
             RefreshAfterPageChange(Array.Empty<int>());
@@ -156,8 +164,8 @@ public sealed partial class PdfWindow
         TrimPageUndo();
         _dirty = true;
         UpdateTitle();
-        RefreshAfterPageChange(select);
-        Toast(message);
+        RefreshAfterPageChange(select());
+        Toast(message());
     }
 
     /// <summary>Makes ready for a change of the pages: editing is on, and what was added to the pages is written into them. False = not now.</summary>
@@ -166,6 +174,14 @@ public sealed partial class PdfWindow
         if (_pdf == null || _path == null) return false;
         CloseTextBox(commit: true);
         if (!_editing) { EnterEditing(); if (!_editing) return false; }
+        return CommitItems();
+    }
+
+    /// <summary>What was added to the pages (text, shapes ...) is written into them, so the pages can be copied, moved or split with it. False = not now.</summary>
+    private bool CommitItems()
+    {
+        if (_pdf == null) return false;
+        CloseTextBox(commit: true);
         if (_items.Any(i => i.Marks().OfType<PdfRedactMark>().Any()))
         {
             UMessage.Show(this, "There are black boxes (Redact) that are not saved yet. Save them first (Ctrl+S): redacting is checked when it is saved, and it has to happen before the pages are changed.", "Pages");
@@ -180,6 +196,9 @@ public sealed partial class PdfWindow
                 return false;
             }
             _items.Clear(); _undo.Clear(); _redo.Clear(); _selected = null;
+            _dirty = true; UpdateTitle();
+            foreach (var p in _pages) p.Overlay.Children.Clear();
+            RedrawPages();
         }
         return true;
     }

@@ -485,7 +485,7 @@ public sealed partial class PdfWindow
         if (_hits.Count == 0)
         {
             _searchCount.Text = letters == 0 ? "No text in this PDF" : "Not found";
-            if (letters == 0) Toast("This PDF has no text to search: it's probably scanned pictures");
+            if (letters == 0) Toast("This PDF has no text to search: it's probably scanned pictures. Use the … button above the small pages > Make scanned pages searchable");
             return;
         }
         // the first one from the current page on

@@ -12,6 +12,9 @@ public sealed partial class PdfFile
     /// <summary>The pages as they were, so a turned / moved / deleted page can come back: positions and texts read so far are no longer true.</summary>
     private void ForgetPages() { _texts.Clear(); _runs.Clear(); }
 
+    /// <summary>The text of the pages is read again the next time it is asked for (after something was written into the pages).</summary>
+    public void ForgetText() { lock (Pdfium.Sync) ForgetPages(); }
+
     /// <summary>Turns pages by quarter turns (1 = a quarter clockwise, -1 = counter-clockwise), written into the PDF's /Rotate.</summary>
     public void TurnPages(IEnumerable<int> pages, int quarterTurns)
     {
@@ -58,6 +61,9 @@ public sealed partial class PdfFile
             finally { PageCount = Pdfium.FPDF_GetPageCount(_doc); InitForm(); ForgetPages(); }
         }
     }
+
+    /// <summary>Writes the document out and reads it in again: pages imported from other documents become its own (those can be closed).</summary>
+    public void Reload() => Restore(SaveToBytes());
 
     /// <summary>Goes back to a state taken with <see cref="SaveToBytes"/> (the same file, same password).</summary>
     public void Restore(byte[] bytes)

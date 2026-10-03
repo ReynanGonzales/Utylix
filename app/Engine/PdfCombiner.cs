@@ -98,12 +98,15 @@ public static class PdfCombiner
         }
     }
 
-    private static void AddPicturePage(IntPtr doc, PdfPicture picture, PdfPaper paper)
+    /// <param name="index">Where the page goes (-1 = at the end).</param>
+    /// <param name="sheet">A sheet of this size (points) with a small margin, instead of the paper choice.</param>
+    internal static void AddPicturePage(IntPtr doc, PdfPicture picture, PdfPaper paper, int index = -1, (double Width, double Height)? sheet = null)
     {
         double pw = picture.Pixels.PixelWidth, ph = picture.Pixels.PixelHeight;
         bool wide = pw > ph;
         double width, height, margin;
-        if (PaperSize(paper) is { } size)
+        if (sheet is { } fixedSheet) { (width, height, margin) = (fixedSheet.Width, fixedSheet.Height, 18); }
+        else if (PaperSize(paper) is { } size)
         {
             // the paper is turned like the picture (a wide photo goes on a landscape page)
             (width, height) = wide ? (size.Height, size.Width) : (size.Width, size.Height);
@@ -119,7 +122,7 @@ public static class PdfCombiner
 
         lock (Pdfium.Sync)
         {
-            IntPtr page = Pdfium.FPDFPage_New(doc, Pdfium.FPDF_GetPageCount(doc), width, height);
+            IntPtr page = Pdfium.FPDFPage_New(doc, index < 0 ? Pdfium.FPDF_GetPageCount(doc) : index, width, height);
             if (page == IntPtr.Zero) throw new IOException("Couldn't add a page.");
             try
             {

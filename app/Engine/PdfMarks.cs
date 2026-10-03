@@ -15,7 +15,7 @@ public enum PdfFontKind { Sans, Serif, Mono }
 public abstract record PdfMark(int Page);
 
 /// <summary>Lines of text. Baseline of line i = Top + i * LineSpacing * Size + Baseline * Size (the font's own numbers, as WPF shows them).</summary>
-public sealed record PdfTextMark(int Page, Point TopLeft, string Text, PdfFontKind Font, bool Bold, double Size, Color Color, double LineSpacing, double Baseline, string? FontName = null, double Angle = 0, Point? Pivot = null) : PdfMark(Page);
+public sealed record PdfTextMark(int Page, Point TopLeft, string Text, PdfFontKind Font, bool Bold, double Size, Color Color, double LineSpacing, double Baseline, string? FontName = null, double Angle = 0, Point? Pivot = null, bool Invisible = false, double Stretch = 1) : PdfMark(Page);
 
 /// <summary>One figure of a path: a start, then lines (Curve = false, only To) or curves (C1, C2, To).</summary>
 public sealed record PdfFigure(Point Start, IReadOnlyList<PdfSegment> Segments, bool Closed);
@@ -82,6 +82,7 @@ public static class PdfMarkWriter
             }
             finally { foreach (var f in fonts.Values) Pdfium.FPDFFont_Close(f); }
         }
+        pdf.ForgetText();                                              // (what was read from the pages before is no longer true)
     }
 
     private static (uint R, uint G, uint B, uint A) Rgba(Color c) => (c.R, c.G, c.B, c.A);
@@ -107,8 +108,10 @@ public static class PdfMarkWriter
                 shown = new Point(pivot.X + dx * cos - dy * sin, pivot.Y + dx * sin + dy * cos);
             }
             var baseline = map.ToPage(shown);
-            // the text's own right / up directions, turned: shown right = (cos, sin), shown up = (sin, -cos)
-            Pdfium.FPDFPageObj_Transform(obj, map.Right.X * cos - map.Up.X * sin, map.Right.Y * cos - map.Up.Y * sin, map.Right.X * sin + map.Up.X * cos, map.Right.Y * sin + map.Up.Y * cos, baseline.X, baseline.Y);
+            // the text's own right / up directions, turned: shown right = (cos, sin), shown up = (sin, -cos); Stretch widens or narrows the letters
+            double k = t.Stretch;
+            Pdfium.FPDFPageObj_Transform(obj, (map.Right.X * cos - map.Up.X * sin) * k, (map.Right.Y * cos - map.Up.Y * sin) * k, map.Right.X * sin + map.Up.X * cos, map.Right.Y * sin + map.Up.Y * cos, baseline.X, baseline.Y);
+            if (t.Invisible) Pdfium.FPDFTextObj_SetTextRenderMode(obj, Pdfium.TextInvisible);        // (text that is there for searching and copying only)
             Pdfium.FPDFPage_InsertObject(page, obj);
         }
     }

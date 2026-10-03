@@ -163,7 +163,7 @@ public sealed partial class PdfWindow : Window
     private readonly List<PageView> _pages = new();
     private readonly ListBox _strip = new();
     private readonly ObservableCollection<PdfThumb> _thumbs = new();
-    private readonly Border _stripBox = new() { Width = 168 };
+    private readonly Border _stripBox = new() { Width = 190 };
     private readonly TextBox _pageBox = new() { Width = 46, TextAlignment = TextAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center, Height = 28, Padding = new Thickness(2, 0, 2, 0) };   // (the app's text box padding is too tall for the tool bar)
     private readonly TextBlock _pageCount = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 4, 0) };
     private readonly TextBlock _zoomText = new() { VerticalAlignment = VerticalAlignment.Center, Width = 48, TextAlignment = TextAlignment.Center };
