@@ -52,6 +52,9 @@ ones need Utylix.exe). Not a pre-release. `gh` is installed on the work PC (logg
   and ACEs of the folder and its exe. Per-user installs / test builds / single-file keep the old protected copy in Program Files. `IsReady` is false until the
   folder is locked and the task points at it, so the owner presses Start once (a plain-language question + one UAC prompt). Consequence: updating a locked
   folder needs administrator rights (`RunUpdate` already elevates when it can't write). `Remove()` deletes only the legacy copy, NEVER the program folder.
+  BUG FOUND BY THE OWNER (2026-10-03): `icacls <dir> /inheritance:r /grant:r ...(OI)(CI)... /T` left every FILE with no usable rights -> "Access is denied" on
+  Utylix.exe, the app would not start. Fixed: grant on the folder only, then `icacls "<dir>\*" /reset /T` so files inherit; and no lock at all when the folder is already
+  protected (Program Files). Repair of a broken folder: `toolsix-install-permissions.bat` as administrator, or run Utylix-Setup.exe (rewrites every file).
   NOT tested by me: the elevated lock + task registration itself (needs a human to accept UAC); `FolderIsProtected` was tested on Windows, Program Files, C:\Utylix.
 
 ### The program folder has subfolders (2026-10-03, not released)

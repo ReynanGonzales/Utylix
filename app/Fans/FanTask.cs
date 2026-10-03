@@ -192,8 +192,12 @@ internal static class FanTask
             p.WaitForExit(120000);
             return p.ExitCode;
         }
+        // 1. administrators own everything in it; 2. the FOLDER gets its own rights (and stops inheriting the ones from above);
+        // 3. every file and subfolder is reset to what it inherits from the folder (granting the same rights file by file with /T leaves the files
+        //    themselves with no usable rights: Windows could not even start Utylix.exe afterwards)
         return Icacls($"\"{dir}\" /setowner *S-1-5-32-544 /T /C /Q") == 0
-            && Icacls($"\"{dir}\" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /T /C /Q") == 0
+            && Icacls($"\"{dir}\" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /C /Q") == 0
+            && Icacls($"\"{dir}\\*\" /reset /T /C /Q") == 0
             && FolderIsProtected(dir);
     }
 
@@ -216,7 +220,7 @@ internal static class FanTask
             if (DirectInstall)
             {
                 // the helper runs from the program's own folder, which is locked so only administrators can change it
-                if (!LockFolder(ProgramDir)) return 3;
+                if (!FolderIsProtected(ProgramDir) && !LockFolder(ProgramDir)) return 3;         // (Program Files already is: nothing to change there)
                 exe = ProgramExe;
                 RemoveLegacyCopy();
             }
