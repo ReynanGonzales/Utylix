@@ -41,6 +41,19 @@ Release = raise `<Version>` in `app/Utylix.csproj`, run build.bat, create a GitH
 version or the updater loops / never offers), attach **`Utylix-Setup.exe` AND `Utylix.exe`** (updaters of 1.5+ prefer the setup; older
 ones need Utylix.exe). Not a pre-release. `gh` is installed on the work PC (logged in), not on the owner's home PC.
 
+### Fan helper and extension live in the installed folder (2026-10-03, not released)
+- **Browser extension**: shipped as real files in `<program folder>\extension` (csproj `Content` item, so publish / setup / updater carry it); `ExtensionFiles.Dir` uses
+  that folder when `manifest.json` is there, else (single-file build) the old unpacked copy in `%APPDATA%\Utylix\extension`. If that old folder exists it is STILL
+  refreshed (a browser pointed at it would otherwise see "app newer than me" forever and reload in a loop). The help window tells people to re-add the new folder.
+- **Fan helper**: `FanTask.DirectInstall` = this is the installed copy of a machine-wide install (registered dir == program dir, not under the user profile). Then
+  the one-time elevated step (`--fan-task-install`) LOCKS the program folder (`icacls`: owner Administrators, Administrators + SYSTEM full, Users read/run, no
+  inherited rights - a folder made on C:\ lets every user modify it, and an exe that runs as administrator must not be replaceable by a normal user) and the
+  scheduled task runs `<program folder>\Utylix.exe --fan-helper`; the old copy in `C:\Program Files\Utylix\FanHelper` is deleted. `FolderIsProtected` checks owner
+  and ACEs of the folder and its exe. Per-user installs / test builds / single-file keep the old protected copy in Program Files. `IsReady` is false until the
+  folder is locked and the task points at it, so the owner presses Start once (a plain-language question + one UAC prompt). Consequence: updating a locked
+  folder needs administrator rights (`RunUpdate` already elevates when it can't write). `Remove()` deletes only the legacy copy, NEVER the program folder.
+  NOT tested by me: the elevated lock + task registration itself (needs a human to accept UAC); `FolderIsProtected` was tested on Windows, Program Files, C:\Utylix.
+
 ### The program folder has subfolders (2026-10-03, not released)
 `app\publish` (and the installed folder) is `Utylix.exe` + `Utylix.dll` + json + the native libraries + a few core libraries in the main folder (37 files),
 and `dotnet\` (the .NET runtime's managed libraries), `wpf\` (WPF / Windows Forms), `libs\` (NuGet libraries: PdfSharp, MonoTorrent, NAudio, WinRT ...).

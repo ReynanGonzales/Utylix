@@ -153,7 +153,12 @@ internal static class SelfTest
         Check("NAudio", () => _ = new NAudio.Wave.WaveFormat(44100, 16, 2));
         Check("LibVLCSharp", () => _ = typeof(LibVLCSharp.Shared.LibVLC).Assembly.GetName().Version);
         Check("Hardware monitor", () => _ = typeof(LibreHardwareMonitor.Hardware.Computer).Assembly.GetName().Version);
-        string report = $"selftest: {loaded} libraries loaded, {native} native, {problems.Count} problems" + Environment.NewLine + string.Join(Environment.NewLine, problems);
+        // (tests only) UTYLIX_ACLTEST=folder;folder: is each one a folder only administrators can change?
+        string? acl = Environment.GetEnvironmentVariable("UTYLIX_ACLTEST");
+        var extra = new List<string>();
+        if (acl != null) foreach (string folder in acl.Split(';', StringSplitOptions.RemoveEmptyEntries)) extra.Add("acl: " + folder + " -> protected: " + FanTask.FolderIsProtected(folder));
+        extra.Add("fan helper: direct install = " + FanTask.DirectInstall + ", folder will be locked = " + FanTask.WillLockFolder);
+        string report = string.Join(Environment.NewLine, extra) + Environment.NewLine + $"selftest: {loaded} libraries loaded, {native} native, {problems.Count} problems" + Environment.NewLine + string.Join(Environment.NewLine, problems);
         try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "utylix-selftest.txt"), report); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         return problems.Count == 0 ? 0 : 1;
     }

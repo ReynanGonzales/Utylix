@@ -88,6 +88,12 @@ public partial class FansPage : UserControl
             bool ready = await FanTask.IsReadyAsync();
             if (!ready && interactive)
             {
+                if (FanTask.WillLockFolder)
+                {
+                    var ok = UMessage.Ask(Window.GetWindow(this), $"To run fan control safely, Utylix's own folder ({System.IO.Path.GetDirectoryName(Environment.ProcessPath)}) will be locked: afterwards only administrators can change what is in it, like the Program Files folder. Other users can still run Utylix.\n\nThat is what lets the fan helper run as administrator from here without a second copy. Updates of Utylix will ask for Windows' permission.\n\nWindows will ask once now.",
+                        "Fan control", MessageBoxImage.Question, MessageBoxResult.Yes, MessageBoxResult.Cancel, ("Lock the folder and continue", MessageBoxResult.Yes), ("Cancel", MessageBoxResult.Cancel));
+                    if (ok != MessageBoxResult.Yes) { SetOff("Fan control was not started."); return; }
+                }
                 StatusText.Text = "Waiting for Windows' permission (needed once)…";
                 if (!await FanTask.InstallWithPromptAsync())
                 {

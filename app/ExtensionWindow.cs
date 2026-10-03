@@ -18,7 +18,22 @@ namespace IdmClone;
 internal static class ExtensionFiles
 {
     private const string Prefix = "ext/";
-    public static string Dir => Path.Combine(App.DataDir, "extension");
+
+    /// <summary>The extension as real files next to the program (the installed copy, a program folder, a test build); null for a single-file build.</summary>
+    private static string? ProgramCopy
+    {
+        get
+        {
+            string dir = Path.Combine(AppContext.BaseDirectory, "extension");
+            return File.Exists(Path.Combine(dir, "manifest.json")) ? dir : null;
+        }
+    }
+
+    /// <summary>Where the extension used to be unpacked: the settings folder. Still kept current when it exists, so a browser that was pointed at it is not left behind.</summary>
+    private static string LegacyDir => Path.Combine(App.DataDir, "extension");
+
+    /// <summary>The folder the browser should load: the one in the program's own folder, else the one in the settings folder.</summary>
+    public static string Dir => ProgramCopy ?? LegacyDir;
 
     /// <summary>The version of the extension inside this program (from its manifest), so the extension can tell when it is out of date.</summary>
     public static string EmbeddedVersion { get; } = ReadEmbeddedVersion();
@@ -35,8 +50,21 @@ internal static class ExtensionFiles
         catch (Exception e) when (e is System.Text.Json.JsonException or KeyNotFoundException or IOException) { return ""; }
     }
 
-    /// <summary>Unpacks (or refreshes) the extension folder. Returns its path.</summary>
+    /// <summary>Makes sure the extension folder is there and current. Returns its path.</summary>
     public static string Ensure()
+    {
+        if (ProgramCopy is { } own)
+        {
+            // the files came with the program (and are replaced by its updates); only an older, already-used copy in the settings folder is refreshed
+            if (Directory.Exists(LegacyDir)) Unpack(LegacyDir);
+            return own;
+        }
+        Unpack(LegacyDir);
+        return LegacyDir;
+    }
+
+    /// <summary>Writes the embedded extension files into a folder (only the ones that differ).</summary>
+    private static void Unpack(string Dir)
     {
         var asm = Assembly.GetExecutingAssembly();
         foreach (var name in asm.GetManifestResourceNames().Where(n => n.StartsWith(Prefix, StringComparison.Ordinal)))
@@ -57,7 +85,6 @@ internal static class ExtensionFiles
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* try again next start */ }
         }
-        return Dir;
     }
 
     /// <summary>Installed browsers that can load the extension: name and the program to start.</summary>
@@ -108,6 +135,12 @@ internal static class ExtensionFiles
         var path = new TextBox { Text = folder, IsReadOnly = true, Style = (Style)R("Field") };
         AutomationProperties("ExtensionPath", path);
         panel.Children.Add(path);
+        if (!string.Equals(Path.GetFullPath(folder), Path.GetFullPath(LegacyDir), StringComparison.OrdinalIgnoreCase) && Directory.Exists(LegacyDir))
+            panel.Children.Add(new TextBlock
+            {
+                Text = "The extension now lives in Utylix's own folder (above). If you added it before from the old place (" + LegacyDir + "), it keeps working, but you can remove it in the browser and add this folder instead.",
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), FontSize = 12, Foreground = (Brush)R("MutedBrush"),
+            });
         var row = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
         var open = new Button { Content = "Open the folder", Style = (Style)R("DialogButton"), Margin = new Thickness(0, 0, 8, 0) };
         open.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { folder }, UseShellExecute = false }); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { } };
