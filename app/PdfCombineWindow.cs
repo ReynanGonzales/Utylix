@@ -35,6 +35,7 @@ public sealed class PdfCombineWindow : Window
     private readonly StackPanel _buttons = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
     private CancellationTokenSource? _cts;
     private string? _saved;
+    private readonly Dictionary<string, string> _cleanedFrom = new(StringComparer.OrdinalIgnoreCase);       // a cleaned-up picture (temp file) -> the photo it was made from
 
     /// <summary>Opens the window with these files (PDFs and pictures, in this order).</summary>
     public static void Show(IEnumerable<string> files)
@@ -110,7 +111,11 @@ public sealed class PdfCombineWindow : Window
         Drop += (_, e) => { if (e.Data.GetData(DataFormats.FileDrop) is string[] dropped) AddFiles(dropped); };
         DragOver += (_, e) => { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
         Closing += (_, _) => _cts?.Cancel();
-        Closed += (_, _) => { Open_.Remove(this); AnyClosed?.Invoke(); };
+        Closed += (_, _) =>
+        {
+            Open_.Remove(this); AnyClosed?.Invoke();
+            foreach (string temp in _cleanedFrom.Keys) { try { File.Delete(temp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
+        };
         Open_.Add(this);
 
         _files.AddRange(start);
@@ -182,8 +187,10 @@ public sealed class PdfCombineWindow : Window
         var number = new TextBlock { Text = (index + 1).ToString(), Opacity = 0.55, Width = 26, VerticalAlignment = VerticalAlignment.Center };
         grid.Children.Add(number);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(new TextBlock { Text = Path.GetFileName(file), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = file });
-        text.Children.Add(new TextBlock { Text = (pdf ? "PDF" : "Picture") + "   ·   " + PdfReduceWindow.Bytes(size) + "   ·   " + Path.GetDirectoryName(file), Opacity = 0.6, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
+        bool cleaned = _cleanedFrom.TryGetValue(file, out string? photo);
+        string shown = photo ?? file;                                               // (a cleaned-up picture is listed under the photo's own name)
+        text.Children.Add(new TextBlock { Text = Path.GetFileName(shown) + (cleaned ? "   (cleaned up)" : ""), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = shown });
+        text.Children.Add(new TextBlock { Text = (pdf ? "PDF" : cleaned ? "Straightened page" : "Picture") + "   ·   " + PdfReduceWindow.Bytes(size) + "   ·   " + Path.GetDirectoryName(shown), Opacity = 0.6, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
 
@@ -200,6 +207,21 @@ public sealed class PdfCombineWindow : Window
             b.Click += (_, _) => { if (_cts != null) return; act(); ResetSaved(); Refresh(); };
             tools.Children.Add(b);
             return b;
+        }
+        if (!pdf)
+        {
+            var clean = new Button { Content = cleaned ? "Clean up again…" : "Clean up…", Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(4, 0, 0, 0), ToolTip = "Straighten a photo of a page and take the shadows out" };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(clean, "CombineClean" + index);
+            clean.Click += (_, _) =>
+            {
+                if (_cts != null) return;
+                string? result = PhotoCleanWindow.Edit(this, shown);
+                if (result == null) return;
+                if (cleaned) { try { File.Delete(file); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } _cleanedFrom.Remove(file); }
+                _files[index] = result; _cleanedFrom[result] = shown;
+                ResetSaved(); Refresh();
+            };
+            tools.Children.Add(clean);
         }
         Tool("", "Move up", "CombineUp", index > 0, () => (_files[index - 1], _files[index]) = (_files[index], _files[index - 1]));
         Tool("", "Move down", "CombineDown", index < _files.Count - 1, () => (_files[index + 1], _files[index]) = (_files[index], _files[index + 1]));

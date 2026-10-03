@@ -62,7 +62,7 @@ ones need Utylix.exe). Not a pre-release. `gh` is installed on the work PC (logg
   Edits are flattened into the page (FPDFPage_GenerateContent); comments (highlight/underline/strike/notes) are real annotations.
   Popups (ToolTip, ContextMenu, ComboBox lists) inherit the dark window's white text: give them themed styles (App.xaml ThemedMenu...),
   and note the app-wide implicit TextBlock style beats inherited Foreground inside templates (set Foreground on the TextBlock itself).
-  Still planned: see "Plan (kept current)" at the end (#3 phone-photo cleanup is next).
+  Still planned: see "Plan (kept current)" at the end (#4 resize pages is next).
 - **Snip**: `App.HideForCapture` hides Utylix windows but keeps the video player and photo viewer visible.
 - **Taskbar**: Player/Archives/Music/Photos use their own AppUserModelID (`WindowTheme.OwnTaskbarButton`).
 - A second copy of the exe started with a tool flag (`--play`, `--view`, `--torrent`, `--snip`, ...) forwards to the running copy through `/api/tool`.
@@ -152,10 +152,18 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
 - **Next, in this order** (ideas for how, not decisions - check with the owner when a choice changes what they see). For every step:
   build, test on copies (pdftest harness + an isolated test copy `--no-register --port 69xx --data <dir>`), check text is readable in
   light AND dark (popups, lists, selected items), update the installed copy, commit + push, and update this list.
-  - **#3 Phone-photo cleanup** (photos of documents): a "Clean up" button on picture rows of PdfCombineWindow (and in the editor's
-    Picture) opens a small window: find the paper's 4 corners automatically (edge detection in plain C# - no OpenCV, the app must stay
-    light), let the person drag the corners, straighten with a perspective warp, then "Document" filters: Original / Grey / Black &
-    white (adaptive threshold on local means, so shadows don't go black) / brighter. Result feeds PdfCombiner as pixels or a JPEG.
+  - **#3 DONE** 2026-10-03 (not released): phone-photo cleanup. `Engine/DocScan.cs` (plain C#, no OpenCV): `FindCorners` (downscale to 520 px,
+    blur, Otsu, biggest bright 4-connected patch, its extreme x+y / x-y points = corners, shrunk 0.8 % so no table sliver gets in; falls back
+    to a frame 6 % inside the picture), `Warp` (projective square-to-quad map, bilinear, parallel rows, long side <= 3000 px), `Apply`
+    (`DocFilter.Colour/Grey/BlackWhite/Original`: divides out the local paper brightness - box mean raised to the paper pixels - so
+    shadows go; B&W = ratio < 0.80 and lum < 190). `PhotoCleanWindow.cs`: photo with 4 draggable dots + live preview (180 ms debounce, 1100 px),
+    filter chips, "Find the page again", "Use the whole picture"; result = JPEG (colour/grey) or Gray8 PNG (B&W) in the UtylixScan folder of %TEMP%.
+    `PdfCombineWindow`: picture rows get "Clean up..." ("Clean up again..." once done; the row shows "(cleaned up)" under the photo's own name,
+    `_cleanedFrom` maps temp file -> photo; temp files are deleted when the window closes). Tested with synthetic photos (perspective, ~25 degree
+    rotation, close-up, shadow band, noise): corners within 4-19 px of 1200, find 10-20 ms, warp 5-16 ms; readable in dark AND light. KNOWN
+    LIMIT: a LIGHT table (white desk) merges with the paper, so auto-detect is wrong there - the person drags the dots (synthetic bright
+    table: error 250 px). A hard-edged shadow band leaves a faint stripe in Colour. NOT done: the same button in the editor's Add picture
+    (only the Combine / Convert-to-PDF window has it); real phone photos not tried by me (no camera files on this PC).
   - **#4 Resize pages** (A4 / Letter / Long 8.5x13 / custom): an editor command "Page size…". PDFium `FPDF_ImportNPagesToOne(src,
     w, h, 1, 1)` makes a new document with every page scaled to fit the new paper (add the P/Invoke); keep links/forms in mind (that
     call flattens pages into XObjects - warn or keep the old size for form PDFs).
