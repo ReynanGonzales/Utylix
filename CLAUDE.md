@@ -164,12 +164,22 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
     LIMIT: a LIGHT table (white desk) merges with the paper, so auto-detect is wrong there - the person drags the dots (synthetic bright
     table: error 250 px). A hard-edged shadow band leaves a faint stripe in Colour. NOT done: the same button in the editor's Add picture
     (only the Combine / Convert-to-PDF window has it); real phone photos not tried by me (no camera files on this PC).
-  - **#4 Resize pages** (A4 / Letter / Long 8.5x13 / custom): an editor command "Page size…". PDFium `FPDF_ImportNPagesToOne(src,
-    w, h, 1, 1)` makes a new document with every page scaled to fit the new paper (add the P/Invoke); keep links/forms in mind (that
-    call flattens pages into XObjects - warn or keep the old size for form PDFs).
-  - **#5 Stamps + date**: editor tools "Stamp" (Approved, Received, Paid, Rejected, Confidential, Draft, Copy, custom text; coloured
-    rounded box + text + optional date/name line; remembered recent stamps) and "Date" (today's date text, choice of format). Draw as
-    PdfMarks (path + text), flattened like the other edits.
+  - **#4 DONE** 2026-10-03 (not released): page size. Editor button "Page size" (next to Reduce file size; needs saved changes first)
+    opens `PdfResizeWindow` (paper chips A4 / Letter / Long 8.5x13 / Legal / A5 / A3 / Tabloid / Other size in mm or inches, "keep each page's
+    direction" tick, warning about lost links / form fields / comments, then Save as... "name (A4).pdf" + Open it). Engine `Engine/PdfResizer.cs`.
+    LESSON: PDFium's `FPDF_ImportNPagesToOne` with 1 x 1 just returns the pages unchanged (it ignores the output size), so pages are placed one
+    by one: `FPDF_NewXObjectFromPage` -> `FPDF_NewFormObjectFromXObject` -> `FPDFPageObj_Transform(scale, centre)` -> `FPDFPage_InsertObject` on a
+    `FPDFPage_New` sheet. The copy already has the page's box origin, CropBox and /Rotate built in, so the matrix is only scale + shift
+    (tested: offset MediaBox, CropBox, rotate 90 / 180 / 270, mixed tall + wide pages). Protected PDFs are refused (no copy that loses protection).
+  - **#5 DONE** 2026-10-03 (not released): stamps + date. `PdfWindow.Stamps.cs`: `StampItem` (rounded double border + bold word + optional date
+    line, scales with its box, `Marks()` = two PdfPathMarks + PdfTextMarks), 9 presets with colours (Approved/Paid/Final green, Received/Copy blue,
+    Rejected/Confidential/Urgent red, Draft orange), "Your own words..." (kept in `pdf-stamps.json`, 6 recent), "Add today's date under the stamp";
+    the Stamp tool opens its menu when selected and when clicked again / right-clicked; click on a page places it centred, then it can be moved /
+    resized / recoloured with the dots. "Date" tool = a normal TextItem with today's date in a chosen format (6 formats, current culture), uses the
+    Text font / size / colour. Tested: placed in the real window, saved, saved PDF renders the same. Choosing a stamp never changes a stamp that is
+    already placed. Also fixed: in Windows' LIGHT theme the editor's dark bars were unreadable (the app's implicit TextBlock style made button
+    text / icons dark): `BarButtonTemplate` + `BarLabel` (Edit, Save as, Done, Page size) and white glyphs in `Tool()`. Not done: rotating a stamp,
+    a name line.
   - **#6 Real redaction**: mark areas (and "redact all matches" of a search), then Apply = remove what is under them for real: text
     objects/characters inside (PDFium can't delete single characters - remove the object and re-add the characters outside the box as
     new text objects), picture pixels inside (GetBitmap -> paint black -> SetBitmap), paths inside, annotations, plus metadata.

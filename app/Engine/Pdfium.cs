@@ -107,6 +107,13 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern void FPDFPage_Delete(IntPtr doc, int index);
     [DllImport(Dll)] public static extern int FPDF_ImportPagesByIndex(IntPtr dest, IntPtr src, int[]? indices, uint length, int index);
     [DllImport(Dll)] public static extern int FPDF_MovePages(IntPtr doc, int[] indices, uint length, int destIndex);
+    // a page of another document as a picture-like object that can be placed, scaled and turned on a new page (PDFium's "N pages on one"
+    // does nothing for 1 x 1, so pages are put on their new sheets one by one)
+    [DllImport(Dll)] public static extern IntPtr FPDF_NewXObjectFromPage(IntPtr dest, IntPtr src, int pageIndex);
+    [DllImport(Dll)] public static extern void FPDF_CloseXObject(IntPtr xobject);
+    [DllImport(Dll)] public static extern IntPtr FPDF_NewFormObjectFromXObject(IntPtr xobject);
+    [DllImport(Dll)] public static extern int FPDFPage_GetMediaBox(IntPtr page, out float left, out float bottom, out float right, out float top);
+    [DllImport(Dll)] public static extern int FPDFPage_GetCropBox(IntPtr page, out float left, out float bottom, out float right, out float top);
 
     // ---------- the text on a page ----------
     [DllImport(Dll)] public static extern IntPtr FPDFText_LoadPage(IntPtr page);

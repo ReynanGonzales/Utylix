@@ -193,7 +193,7 @@ public sealed partial class PdfWindow : Window
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         Button Tool(string glyph, string tip, Action action, string id, bool needsDoc = true, string font = "Segoe MDL2 Assets")
         {
-            var b = new Button { Content = new TextBlock { Text = glyph, FontFamily = new FontFamily(font), FontSize = 16 }, ToolTip = tip, Template = ToolTemplate(), Margin = new Thickness(1, 0, 1, 0), Foreground = Brushes.White, Focusable = false };
+            var b = new Button { Content = new TextBlock { Text = glyph, FontFamily = new FontFamily(font), FontSize = 16, Foreground = Brushes.White }, ToolTip = tip, Template = ToolTemplate(), Margin = new Thickness(1, 0, 1, 0), Foreground = Brushes.White, Focusable = false };
             System.Windows.Automation.AutomationProperties.SetAutomationId(b, id);
             System.Windows.Automation.AutomationProperties.SetName(b, tip);
             b.Click += (_, _) => action();
@@ -226,10 +226,16 @@ public sealed partial class PdfWindow : Window
         System.Windows.Automation.AutomationProperties.SetAutomationId(reduce, "PdfReduce");
         reduce.Click += (_, _) => Reduce();
         _needsDocument.Add(reduce);
+        var pageSize = new Button { Content = BarLabel("Page size"), Template = BarButtonTemplate(),  Height = 30, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(8, 0, 0, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White, ToolTip = "Make a copy with every page on another size of paper (A4, Letter, Long ...)" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(pageSize, "PdfPageSize");
+        pageSize.Click += (_, _) => PageSize();
+        _needsDocument.Add(pageSize);
 
         var top = new DockPanel { Background = Bar, Height = 46, LastChildFill = true };
         DockPanel.SetDock(reduce, Dock.Right);
         top.Children.Add(reduce);
+        DockPanel.SetDock(pageSize, Dock.Right);
+        top.Children.Add(pageSize);
         var edit = EditButton();
         DockPanel.SetDock(edit, Dock.Right);
         top.Children.Add(edit);
@@ -603,6 +609,13 @@ public sealed partial class PdfWindow : Window
     {
         if (_path == null || _pdf == null) return;
         new PdfReduceWindow(_path, _pdf.Password) { Owner = this }.ShowDialog();
+    }
+
+    private void PageSize()
+    {
+        if (_path == null || _pdf == null) return;
+        if (_dirty) { UMessage.Show(this, "You have changes that are not saved yet. Save them first (Ctrl+S): the copy with the new page size is made from the saved file.", "Page size"); return; }
+        new PdfResizeWindow(_path, _pdf.Password) { Owner = this }.ShowDialog();
     }
 
     private void SaveCopy()

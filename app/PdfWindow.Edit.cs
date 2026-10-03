@@ -22,7 +22,7 @@ namespace IdmClone;
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut }
+    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut }
 
     // ---------- what can be on a page ----------
     private abstract class EditItem
@@ -285,7 +285,7 @@ public sealed partial class PdfWindow
     private EditItem? _selected;
     private readonly Dictionary<EditTool, Color> _toolColors = new()
     {
-        [EditTool.Text] = Colors.Black, [EditTool.Signature] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Check] = Colors.Black, [EditTool.Cross] = Colors.Black,
+        [EditTool.Text] = Colors.Black, [EditTool.Stamp] = Color.FromRgb(0x2E, 0x7D, 0x32), [EditTool.Date] = Colors.Black, [EditTool.Signature] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Check] = Colors.Black, [EditTool.Cross] = Colors.Black,
         [EditTool.Highlight] = Color.FromRgb(0xFF, 0xE0, 0x30), [EditTool.Underline] = Color.FromRgb(0x1E, 0x63, 0xE9), [EditTool.Strike] = Color.FromRgb(0xD3, 0x2F, 0x2F),
         [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White,
     };
@@ -329,7 +329,7 @@ public sealed partial class PdfWindow
     {
         _editButton = new Button
         {
-            Content = "Edit", Style = (Style)Application.Current.FindResource("DialogButton"), Height = 30, Padding = new Thickness(14, 0, 14, 0),
+            Content = BarLabel("Edit"), Template = BarButtonTemplate(),  Height = 30, Padding = new Thickness(14, 0, 14, 0),
             Margin = new Thickness(8, 0, 0, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White,
             ToolTip = "Add text, a signature, pictures, check marks, highlights, drawings and white-out",
         };
@@ -341,10 +341,10 @@ public sealed partial class PdfWindow
     private UIElement BuildEditBar()
     {
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        void ToolButton(EditTool tool, string glyph, string label, string tip, string font = "Segoe MDL2 Assets")
+        void ToolButton(EditTool tool, string glyph, string label, string tip, string font = "Segoe MDL2 Assets", UIElement? icon = null)
         {
             var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
-            content.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily(font), FontSize = 16, HorizontalAlignment = HorizontalAlignment.Center, Foreground = Brushes.White });
+            content.Children.Add(icon ?? new TextBlock { Text = glyph, FontFamily = new FontFamily(font), FontSize = 16, HorizontalAlignment = HorizontalAlignment.Center, Foreground = Brushes.White });
             content.Children.Add(new TextBlock { Text = label, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center, Foreground = Soft, Margin = new Thickness(0, 2, 0, 0) });
             var b = new RadioButton { Content = content, GroupName = "pdftool", ToolTip = tip, Template = ToolChoiceTemplate(), Focusable = false, Margin = new Thickness(1, 0, 1, 0) };
             System.Windows.Automation.AutomationProperties.SetAutomationId(b, "PdfTool" + tool);
@@ -360,6 +360,10 @@ public sealed partial class PdfWindow
         ToolButton(EditTool.Image, "", "Picture", "Add a picture");
         ToolButton(EditTool.Check, "", "Check", "Click to put a check mark");
         ToolButton(EditTool.Cross, "", "Cross", "Click to put a cross");
+        ToolButton(EditTool.Stamp, "", "Stamp", "Put a stamp (Approved, Paid, Confidential ...) on the page: click this button again to choose which",
+                   icon: new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.6), CornerRadius = new CornerRadius(4), Padding = new Thickness(3, 0, 3, 0), Height = 19, HorizontalAlignment = HorizontalAlignment.Center,
+                                      Child = new TextBlock { Text = "OK", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center } });
+        ToolButton(EditTool.Date, "", "Date", "Put today's date on the page: click this button again to choose how it looks");
         ToolButton(EditTool.Highlight, "", "Highlight", "Drag over text to highlight it (or drag a box anywhere)");
         ToolButton(EditTool.Underline, "U̲", "Underline", "Drag over text to underline it", "Segoe UI");
         ToolButton(EditTool.Strike, "S̶", "Strike", "Drag over text to strike it out", "Segoe UI");
@@ -367,6 +371,7 @@ public sealed partial class PdfWindow
         ToolButton(EditTool.Pen, "", "Pen", "Draw freely");
         ToolButton(EditTool.Shapes, "▭", "Shapes", "Box, circle, line or arrow: click again to choose (Shift: straight / square)", "Segoe UI Symbol");
         ShapesMenu();
+        StampMenus();
         ToolButton(EditTool.WhiteOut, "⬜", "White-out", "Drag to cover something with white (it hides it on the page; the words underneath are not erased from the file)", "Segoe UI Symbol");
 
         // colours, size, font
@@ -416,9 +421,9 @@ public sealed partial class PdfWindow
         _deleteButton = SmallBar("", "Delete what is selected (Delete)", DeleteSelected);
         _saveButton = new Button { Content = "Save", Style = (Style)Application.Current.FindResource("DialogPrimary"), Height = 30, MinWidth = 76, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(8, 0, 0, 0), Focusable = false, ToolTip = "Save the changes into this PDF (Ctrl+S)" };
         _saveButton.Click += async (_, _) => await SaveEditsAsync(saveAs: false);
-        var saveAs = new Button { Content = "Save as…", Style = (Style)Application.Current.FindResource("DialogButton"), Height = 30, MinWidth = 80, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(6, 0, 0, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White, ToolTip = "Save the changes as a new PDF (this one stays as it is)" };
+        var saveAs = new Button { Content = BarLabel("Save as…"), Template = BarButtonTemplate(),  Height = 30, MinWidth = 80, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(6, 0, 0, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White, ToolTip = "Save the changes as a new PDF (this one stays as it is)" };
         saveAs.Click += async (_, _) => await SaveEditsAsync(saveAs: true);
-        var done = new Button { Content = "Done", Style = (Style)Application.Current.FindResource("DialogButton"), Height = 30, MinWidth = 70, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(6, 0, 4, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White, ToolTip = "Stop editing" };
+        var done = new Button { Content = BarLabel("Done"), Template = BarButtonTemplate(),  Height = 30, MinWidth = 70, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(6, 0, 4, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White, ToolTip = "Stop editing" };
         done.Click += (_, _) => ExitEditing();
         foreach (var (b, id) in new[] { (_saveButton, "PdfEditSave"), (saveAs, "PdfEditSaveAs"), (done, "PdfEditDone"), (_undoButton, "PdfEditUndo"), (_redoButton, "PdfEditRedo"), (_deleteButton, "PdfEditDelete") })
             System.Windows.Automation.AutomationProperties.SetAutomationId(b, id);
@@ -564,6 +569,7 @@ public sealed partial class PdfWindow
         if (tool is EditTool.Signature) { _toolButtons[EditTool.Select].IsChecked = true; AddSignature(); return; }
         if (tool is EditTool.Image) { _toolButtons[EditTool.Select].IsChecked = true; AddPicture(); return; }
         if (tool != EditTool.Select) Select(null);
+        if (tool == EditTool.Stamp && !_stampMenuBusy) Dispatcher.BeginInvoke(new Action(() => ShowStampMenu(_toolButtons[EditTool.Stamp])));     // (a stamp has to be chosen first)
         foreach (var p in _pages) p.Overlay.Cursor = CursorFor(tool);
         UpdateProperties();
     }
@@ -602,7 +608,7 @@ public sealed partial class PdfWindow
     private void UpdateProperties()
     {
         var item = _selected;
-        bool text = item is TextItem || (item == null && _tool == EditTool.Text);
+        bool text = item is TextItem || (item == null && _tool is EditTool.Text or EditTool.Date);
         bool line = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.Line or ShapeKind.Arrow } || item is InkItem { Signature: false }
                     || (item == null && _tool is EditTool.Pen or EditTool.Shapes);
         _fontRow.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
@@ -643,7 +649,7 @@ public sealed partial class PdfWindow
             case ShapeItem s: Snapshot(); s.Width = Next(LineWidths, s.Width, step); _lineWidth = s.Width; RenderItems(s.Page); break;
             case InkItem i: Snapshot(); i.Width = Next(LineWidths, i.Width, step); _lineWidth = i.Width; RenderItems(i.Page); break;
             default:
-                if (_tool == EditTool.Text) _textSize = Next(TextSizes, _textSize, step); else _lineWidth = Next(LineWidths, _lineWidth, step);
+                if (_tool is EditTool.Text or EditTool.Date) _textSize = Next(TextSizes, _textSize, step); else _lineWidth = Next(LineWidths, _lineWidth, step);
                 break;
         }
         if (_typing != null && _textBox != null) { _typing.FontSize = _textSize; _textBox.FontSize = _textSize; }
@@ -822,6 +828,14 @@ public sealed partial class PdfWindow
                 Add(new ShapeItem { Page = pv.Index, Kind = _tool == EditTool.Check ? ShapeKind.Check : ShapeKind.Cross, A = new Point(p.X - s / 2, p.Y - s / 2), B = new Point(p.X + s / 2, p.Y + s / 2), Color = _toolColors[_tool] });
                 return;
             }
+            case EditTool.Stamp:
+                _dragPage = null;
+                PlaceStamp(pv, p);
+                return;
+            case EditTool.Date:
+                _dragPage = null;
+                PlaceDate(pv, p);
+                return;
             case EditTool.Pen:
                 _drawing = new InkItem { Page = pv.Index, Color = _toolColors[EditTool.Pen], Width = _lineWidth, Strokes = { new List<Point> { p } } };
                 _drag = DragMode.Ink;
