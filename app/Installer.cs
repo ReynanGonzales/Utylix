@@ -278,6 +278,9 @@ internal static partial class Installer
                     {
                         using var k = Root(i.AllUsers).OpenSubKey(UninstallKey, writable: true);
                         k?.SetValue("DisplayVersion", AppUpdater.CurrentText);
+                        k?.SetValue("Publisher", AppInfo.Author);
+                        k?.SetValue("URLInfoAbout", AppInfo.Page);
+                        k?.SetValue("HelpLink", AppInfo.Page);
                         k?.SetValue("EstimatedSize", (int)(size / 1024), RegistryValueKind.DWord);
                     }
                     catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException) { }
