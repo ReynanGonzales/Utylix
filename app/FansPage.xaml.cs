@@ -106,7 +106,17 @@ public partial class FansPage : UserControl
             if (!FanClient.StartHelper()) { SetOff("Windows' permission was not given, so fan control did not start."); return; }
         }
         if (interactive) StatusText.Text = "Starting… (reading the hardware takes a few seconds)";
-        if (!await FanSettings.Client.ConnectAsync(25000))
+        bool connected = await FanSettings.Client.ConnectAsync(started ? 15000 : 25000);
+        if (!connected && started)
+        {
+            // started through the task, yet nobody answers: a helper left over from before an update may still hold the one connection
+            // (and "run only one copy" makes the new start do nothing). End it once and start a fresh one.
+            if (interactive) StatusText.Text = "Restarting the fan helper…";
+            await Task.Run(FanTask.EndStale);
+            await Task.Delay(1500);
+            if (await Task.Run(FanTask.RunNow)) connected = await FanSettings.Client.ConnectAsync(25000);
+        }
+        if (!connected)
         {
             if (interactive) SetOff("The fan helper did not start. If an antivirus blocked it, allow Utylix; details are in fan-helper.log in Utylix's data folder.");
             return;

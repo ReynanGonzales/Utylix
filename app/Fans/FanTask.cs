@@ -56,6 +56,12 @@ internal static class FanTask
     /// <summary>Starts the helper through the task: no prompt.</summary>
     public static bool RunNow() => Schtasks($"/run /tn \"{Name}\"", out _) == 0;
 
+    /// <summary>
+    /// Ends the helper the task started (no prompt: it is the person's own task). For a helper that is running but doesn't answer: one left
+    /// over from before an update can keep serving a program that is gone, and the task runs only one copy, so a new start would do nothing.
+    /// </summary>
+    public static void EndStale() => Schtasks($"/end /tn \"{Name}\"", out _);
+
     /// <summary>Asks Windows for administrator rights once and sets the task up. Returns false if it was refused or failed.</summary>
     public static async Task<bool> InstallWithPromptAsync()
     {
