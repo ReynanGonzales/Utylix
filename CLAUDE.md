@@ -129,8 +129,10 @@ Standing wishes (all said explicitly):
   the owner continues at home on another PC.
 
 ## Plan (kept current - continue from here)
-State on 2026-10-03: v1.4.0 is released on GitHub (single-file Utylix.exe). Everything below marked "not released" is on `main`
-and will go out as **1.5.0**: raise `<Version>` in app/Utylix.csproj, run build.bat, then attach BOTH `Utylix-Setup.exe` (new
+State on 2026-10-03: v1.4.0 is released on GitHub (single-file Utylix.exe). `<Version>` in app/Utylix.csproj is NOW 1.5.0 and the 1.5.0 files are
+already built in D:\Utylix (`Utylix-Setup.exe` + single-file `Utylix.exe`, both self-tested; 1.5.0 is installed on the owner's PC in
+C:\Program Files\Utylix): the owner only has to create the GitHub release tagged `v1.5.0` and upload both. Everything below marked
+"not released" is on `main` and goes out in it. The recipe for any release: raise `<Version>`, run build.bat, then attach BOTH `Utylix-Setup.exe` (new
 updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. The PDF feature list the owner asked for is numbered
 1-10 below; 1 and 2 are done.
 - Done before 1.4.0:
