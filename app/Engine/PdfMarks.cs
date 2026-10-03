@@ -62,7 +62,7 @@ public static class PdfMarkWriter
                         Pdfium.FPDF_GetPageSizeByIndexF(doc, group.Key, out var size);
                         var map = new PageMapping(page, size.Width, size.Height);
                         var changes = group.OfType<PdfReplaceTextMark>().ToList();
-                        if (changes.Count > 0) PdfTextRuns.Replace(doc, page, changes, fonts);     // (first: it works with the page's own numbering of its pieces)
+                        if (changes.Count > 0) PdfTextRuns.Replace(doc, page, map, changes, fonts);     // (first: it works with the page's own numbering of its pieces)
                         var redactions = group.OfType<PdfRedactMark>().Select(r => r.Box).ToList();
                         if (redactions.Count > 0 && PdfRedactor.RemoveUnder(doc, page, map, new Size(size.Width, size.Height), redactions, fonts)) FlattenedPages.Add(group.Key);      // (then what is under the black boxes goes, before anything new is drawn)
                         foreach (var mark in group)

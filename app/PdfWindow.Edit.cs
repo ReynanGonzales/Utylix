@@ -308,7 +308,11 @@ public sealed partial class PdfWindow
     private bool _bold;
 
     // dragging
-    private enum DragMode { None, Move, Resize, Draw, Ink, Rotate }
+    private enum DragMode { None, Move, Resize, Draw, Ink, Rotate, RunMove }
+    private RunEditItem? _runDragItem;                                 // Edit text: a line pressed on, to move (or, without moving, to change)
+    private PdfTextRun? _runDragRun;
+    private Vector _runDragStartOffset;
+    private bool _runDragMoved;
     private double _rotateFrom, _rotateStart;                         // (the angle of the mouse and of the item when turning began)
     private DragMode _drag;
     private PageView? _dragPage;
@@ -669,7 +673,7 @@ public sealed partial class PdfWindow
         }
         finally { _syncingFont = false; }
         bool run = item is RunEditItem || (item == null && _tool == EditTool.EditText);
-        _toolHint.Text = run ? "Click on a line of text to change it. Enter or a click beside it finishes; Save puts it into the PDF." : "";
+        _toolHint.Text = run ? "Click a line of text to change it, or drag it to move it. Shift+Enter makes a new line; Enter or a click beside it finishes; Save puts it into the PDF." : "";
         _toolHint.Visibility = run ? Visibility.Visible : Visibility.Collapsed;
         bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
         _colorRow.Visibility = item is ImageItem || run || redact ? Visibility.Collapsed : Visibility.Visible;
@@ -903,9 +907,20 @@ public sealed partial class PdfWindow
         switch (_tool)
         {
             case EditTool.EditText:
-                _dragPage = null;
-                EditTextAt(pv, p, quiet: wasTyping);                                  // (a click beside the text just finishes it)
-                return;
+            {
+                // a line: pressed and let go = change it; pressed and dragged = move it
+                var existingRun = _items.OfType<RunEditItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
+                var runUnder = existingRun == null ? Runs(pv.Index).LastOrDefault(r => { var b = r.Box; b.Inflate(1, 1); return b.Contains(p); }) : null;
+                if (existingRun == null && runUnder == null)
+                {
+                    _dragPage = null;
+                    EditTextAt(pv, p, quiet: wasTyping);                              // (a click beside the text just finishes it; on a page without text it explains)
+                    return;
+                }
+                _runDragItem = existingRun; _runDragRun = runUnder; _runDragStartOffset = existingRun?.Offset ?? default; _runDragMoved = false;
+                _drag = DragMode.RunMove;
+                break;
+            }
             case EditTool.Select:
                 if (OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
                 var item = ItemAt(pv.Index, p);
@@ -995,6 +1010,25 @@ public sealed partial class PdfWindow
                 RenderItems(pv.Index);
                 break;
             }
+            case DragMode.RunMove:
+            {
+                if (!_runDragMoved && (p - _dragStart).Length < 4) return;              // (a click that wobbles a little is still a click)
+                if (!_runDragMoved)
+                {
+                    Snapshot();
+                    if (_runDragItem == null && _runDragRun is { } run)
+                    {
+                        _runDragItem = new RunEditItem { Page = pv.Index, Run = run, NewText = run.Text, Cover = CoverColour(pv, run.Box) };
+                        _items.Add(_runDragItem);
+                    }
+                    _runDragMoved = true;
+                    pv.Overlay.Cursor = Cursors.SizeAll;
+                }
+                if (_runDragItem == null) return;
+                _runDragItem.Offset = _runDragStartOffset + (p - _dragStart);
+                RenderItems(pv.Index);
+                break;
+            }
             case DragMode.Rotate when _selected != null:
             {
                 var raw = e.GetPosition(pv.Overlay);                                   // (not held inside the page: turning goes on beyond its edge)
@@ -1047,6 +1081,15 @@ public sealed partial class PdfWindow
         _drawing = null;
         var mode = _drag;
         _drag = DragMode.None;
+        if (mode == DragMode.RunMove)
+        {
+            bool moved = _runDragMoved; _runDragMoved = false;
+            pv.Overlay.Cursor = CursorFor(_tool);
+            if (!moved) EditTextAt(pv, _dragStart);                                    // pressed and let go: change the words
+            else { UpdateEditButtons(); RenderItems(pv.Index); }
+            _runDragItem = null; _runDragRun = null;
+            return;
+        }
         if (drawn is ShapeItem shape && mode == DragMode.Draw)
         {
             var r = new Rect(shape.A, shape.B);
@@ -1196,6 +1239,7 @@ public sealed partial class PdfWindow
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0, shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         if (_runBox != null && _runBox.IsKeyboardFocusWithin)
         {
+            if (e.Key == Key.Enter && shift) return false;                           // (Shift+Enter: a new line, the box handles it)
             if (e.Key is Key.Escape or Key.Enter) { CloseRunBox(); return true; }
             return false;
         }

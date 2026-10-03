@@ -272,4 +272,7 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
     - NOT done / ideas: Word tables (real `w:tbl`), columns of text, rotated text; headers / footers as real Word headers; OCR of rotated pages or other
       languages than the user's profile; insert pages by drag from Explorer.
   - Later maybe: paragraph re-flow editing, making new form fields, certificate (digital ID) signatures, batch processing of folders.
+- **Edit text can move lines + Shift+Enter** (2026-10-03, built into the 1.5.0 files): in the Edit text tool a drag on a PDF line moves it (`DragMode.RunMove`,
+  `RunEditItem.Offset`), Shift+Enter in the edit box adds a line (extra text objects shifted along the text's up direction by `LineAdvance`). Saved by
+  `PdfTextRuns.Replace` (`PdfReplaceTextMark` Dx/Dy/LineAdvance, `PdfTextEdit.cs`). Tested in the real window (mouse drag, Shift+Enter, Save, read back).
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.

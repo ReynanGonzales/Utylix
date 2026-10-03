@@ -33,14 +33,21 @@ public sealed partial class PdfWindow
             return new FontFamily("Arial");
         }
 
+        public Vector Offset;                                   // how far the person moved the line (points, as shown)
+        /// <summary>One line down, as the font spaces its lines (points).</summary>
+        public double LineAdvance => Family(Run).LineSpacing * Run.Size;
+        private int LineCount => Math.Max(1, NewText.Replace("\r\n", "\n").Split('\n').Length);
+
         public double Top => Run.Baseline.Y - Family(Run).Baseline * Run.Size;
-        public override Rect Bounds => Run.Box;
-        public override bool Hit(Point p) => Inflate(Run.Box, 1).Contains(p);
+        /// <summary>Where the line is now (moved, and taller when it has more lines).</summary>
+        private Rect Moved => new(Run.Box.X + Offset.X, Run.Box.Y + Offset.Y, Math.Max(Run.Box.Width, 4), Run.Box.Height + (LineCount - 1) * LineAdvance);
+        public override Rect Bounds => Moved;
+        public override bool Hit(Point p) => Inflate(Moved, 1).Contains(p);
         public override EditItem Clone() => (RunEditItem)MemberwiseClone();
         public override FrameworkElement Build()
         {
             var canvas = new Canvas();
-            var cover = new Rectangle { Width = Run.Box.Width + 1.2, Height = Run.Box.Height + 1.2, Fill = new SolidColorBrush(Cover) };
+            var cover = new Rectangle { Width = Run.Box.Width + 1.2, Height = Run.Box.Height + 1.2, Fill = new SolidColorBrush(Cover) };      // (hides the original where it was)
             Canvas.SetLeft(cover, Run.Box.X - 0.6); Canvas.SetTop(cover, Run.Box.Y - 0.6);
             canvas.Children.Add(cover);
             var text = new TextBlock
@@ -48,12 +55,15 @@ public sealed partial class PdfWindow
                 Text = NewText, FontFamily = Family(Run), FontSize = Run.Size, Foreground = new SolidColorBrush(Run.Color.A == 0 ? Colors.Black : Run.Color),
                 FontWeight = Run.Bold ? FontWeights.Bold : FontWeights.Normal, FontStyle = Run.Italic ? FontStyles.Italic : FontStyles.Normal,
             };
-            Canvas.SetLeft(text, Run.Baseline.X); Canvas.SetTop(text, Top);
+            Canvas.SetLeft(text, Run.Baseline.X + Offset.X); Canvas.SetTop(text, Top + Offset.Y);
             canvas.Children.Add(text);
             return canvas;
         }
-        public override IEnumerable<PdfMark> Marks() { if (NewText != Run.Text) yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, NewText); }
-        public override void MoveBy(Vector d) { }             // (it stays where the text is)
+        public override IEnumerable<PdfMark> Marks()
+        {
+            if (NewText != Run.Text || Offset.X != 0 || Offset.Y != 0) yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, NewText, Offset.X, Offset.Y, LineAdvance);
+        }
+        public override void MoveBy(Vector d) => Offset += d;
         public override void ResizeTo(Rect r) { }
     }
 
@@ -123,8 +133,19 @@ public sealed partial class PdfWindow
                 "<Border Background='{TemplateBinding Background}' BorderBrush='#CC2F6BEA' BorderThickness='0.8'><ScrollViewer x:Name='PART_ContentHost' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Margin='0' Padding='0' Focusable='False' HorizontalScrollBarVisibility='Hidden' VerticalScrollBarVisibility='Hidden' /></Border></ControlTemplate>"),
         };
         System.Windows.Automation.AutomationProperties.SetAutomationId(box, "PdfRunBox");
-        Canvas.SetLeft(box, run.Baseline.X - 2); Canvas.SetTop(box, item.Top);
+        Canvas.SetLeft(box, run.Baseline.X + item.Offset.X - 2); Canvas.SetTop(box, item.Top + item.Offset.Y);
         box.TextChanged += (_, _) => { if (_runTyping != null) { _runTyping.NewText = box.Text; _dirty = true; UpdateTitle(); } };
+        // Enter finishes; Shift+Enter makes a new line (the box grows taller with it)
+        box.PreviewKeyDown += (_, ev) =>
+        {
+            if (ev.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                int at = box.SelectionStart;
+                box.SelectedText = "\n";
+                box.CaretIndex = at + 1;
+                ev.Handled = true;
+            }
+        };
         box.LostKeyboardFocus += (_, ev) =>
         {
             if (ev.NewFocus is DependencyObject nf && IsInside(nf, _editBar)) return;
@@ -143,7 +164,7 @@ public sealed partial class PdfWindow
         var item = _runTyping;
         item.NewText = _runBox.Text;
         _runBox = null; _runTyping = null;
-        if (item.NewText == item.Run.Text)
+        if (item.NewText == item.Run.Text)          // (a line that was only moved was moved before: opening it again changed nothing)
         {
             // unchanged: undo the opening (and drop the item)
             if (_undo.Count > 0) { var before = _undo.Pop(); _items.Clear(); _items.AddRange(before); }

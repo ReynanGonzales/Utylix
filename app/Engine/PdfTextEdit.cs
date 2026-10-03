@@ -15,8 +15,11 @@ namespace IdmClone.Engine;
 /// </summary>
 public sealed record PdfTextRun(int Index, Rect Box, string Text, double Size, string Family, bool Bold, bool Italic, Color Color, Point Baseline);
 
-/// <summary>Change the words of a piece of text already in the page (empty = remove it).</summary>
-public sealed record PdfReplaceTextMark(int Page, int Index, string OldText, string NewText) : PdfMark(Page);
+/// <summary>
+/// Change the words of a piece of text already in the page (empty = remove it) and / or move it (Dx, Dy in points as shown). A new text with several
+/// lines (separated by newlines) is written one line under the other, <paramref name="LineAdvance"/> points apart.
+/// </summary>
+public sealed record PdfReplaceTextMark(int Page, int Index, string OldText, string NewText, double Dx = 0, double Dy = 0, double LineAdvance = 0) : PdfMark(Page);
 
 internal static class PdfTextRuns
 {
@@ -104,7 +107,7 @@ internal static class PdfTextRuns
 
     // ---------- changing the text when saving ----------
     /// <summary>Applies the text changes of one page, before anything else is added to it (call under Pdfium.Sync).</summary>
-    public static void Replace(IntPtr doc, IntPtr page, IEnumerable<PdfReplaceTextMark> marks, Dictionary<string, IntPtr> fonts)
+    public static void Replace(IntPtr doc, IntPtr page, PageMapping map, IEnumerable<PdfReplaceTextMark> marks, Dictionary<string, IntPtr> fonts)
     {
         IntPtr tp = Pdfium.FPDFText_LoadPage(page);
         try
@@ -116,28 +119,51 @@ internal static class PdfTextRuns
                 IntPtr obj = Pdfium.FPDFPage_GetObject(page, m.Index);
                 if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetType(obj) != Pdfium.ObjText || TextOf(obj, tp) != m.OldText)
                     throw new IOException("Page " + (m.Page + 1) + " isn't as it was when the text was changed. Open the PDF again and redo the change.");
+                string[] lines = m.NewText.Replace("\r\n", "\n").Split('\n');
                 if (m.NewText.Trim().Length == 0) { Pdfium.FPDFPage_RemoveObject(page, obj); Pdfium.FPDFPageObj_Destroy(obj); continue; }
+                // the move, as a step in page space
+                var origin = map.ToPage(new Point(0, 0)); var step = map.ToPage(new Point(m.Dx, m.Dy));
+                double moveX = step.X - origin.X, moveY = step.Y - origin.Y;
+                void Shift(IntPtr o) { if (moveX != 0 || moveY != 0) Pdfium.FPDFPageObj_Transform(o, 1, 0, 0, 1, moveX, moveY); }
+
+                if (lines.Length == 1 && m.NewText == m.OldText) { Shift(obj); continue; }                          // only moved
+
                 IntPtr font = Pdfium.FPDFTextObj_GetFont(obj);
                 letters ??= LettersByFont(page, tp);
-                // the PDF's own font, when it already has every letter needed (a font in a PDF often has only the letters it uses)
-                if (letters.TryGetValue(font, out var has) && m.NewText.All(c => c == ' ' ? has.Contains(' ') : has.Contains(c)))
-                {
-                    if (Pdfium.FPDFText_SetText(obj, m.NewText) != 0) continue;
-                }
-                // otherwise a new piece of text in the same place, size and colour, with the same font from Windows (or one like it)
-                var (family, bold, italic) = Describe(font);
                 Pdfium.FPDFPageObj_GetMatrix(obj, out var matrix);
                 Pdfium.FPDFTextObj_GetFontSize(obj, out float fs);
                 Pdfium.FPDFPageObj_GetFillColor(obj, out uint r, out uint g, out uint b, out uint a);
-                IntPtr newFont = Substitute(doc, family, bold, italic, m.NewText, fonts);
-                IntPtr fresh = Pdfium.FPDFPageObj_CreateTextObj(doc, newFont, fs);
-                if (fresh == IntPtr.Zero) throw new IOException("The changed text couldn't be written.");
-                Pdfium.FPDFText_SetText(fresh, m.NewText);
-                Pdfium.FPDFPageObj_SetFillColor(fresh, r, g, b, a);
-                Pdfium.FPDFPageObj_SetMatrix(fresh, ref matrix);
-                Pdfium.FPDFPage_InsertObject(page, fresh);
-                Pdfium.FPDFPage_RemoveObject(page, obj);
-                Pdfium.FPDFPageObj_Destroy(obj);
+                // the PDF's own font, when it already has every letter needed (a font in a PDF often has only the letters it uses)
+                bool ownFont = letters.TryGetValue(font, out var has) && lines.All(l => l.All(c => has!.Contains(c)));
+                IntPtr useFont = font;
+                if (!ownFont)
+                {
+                    // otherwise the same font from Windows (or one like it)
+                    var (family, bold, italic) = Describe(font);
+                    useFont = Substitute(doc, family, bold, italic, m.NewText.Replace("\n", " "), fonts);
+                }
+                // the lines below the first sit one step down the text's own "up" direction (matrix c, d), a line apart
+                double up = Math.Sqrt(matrix.C * matrix.C + matrix.D * matrix.D);
+                double ux = up > 1e-9 ? matrix.C / up : 0, uy = up > 1e-9 ? matrix.D / up : 1;
+                double advance = m.LineAdvance > 0 ? m.LineAdvance : fs * up * 1.2;
+
+                bool firstDone = false;
+                if (ownFont && lines[0].Length > 0 && Pdfium.FPDFText_SetText(obj, lines[0]) != 0) { Shift(obj); firstDone = true; }
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (i == 0 && firstDone) continue;
+                    if (lines[i].Length == 0) continue;
+                    IntPtr fresh = Pdfium.FPDFPageObj_CreateTextObj(doc, useFont, fs);
+                    if (fresh == IntPtr.Zero) throw new IOException("The changed text couldn't be written.");
+                    Pdfium.FPDFText_SetText(fresh, lines[i]);
+                    Pdfium.FPDFPageObj_SetFillColor(fresh, r, g, b, a);
+                    var line = matrix;
+                    line.E -= (float)(i * advance * ux); line.F -= (float)(i * advance * uy);
+                    Pdfium.FPDFPageObj_SetMatrix(fresh, ref line);
+                    Shift(fresh);
+                    Pdfium.FPDFPage_InsertObject(page, fresh);
+                }
+                if (!firstDone) { Pdfium.FPDFPage_RemoveObject(page, obj); Pdfium.FPDFPageObj_Destroy(obj); }
             }
         }
         finally { if (tp != IntPtr.Zero) Pdfium.FPDFText_ClosePage(tp); }
