@@ -718,6 +718,7 @@ public partial class App : Application
         menu.Items.Add("Multi Convert", null, (_, _) => Dispatcher.Invoke(() => ShowTab("converter")));
         menu.Items.Add("Screen Capture", null, (_, _) => Dispatcher.Invoke(() => SnipWindow.Get(_manager!).Open()));      // opens the window like the Snipping Tool; Win + S snips at once
         menu.Items.Add("Browser extension…", null, (_, _) => Dispatcher.Invoke(() => ExtensionFiles.ShowHelp()));
+        menu.Items.Add("About Utylix…", null, (_, _) => Dispatcher.Invoke(() => AboutWindow.ShowIt(null)));
         menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
         menu.Items.Add("Photo viewer…", null, (_, _) => Dispatcher.Invoke(ViewerWindow.Browse));
         menu.Items.Add("PDF editor…", null, (_, _) => Dispatcher.Invoke(PdfWindow.Browse));

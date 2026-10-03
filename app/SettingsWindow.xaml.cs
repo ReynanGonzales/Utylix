@@ -313,6 +313,8 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private void About_Click(object sender, RoutedEventArgs e) => AboutWindow.ShowIt(this);
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         if (!int.TryParse(ConnBox.Text, out int conn) || conn < 1 || conn > 32)

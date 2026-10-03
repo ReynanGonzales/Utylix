@@ -1,5 +1,7 @@
 # Utylix
 
+Made by **Reynan Gonzales** - <https://github.com/ReynanGonzales/Utylix>. A personal all-in-one toolbox for Windows. (Inside the app: tray menu or Settings > *About Utylix…*.)
+
 Your PC tools in one small Windows app: a fast download manager with browser capture, Multi Convert (pictures, videos and music), an archive manager (ZIP/RAR/7z), screen
 capture with a text detector, a screen recorder, and more tools on the way (QR maker, background remover).
 

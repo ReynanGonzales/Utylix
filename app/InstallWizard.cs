@@ -268,6 +268,7 @@ internal static partial class Installer
         foreach (var d in dotShapes) dots.Children.Add(d);
         var titleBlock = new StackPanel { Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         titleBlock.Children.Add(title); titleBlock.Children.Add(dots);
+        titleBlock.Children.Add(Text("Made by " + AppInfo.Author, 11.5, muted: true, margin: new Thickness(0, 5, 0, 0)));
         var head = new StackPanel { Orientation = Orientation.Horizontal };
         head.Children.Add(new Image { Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/logo.png")), Width = 52, Height = 52 });
         head.Children.Add(titleBlock);

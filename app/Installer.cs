@@ -73,6 +73,8 @@ internal static partial class Installer
             using var k = Root(i.AllUsers).OpenSubKey(UninstallKey, writable: true);
             if (k == null) return;
             if (k.GetValue("DisplayVersion") as string != AppUpdater.CurrentText) k.SetValue("DisplayVersion", AppUpdater.CurrentText);
+            if (k.GetValue("Publisher") as string != AppInfo.Author) k.SetValue("Publisher", AppInfo.Author);
+            if (k.GetValue("URLInfoAbout") as string != AppInfo.Page) { k.SetValue("URLInfoAbout", AppInfo.Page); k.SetValue("HelpLink", AppInfo.Page); }
             int size = (int)(new FileInfo(Environment.ProcessPath!).Length / 1024);
             if (k.GetValue("EstimatedSize") is not int old || old != size) k.SetValue("EstimatedSize", size, RegistryValueKind.DWord);
         }
@@ -120,7 +122,9 @@ internal static partial class Installer
         {
             k.SetValue("DisplayName", "Utylix");
             k.SetValue("DisplayVersion", AppUpdater.CurrentText);
-            k.SetValue("Publisher", "Utylix");
+            k.SetValue("Publisher", AppInfo.Author);
+            k.SetValue("URLInfoAbout", AppInfo.Page);
+            k.SetValue("HelpLink", AppInfo.Page);
             k.SetValue("InstallLocation", dir);
             k.SetValue("DisplayIcon", $"\"{exe}\",0");
             k.SetValue("UninstallString", $"\"{exe}\" --uninstall");
