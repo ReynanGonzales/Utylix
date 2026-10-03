@@ -279,6 +279,43 @@ public sealed partial class PdfWindow
         ClearTextSelection();
     }
 
+    /// <summary>Black boxes (redacted for good when saving) over the selected words.</summary>
+    private void RedactSelection()
+    {
+        if (!HasSelection || Text(_selPage) is not { } t) return;
+        var (s, e) = SelectionRange;
+        int page = _selPage;
+        RedactAreas(t.LineBoxes(s, e).Select(r => (page, r)).ToList());
+        ClearTextSelection();
+    }
+
+    /// <summary>Black boxes over every match of the search.</summary>
+    private void RedactMatches()
+    {
+        var areas = new List<(int, Rect)>();
+        foreach (var h in _hits)
+            if (Text(h.Page) is { } t) foreach (var r in t.LineBoxes(h.Start, h.End)) if (!r.IsEmpty) areas.Add((h.Page, r));
+        if (areas.Count == 0) { Toast("Nothing found to redact: type what to look for first"); return; }
+        int matches = _hits.Count;
+        RedactAreas(areas, matches);
+    }
+
+    /// <summary>Puts redaction boxes on the given areas (one undo step); Save is what removes what is under them.</summary>
+    private void RedactAreas(IReadOnlyList<(int Page, Rect Box)> areas, int matches = 0)
+    {
+        if (areas.Count == 0) return;
+        if (!_editing) { EnterEditing(); if (!_editing) return; }
+        Snapshot();
+        foreach (var (page, box) in areas)
+        {
+            var b = box; b.Inflate(1, 1);
+            _items.Add(new ShapeItem { Page = page, Kind = ShapeKind.Redact, A = b.TopLeft, B = b.BottomRight, Color = _toolColors[EditTool.Redact], Width = _lineWidth });
+        }
+        foreach (int p in areas.Select(a => a.Page).Distinct()) RenderItems(p);
+        UpdateEditButtons();
+        Toast(matches > 0 ? $"Black boxes on {matches} match{(matches == 1 ? "" : "es")}: Save removes them from the file for good" : "Black box added: Save removes what is under it from the file for good");
+    }
+
     private void PageMenu(PageView pv, MouseButtonEventArgs e)
     {
         var p = e.GetPosition(pv.Overlay);
@@ -304,6 +341,7 @@ public sealed partial class PdfWindow
         Item("Highlight", "", sel, () => MarkSelection(Pdfium.AnnotHighlight));
         Item("Underline", "", sel, () => MarkSelection(Pdfium.AnnotUnderline));
         Item("Strike out", "", sel, () => MarkSelection(Pdfium.AnnotStrikeOut));
+        Item("Redact (black out for good)", "", sel, RedactSelection);
         Item("Add a note here", "", true, () =>
         {
             if (!_editing) { EnterEditing(); if (!_editing) return; }
@@ -369,7 +407,10 @@ public sealed partial class PdfWindow
         var close = SmallBar("", "Close (Esc)", CloseSearch);
         var row = new StackPanel { Orientation = Orientation.Horizontal };
         row.Children.Add(new TextBlock { Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), Foreground = Soft, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 8, 0) });
-        row.Children.Add(_searchText); row.Children.Add(_searchCount); row.Children.Add(prev); row.Children.Add(next); row.Children.Add(close);
+        var redactAll = new Button { Content = BarLabel("Redact all"), Template = BarButtonTemplate(), Height = 26, Padding = new Thickness(10, 0, 10, 0), Margin = new Thickness(4, 0, 4, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White, ToolTip = "Put a black box over every match: saving then removes them from the file for good" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(redactAll, "PdfSearchRedactAll");
+        redactAll.Click += (_, _) => RedactMatches();
+        row.Children.Add(_searchText); row.Children.Add(_searchCount); row.Children.Add(prev); row.Children.Add(next); row.Children.Add(redactAll); row.Children.Add(close);
         _searchBar = new Border
         {
             Child = row, Background = new SolidColorBrush(Color.FromRgb(0x1B, 0x1F, 0x29)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x52)), BorderThickness = new Thickness(1),

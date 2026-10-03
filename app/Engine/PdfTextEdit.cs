@@ -159,7 +159,7 @@ internal static class PdfTextRuns
         return result;
     }
 
-    private static IntPtr Substitute(IntPtr doc, string family, bool bold, bool italic, string text, Dictionary<string, IntPtr> fonts)
+    internal static IntPtr Substitute(IntPtr doc, string family, bool bold, bool italic, string text, Dictionary<string, IntPtr> fonts)
     {
         string l = family.ToLowerInvariant();
         bool serif = new[] { "times", "serif", "roman", "garamond", "georgia", "cambria", "book", "minion", "palatino" }.Any(l.Contains) && !l.Contains("sans");

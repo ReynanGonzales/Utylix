@@ -180,10 +180,19 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
     already placed. Also fixed: in Windows' LIGHT theme the editor's dark bars were unreadable (the app's implicit TextBlock style made button
     text / icons dark): `BarButtonTemplate` + `BarLabel` (Edit, Save as, Done, Page size) and white glyphs in `Tool()`. Not done: rotating a stamp,
     a name line.
-  - **#6 Real redaction**: mark areas (and "redact all matches" of a search), then Apply = remove what is under them for real: text
-    objects/characters inside (PDFium can't delete single characters - remove the object and re-add the characters outside the box as
-    new text objects), picture pixels inside (GetBitmap -> paint black -> SetBitmap), paths inside, annotations, plus metadata.
-    Black boxes are drawn after. Verify with the text reader that nothing under a box can be found or copied.
+  - **#6 DONE** 2026-10-03 (not released): real redaction. Editor tool "Redact" (drag), right-click > Redact on a selection, and
+    "Redact all" in the search bar (`RedactAreas` in PdfWindow.Text.cs = one undo step). Items are `ShapeKind.Redact` (red dashed on screen);
+    `Marks()` yields `PdfRedactMark` then a black PdfPathMark. `SaveEdits` asks first ("Redact and save"), refuses protected PDFs, then
+    `PdfMarkWriter.Apply` -> `PdfRedactor.RemoveUnder` (in `Engine/PdfRedactor.cs`) -> `SaveToBytes` -> `PdfRedactor.Finish` (PDFsharp: drop
+    /Title /Author /Subject /Keywords /Creator, catalog /Metadata, /PieceInfo, page /Thumb; the Save also compacts away orphaned old streams
+    such as the original JPEG) -> `Verify` (text: any char > 0x20 under a box = IOException, nothing is written; images: inset pixels must be
+    black). Letters inside a hit text object are re-added one by one outside the box with the same font (fallback `PdfTextRuns.Substitute`),
+    inserted at the old index so reading order stays; pictures get the pixels blacked (whole image removed if mostly covered).
+    LESSONS: PDFium can't edit the content of a form XObject (FPDFFormObj_RemoveObject doesn't rewrite the form stream, the text stays in
+    the saved file) -> that page is flattened to a <=200 dpi JPEG with black areas (`FlattenPage`, `PdfMarkWriter.FlattenedPages` -> toast
+    names the pages). Kept letters are separate objects, so a plain byte search for kept words fails: prove with `GetText`, not grep.
+    Tested: text, rotated page, form-wrapped page, PNG + JPG scans, metadata, orphan JPEG gone, real window drag + Save + Redact all.
+    Not covered: AcroForm field values, and pages with shared forms lose selectable text.
   - **#7 Organize pages / split / pictures <-> PDF**: a page-grid window (thumbnails): drag to reorder, rotate, delete, insert pages
     from another PDF or pictures, extract selected pages to a new PDF, split every N pages / by ranges, save pages as PNG/JPG (render at a
     chosen dpi). Pdfium.cs already has FPDF_MovePages, FPDFPage_Delete, FPDF_ImportPagesByIndex, FPDFPage_SetRotation. Merging = #2's

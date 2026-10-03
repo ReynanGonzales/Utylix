@@ -40,8 +40,12 @@ public sealed record PdfAnnotMark(int Page, int Subtype, IReadOnlyList<Rect> Rec
 /// <summary>Writes marks into the pages of an open PDF (they become part of the page, seen the same in every PDF reader).</summary>
 public static class PdfMarkWriter
 {
+    /// <summary>The pages that had to be made into a picture by the last <see cref="Apply"/> (redaction could not edit them: see <see cref="PdfRedactor"/>), 0-based.</summary>
+    public static List<int> FlattenedPages { get; } = new();
+
     public static void Apply(PdfFile pdf, IEnumerable<PdfMark> marks)
     {
+        FlattenedPages.Clear();
         var byPage = marks.GroupBy(m => m.Page).OrderBy(g => g.Key).ToList();
         lock (Pdfium.Sync)
         {
@@ -59,6 +63,8 @@ public static class PdfMarkWriter
                         var map = new PageMapping(page, size.Width, size.Height);
                         var changes = group.OfType<PdfReplaceTextMark>().ToList();
                         if (changes.Count > 0) PdfTextRuns.Replace(doc, page, changes, fonts);     // (first: it works with the page's own numbering of its pieces)
+                        var redactions = group.OfType<PdfRedactMark>().Select(r => r.Box).ToList();
+                        if (redactions.Count > 0 && PdfRedactor.RemoveUnder(doc, page, map, new Size(size.Width, size.Height), redactions, fonts)) FlattenedPages.Add(group.Key);      // (then what is under the black boxes goes, before anything new is drawn)
                         foreach (var mark in group)
                         {
                             switch (mark)

@@ -22,7 +22,7 @@ namespace IdmClone;
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut }
+    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact }
 
     // ---------- what can be on a page ----------
     private abstract class EditItem
@@ -84,7 +84,7 @@ public sealed partial class PdfWindow
         public override bool KeepAspect => true;
     }
 
-    public enum ShapeKind { Rectangle, Ellipse, Line, Arrow, Highlight, WhiteOut, Check, Cross }
+    public enum ShapeKind { Rectangle, Ellipse, Line, Arrow, Highlight, WhiteOut, Check, Cross, Redact }
 
     private sealed class ShapeItem : EditItem
     {
@@ -144,6 +144,7 @@ public sealed partial class PdfWindow
         {
             ShapeKind.Highlight => (null, 0, Color.FromArgb(140, Color.R, Color.G, Color.B), true, 1),
             ShapeKind.WhiteOut => (null, 0, Color, false, 1),
+            ShapeKind.Redact => (null, 0, Colors.Black, false, 1),
             ShapeKind.Check or ShapeKind.Cross => (Color, StampWidth, null, false, 1),
             _ => (Color, Width, null, false, 1),
         };
@@ -160,12 +161,18 @@ public sealed partial class PdfWindow
                 StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
             };
             if (Kind == ShapeKind.WhiteOut) path.Effect = null;
+            if (Kind == ShapeKind.Redact)
+            {
+                // black like it will be, with a red dashed edge while it can still be changed (the edge is not saved)
+                path.Stroke = new SolidColorBrush(Color.FromRgb(0xE5, 0x39, 0x35)); path.StrokeThickness = 1.6; path.StrokeDashArray = new DoubleCollection { 4, 3 };
+            }
             return path;
         }
 
         public override IEnumerable<PdfMark> Marks()
         {
             var (stroke, width, fill, multiply, _) = Paint();
+            if (Kind == ShapeKind.Redact) yield return new PdfRedactMark(Page, Box);       // (what is under it goes for good when saved; the black box is drawn after)
             yield return new PdfPathMark(Page, Figures(), stroke, width, fill, multiply);
         }
         public override void MoveBy(Vector d) { A += d; B += d; }
@@ -287,7 +294,7 @@ public sealed partial class PdfWindow
     {
         [EditTool.Text] = Colors.Black, [EditTool.Stamp] = Color.FromRgb(0x2E, 0x7D, 0x32), [EditTool.Date] = Colors.Black, [EditTool.Signature] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Check] = Colors.Black, [EditTool.Cross] = Colors.Black,
         [EditTool.Highlight] = Color.FromRgb(0xFF, 0xE0, 0x30), [EditTool.Underline] = Color.FromRgb(0x1E, 0x63, 0xE9), [EditTool.Strike] = Color.FromRgb(0xD3, 0x2F, 0x2F),
-        [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White,
+        [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White, [EditTool.Redact] = Colors.Black,
     };
     private ShapeKind _shapeKind = ShapeKind.Rectangle;                   // (what the Shapes tool draws)
     private double _textSize = 12, _lineWidth = 2;
@@ -373,6 +380,8 @@ public sealed partial class PdfWindow
         ShapesMenu();
         StampMenus();
         ToolButton(EditTool.WhiteOut, "⬜", "White-out", "Drag to cover something with white (it hides it on the page; the words underneath are not erased from the file)", "Segoe UI Symbol");
+        ToolButton(EditTool.Redact, "", "Redact", "Drag a box over what must disappear for good: when you save, the words, pictures and comments under it are really removed from the file (not just covered)",
+                   icon: new Border { Width = 24, Height = 15, Background = Brushes.Black, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(2), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0) });
 
         // colours, size, font
         foreach (var c in Swatches)
@@ -621,7 +630,9 @@ public sealed partial class PdfWindow
         bool run = item is RunEditItem || (item == null && _tool == EditTool.EditText);
         _toolHint.Text = run ? "Click on a line of text to change it. Enter or a click beside it finishes; Save puts it into the PDF." : "";
         _toolHint.Visibility = run ? Visibility.Visible : Visibility.Collapsed;
-        _colorRow.Visibility = item is ImageItem || run ? Visibility.Collapsed : Visibility.Visible;
+        bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
+        _colorRow.Visibility = item is ImageItem || run || redact ? Visibility.Collapsed : Visibility.Visible;
+        if (redact) { _toolHint.Text = "Drag over what must go. Saving removes it from the file for good (Save replaces the file: use Save as… to keep the original)."; _toolHint.Visibility = Visibility.Visible; }
         if (run) ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
     }
 
@@ -854,7 +865,7 @@ public sealed partial class PdfWindow
                 OpenNote(note, isNew: true);
                 return;
             default:
-                var kind = _tool switch { EditTool.Highlight => ShapeKind.Highlight, EditTool.WhiteOut => ShapeKind.WhiteOut, _ => _shapeKind };
+                var kind = _tool switch { EditTool.Highlight => ShapeKind.Highlight, EditTool.WhiteOut => ShapeKind.WhiteOut, EditTool.Redact => ShapeKind.Redact, _ => _shapeKind };
                 _drawing = new ShapeItem { Page = pv.Index, Kind = kind, A = p, B = p, Color = _toolColors[_tool], Width = _lineWidth };
                 _drag = DragMode.Draw;
                 break;
@@ -1133,11 +1144,26 @@ public sealed partial class PdfWindow
         var pdf = _pdf;
         string? password = pdf.Password;
         var marks = _items.SelectMany(i => i.Marks()).ToList();
+        var redactions = marks.OfType<PdfRedactMark>().ToList();
+        var flattened = new List<int>();
+        if (redactions.Count > 0)
+        {
+            if (pdf.IsProtected) { UMessage.Show(this, "A password-protected PDF can't be redacted here (the file would lose its protection). Open a copy without the password protection.", "Redact", MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
+            bool replaces = string.Equals(System.IO.Path.GetFullPath(target), System.IO.Path.GetFullPath(_path), StringComparison.OrdinalIgnoreCase);
+            int pages = redactions.Select(r => r.Page).Distinct().Count();
+            var answer = UMessage.Ask(this,
+                $"{redactions.Count} black box{(redactions.Count == 1 ? "" : "es")} on {pages} page{(pages == 1 ? "" : "s")}.\n\nSaving removes what is under {(redactions.Count == 1 ? "it" : "them")} from the file for good: the words, the parts of pictures, links and comments. It can't be undone in the saved file.\n\nThe document's properties (title, author…) and the pages' preview pictures are cleared too."
+                + (replaces ? "\n\nThis replaces the file. To keep the original, choose Save as… instead." : ""),
+                "Redact", MessageBoxImage.Warning, MessageBoxResult.Cancel, MessageBoxResult.Cancel, ("Redact and save", MessageBoxResult.Yes), ("Cancel", MessageBoxResult.Cancel));
+            if (answer != MessageBoxResult.Yes) return false;
+        }
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
             PdfMarkWriter.Apply(pdf, marks);
+            flattened = PdfMarkWriter.FlattenedPages.Select(p => p + 1).OrderBy(p => p).ToList();
             byte[] bytes = pdf.SaveToBytes();
+            if (redactions.Count > 0) bytes = PdfRedactor.Finish(bytes, redactions);       // (cleaned and checked: if anything is left under a box, nothing is saved)
             // written next to it first, so a failure can't leave half a file
             string temp = target + ".utylix-tmp";
             File.WriteAllBytes(temp, bytes);
@@ -1155,7 +1181,9 @@ public sealed partial class PdfWindow
         _dirty = false;
         bool other = !string.Equals(System.IO.Path.GetFullPath(target), System.IO.Path.GetFullPath(_path), StringComparison.OrdinalIgnoreCase);
         _ = LoadAsync(target, password, keepEditing: true);
-        Toast(other ? "Saved as " + System.IO.Path.GetFileName(target) : "Saved");
+        string saved = other ? "Saved as " + System.IO.Path.GetFileName(target) : "Saved";
+        if (redactions.Count > 0) saved += flattened.Count == 0 ? ": what was under the black boxes is gone from the file" : $": what was under the black boxes is gone. Page{(flattened.Count == 1 ? "" : "s")} {string.Join(", ", flattened)} had to become a picture (its text can't be selected any more)";
+        Toast(saved);
         return true;
     }
 

@@ -211,7 +211,15 @@ internal static class Pdfium
 
     public const int AnnotWidget = 20;
     public const int FieldPushButton = 1, FieldCheckBox = 2, FieldRadio = 3, FieldCombo = 4, FieldList = 5, FieldText = 6, FieldSignature = 7;
-    public const int ObjText = 1;
+    public const int ObjText = 1, ObjPath = 2;
+
+    // ---------- taking things out of a page for good (redaction) ----------
+    [DllImport(Dll)] public static extern IntPtr FPDFText_GetTextObject(IntPtr textPage, int charIndex);
+    [DllImport(Dll)] public static extern int FPDFText_GetCharOrigin(IntPtr textPage, int index, out double x, out double y);
+    [DllImport(Dll)] public static extern int FPDFFormObj_RemoveObject(IntPtr form, IntPtr obj);
+    [DllImport(Dll)] public static extern int FPDFPage_RemoveAnnot(IntPtr page, int index);
+    [DllImport(Dll)] public static extern int FPDFTextObj_SetTextRenderMode(IntPtr textObj, int mode);
+    [DllImport(Dll)] public static extern int FPDFPage_InsertObjectAtIndex(IntPtr page, IntPtr obj, UIntPtr index);
     public const int TextInvisible = 3;
 
     public const int FillNone = 0, FillWinding = 2;
