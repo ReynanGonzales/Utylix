@@ -62,8 +62,7 @@ ones need Utylix.exe). Not a pre-release. `gh` is installed on the work PC (logg
   Edits are flattened into the page (FPDFPage_GenerateContent); comments (highlight/underline/strike/notes) are real annotations.
   Popups (ToolTip, ContextMenu, ComboBox lists) inherit the dark window's white text: give them themed styles (App.xaml ThemedMenu...),
   and note the app-wide implicit TextBlock style beats inherited Foreground inside templates (set Foreground on the TextBlock itself).
-  Still planned: target-size reduce, Explorer shortcuts, phone-photo cleanup, resize pages, stamps, redaction, organize/merge/split,
-  pictures <-> PDF, OCR, page numbers / watermark, PDF -> Word / Excel.
+  Still planned: see "Plan (kept current)" at the end (#3 phone-photo cleanup is next).
 - **Snip**: `App.HideForCapture` hides Utylix windows but keeps the video player and photo viewer visible.
 - **Taskbar**: Player/Archives/Music/Photos use their own AppUserModelID (`WindowTheme.OwnTaskbarButton`).
 - A second copy of the exe started with a tool flag (`--play`, `--view`, `--torrent`, `--snip`, ...) forwards to the running copy through `/api/tool`.
@@ -94,8 +93,12 @@ Standing wishes (all said explicitly):
   the owner continues at home on another PC.
 
 ## Plan (kept current - continue from here)
-State on 2026-10-02 (v1.4.0, not yet released on GitHub):
-- Done: Utylix Editor (PDF) - viewer, Reduce file size, own print window, editing (text, sign, pictures, shapes, white-out, pen), Edit text
+State on 2026-10-03: v1.4.0 is released on GitHub (single-file Utylix.exe). Everything below marked "not released" is on `main`
+and will go out as **1.5.0**: raise `<Version>` in app/Utylix.csproj, run build.bat, then attach BOTH `Utylix-Setup.exe` (new
+updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. The PDF feature list the owner asked for is numbered
+1-10 below; 1 and 2 are done.
+- Done before 1.4.0:
+  Utylix Editor (PDF) - viewer, Reduce file size, own print window, editing (text, sign, pictures, shapes, white-out, pen), Edit text
   (change existing text), comments (highlight/underline/strike/notes), search/select/copy, links, bookmarks, form filling. Themed `UMessage`
   boxes everywhere. "Open with" shows Utylix Editor / Photos / Player / Archive with their own logos; the plain "Utylix" entry is hidden.
   Settings > Apps shows the right version (Installer.RefreshAppsEntry).
@@ -132,12 +135,12 @@ State on 2026-10-02 (v1.4.0, not yet released on GitHub):
      single-file `Utylix.exe` for older copies / portable use. A `tools\pack-setup.ps1` can do the zip + append.
   7. Afterwards: update the "update the installed copy" routine (run `Utylix-Setup.exe --setup-update --dir
      "%LOCALAPPDATA%\Programs\Utylix"`), and measure idle private memory vs the 138 MB of the single-file build.
-- DONE 2026-10-03 (not released): reduce to a target size. Reduce window choice "Under [2] MB" (+ 1/2/5/10/25 MB buttons; 1 MB =
+- **#1 DONE** 2026-10-03 (not released): reduce to a target size. Reduce window choice "Under [2] MB" (+ 1/2/5/10/25 MB buttons; 1 MB =
   1,000,000 bytes). `PdfCompressor.ReduceToSize` encodes every picture once per quality step (9 steps, 200 dpi q80 .. 50 dpi q24),
   predicts each step's size and repacks only 1-3 times, keeping the sharpest step that fits. If none fits, it ASKS before
   `ReducePagesToSize` (pages as pictures, 150 .. 50 dpi), and offers the smaller of the two if still too big. Tested on the 5 real PDFs:
   2-10 s each. UMessage now widens for long button labels (SizeToContent, text MaxWidth 350).
-- DONE 2026-10-03 (not released): Explorer right-click PDF tools (setting "explorer_pdf_menu", default on; wizard choice "PDF tools").
+- **#2 DONE** 2026-10-03 (not released): Explorer right-click PDF tools (setting "explorer_pdf_menu", default on; wizard choice "PDF tools").
   .pdf: submenu "Utylix Editor" > Reduce file size… (--pdf-reduce) / Combine into one PDF… (--pdf-combine); pictures: "0pdf" entry
   "Convert to PDF…" (--to-pdf) inside the Convert submenu, or its own verb when Convert is off (RegisterPdfTools runs after Register).
   Explorer starts one process per selected file -> BatchPack collects them (ops pdf-reduce / pdf-combine, --to-pdf maps to
@@ -146,8 +149,35 @@ State on 2026-10-02 (v1.4.0, not yet released on GitHub):
   SAVE - closing them early crashed in GenerateContent on a form PDF), picture pages via LoadPicture (EXIF orientation, JPEG kept
   as is, PNG lossless; also used by the editor's Add picture now). Protected PDFs are refused. Not tested by me: the save dialog
   step of the Combine window (my tools can't type into it) - engine output and everything around it is tested.
-- Next, in order: phone-photo
-  cleanup (crop, straighten, black & white), resize pages (A4 / Letter / Long 8.5x13), stamps + date tool, real redaction, organize pages /
-  merge / split / pictures <-> PDF, OCR (Windows.Media.Ocr, offline), page numbers / watermark / header-footer, PDF -> Word and -> Excel.
-  Later maybe: paragraph re-flow editing, making new form fields, certificate signatures, batch processing.
+- **Next, in this order** (ideas for how, not decisions - check with the owner when a choice changes what they see). For every step:
+  build, test on copies (pdftest harness + an isolated test copy `--no-register --port 69xx --data <dir>`), check text is readable in
+  light AND dark (popups, lists, selected items), update the installed copy, commit + push, and update this list.
+  - **#3 Phone-photo cleanup** (photos of documents): a "Clean up" button on picture rows of PdfCombineWindow (and in the editor's
+    Picture) opens a small window: find the paper's 4 corners automatically (edge detection in plain C# - no OpenCV, the app must stay
+    light), let the person drag the corners, straighten with a perspective warp, then "Document" filters: Original / Grey / Black &
+    white (adaptive threshold on local means, so shadows don't go black) / brighter. Result feeds PdfCombiner as pixels or a JPEG.
+  - **#4 Resize pages** (A4 / Letter / Long 8.5x13 / custom): an editor command "Page size…". PDFium `FPDF_ImportNPagesToOne(src,
+    w, h, 1, 1)` makes a new document with every page scaled to fit the new paper (add the P/Invoke); keep links/forms in mind (that
+    call flattens pages into XObjects - warn or keep the old size for form PDFs).
+  - **#5 Stamps + date**: editor tools "Stamp" (Approved, Received, Paid, Rejected, Confidential, Draft, Copy, custom text; coloured
+    rounded box + text + optional date/name line; remembered recent stamps) and "Date" (today's date text, choice of format). Draw as
+    PdfMarks (path + text), flattened like the other edits.
+  - **#6 Real redaction**: mark areas (and "redact all matches" of a search), then Apply = remove what is under them for real: text
+    objects/characters inside (PDFium can't delete single characters - remove the object and re-add the characters outside the box as
+    new text objects), picture pixels inside (GetBitmap -> paint black -> SetBitmap), paths inside, annotations, plus metadata.
+    Black boxes are drawn after. Verify with the text reader that nothing under a box can be found or copied.
+  - **#7 Organize pages / split / pictures <-> PDF**: a page-grid window (thumbnails): drag to reorder, rotate, delete, insert pages
+    from another PDF or pictures, extract selected pages to a new PDF, split every N pages / by ranges, save pages as PNG/JPG (render at a
+    chosen dpi). Pdfium.cs already has FPDF_MovePages, FPDFPage_Delete, FPDF_ImportPagesByIndex, FPDFPage_SetRotation. Merging = #2's
+    Combine window (reachable from the editor too).
+  - **#8 OCR (scans -> searchable)**: Windows.Media.Ocr (built into Windows, offline; the TFM already targets 10.0.19041). Render each
+    page at ~300 dpi, OcrEngine.TryCreateFromUserProfileLanguages, then put each word as INVISIBLE text (text render mode 3; add
+    FPDFTextObj_SetTextRenderMode) at its box, sized to the box. Afterwards search/select/copy work. Offer it when a page has no text.
+  - **#9 Page numbers / watermark / header-footer**: one dialog: text with {n} / {total} / {date} / {file}, position (6 spots), font,
+    size, colour, start number, page range, skip first page; watermark = big diagonal text or a picture with opacity (fill alpha).
+    Written as PdfMarks, with a live preview on the page.
+  - **#10 PDF -> Word and -> Excel**: Word: group text runs (PdfTextRuns gives position, font, size) into lines and paragraphs, keep
+    bold/italic/size, pictures inline, page breaks; write .docx as plain OOXML in a zip (no big library). Excel: find tables from text
+    positions (columns by x clusters, rows by y) -> .xlsx (plain OOXML). Scanned pages need #8 first.
+  - Later maybe: paragraph re-flow editing, making new form fields, certificate (digital ID) signatures, batch processing of folders.
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.
