@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -16,7 +18,12 @@ namespace IdmClone;
 /// </summary>
 public sealed class PdfReduceWindow : Window
 {
+    private static readonly List<PdfReduceWindow> Open_ = new();
+    public static int Count => Open_.Count;
+    public static event Action? AnyClosed;
+
     private readonly string _path;
+    private readonly IReadOnlyList<string>? _batch;  // several PDFs at once (from Explorer): each copy is saved next to its original
     private readonly string? _password;          // the one the PDF was opened with
     private string? _ownerPassword;              // asked for when the PDF is protected against changes
     private bool _askedOwner;
@@ -30,9 +37,18 @@ public sealed class PdfReduceWindow : Window
     private CancellationTokenSource? _cts;
     private string? _saved;
 
-    public PdfReduceWindow(string path, string? password)
+    /// <summary>Several PDFs at once (Explorer's right-click menu): each smaller copy is saved next to its original.</summary>
+    public static void Show(IReadOnlyList<string> paths)
     {
-        _path = path; _password = password;
+        var w = paths.Count == 1 ? new PdfReduceWindow(paths[0], null) : new PdfReduceWindow(paths[0], null, paths);
+        w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        w.Show();
+        w.Activate();
+    }
+
+    public PdfReduceWindow(string path, string? password, IReadOnlyList<string>? batch = null)
+    {
+        _path = path; _password = password; _batch = batch;
         Title = "Reduce file size - Utylix Editor";
         Width = 500;
         SizeToContent = SizeToContent.Height;
@@ -48,8 +64,10 @@ public sealed class PdfReduceWindow : Window
         var root = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
         root.Children.Add(new TextBlock { Text = "Reduce file size", FontSize = 20, FontWeight = FontWeights.SemiBold });
         long size = 0;
-        try { size = new FileInfo(path).Length; } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
-        root.Children.Add(new TextBlock { Text = System.IO.Path.GetFileName(path) + "   ·   " + Bytes(size), Opacity = 0.75, Margin = new Thickness(0, 4, 0, 14), TextTrimming = TextTrimming.CharacterEllipsis });
+        foreach (var f in batch ?? new[] { path })
+            try { size += new FileInfo(f).Length; } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        string what = batch != null ? $"{batch.Count} PDFs" : System.IO.Path.GetFileName(path);
+        root.Children.Add(new TextBlock { Text = what + "   ·   " + Bytes(size), Opacity = 0.75, Margin = new Thickness(0, 4, 0, 14), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = batch != null ? string.Join("\n", batch.Select(System.IO.Path.GetFileName)) : null });
 
         RadioButton Choice(string title, string detail, string id)
         {
@@ -84,7 +102,12 @@ public sealed class PdfReduceWindow : Window
         }
         title.Children.Insert(0, line);
         root.Children.Add(_choices);
-        root.Children.Add(new TextBlock { Text = "Your original file is not changed: you choose where the smaller copy is saved.", Opacity = 0.6, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+        root.Children.Add(new TextBlock
+        {
+            Text = batch != null ? "Your original files are not changed: each smaller copy is saved next to its original, as \"name (reduced).pdf\"."
+                                 : "Your original file is not changed: you choose where the smaller copy is saved.",
+            Opacity = 0.6, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+        });
         root.Children.Add(_bar);
         root.Children.Add(_status);
 
@@ -101,13 +124,17 @@ public sealed class PdfReduceWindow : Window
         _go.Click += async (_, _) => await GoAsync();
         _close.Click += (_, _) => Close();
         Closing += (_, _) => _cts?.Cancel();
+        Closed += (_, _) => { Open_.Remove(this); AnyClosed?.Invoke(); };
+        Open_.Add(this);
     }
 
     private PdfReduceLevel Level => _smallest.IsChecked == true ? PdfReduceLevel.Smallest : _smaller.IsChecked == true ? PdfReduceLevel.Smaller : PdfReduceLevel.Recommended;
 
     private async Task GoAsync()
     {
+        if (_saved != null && _batch != null) { Reveal(_saved); return; }     // (after several, the button shows them in their folder)
         if (_saved != null) { Open(_saved); return; }          // (after saving, the button opens the smaller copy)
+        if (_batch != null) { await GoBatchAsync(); return; }
         bool toSize = _toSize.IsChecked == true;
         long target = 0;
         string limit = "";
@@ -215,8 +242,92 @@ public sealed class PdfReduceWindow : Window
         _go.Content = "Open it";
         _go.IsEnabled = true;
         var folder = new Button { Content = "Show in folder", MinWidth = 120, Margin = new Thickness(0, 0, 10, 0), Style = (Style)Application.Current.FindResource("DialogButton") };
-        folder.Click += (_, _) => { try { Process.Start("explorer.exe", $"/select,\"{_saved}\""); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { } };
+        folder.Click += (_, _) => Reveal(_saved!);
         ((StackPanel)_go.Parent).Children.Insert(0, folder);
+    }
+
+    /// <summary>
+    /// Several PDFs: each one is made smaller in turn and saved next to its original as "name (reduced).pdf" (never over a file
+    /// that is there already). Nothing is asked on the way; what couldn't be done is listed at the end.
+    /// </summary>
+    private async Task GoBatchAsync()
+    {
+        bool toSize = _toSize.IsChecked == true;
+        long target = 0;
+        string limit = "";
+        if (toSize && !TryLimit(out target, out limit)) { _status.Text = "Type the size in MB, for example 2 or 1.5."; _limit.Focus(); return; }
+        var level = Level;
+        var files = _batch!;
+        _cts = new CancellationTokenSource();
+        _go.IsEnabled = false; _choices.IsEnabled = false;
+        _bar.Visibility = Visibility.Visible; _bar.Value = 0;
+        int current = 0;
+        var progress = new Progress<(int Done, int Total)>(p =>
+        {
+            double part = p.Total == 0 ? 0 : Math.Min(1, (double)p.Done / p.Total);
+            _bar.Value = (current + part) / files.Count;
+            _status.Text = $"{System.IO.Path.GetFileName(files[current])} ({current + 1} of {files.Count}): page {Math.Min(p.Done + 1, p.Total)} of {p.Total}";
+        });
+
+        long before = 0, after = 0;
+        int made = 0;
+        string? firstSaved = null;
+        var notes = new List<string>();
+        for (current = 0; current < files.Count; current++)
+        {
+            string file = files[current], name = System.IO.Path.GetFileName(file);
+            PdfReduceResult result;
+            try
+            {
+                result = await Task.Run(() => toSize
+                    ? PdfCompressor.ReduceToSize(file, null, null, target, progress, _cts.Token)
+                    : PdfCompressor.Reduce(file, null, null, level, progress, _cts.Token));
+            }
+            catch (OperationCanceledException) { return; }
+            catch (PdfPasswordException) { notes.Add($"{name}: needs a password - open it in Utylix Editor to reduce it there."); continue; }
+            catch (PdfProtectedException) { notes.Add($"{name}: protected against changes - open it in Utylix Editor to reduce it there."); continue; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or OutOfMemoryException or DllNotFoundException) { notes.Add($"{name}: {e.Message}"); continue; }
+
+            if (!result.Helped)
+            {
+                notes.Add(toSize && result.Fits ? $"{name}: already under {limit}." : $"{name}: already small, nothing to gain.");
+                continue;
+            }
+            try
+            {
+                string dest = ReducedName(file);
+                string temp = dest + ".utylix-tmp";
+                await File.WriteAllBytesAsync(temp, result.Output!);
+                File.Move(temp, dest);
+                firstSaved ??= dest;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { notes.Add($"{name}: couldn't save the copy ({e.Message})."); continue; }
+            made++;
+            before += result.Before; after += result.After;
+            if (toSize && !result.Fits) notes.Add($"{name}: {Bytes(result.After)} is the smallest it gets with the text kept, not under {limit}.");
+        }
+
+        _bar.Value = 1;
+        string summary = made == 0 ? "No smaller copies were made."
+            : $"Done: {made} of {files.Count} PDFs made smaller, {Bytes(before)} → {Bytes(after)} ({(int)Math.Round(100 - 100.0 * after / before)}% smaller), saved next to the originals.";
+        if (notes.Count > 0) summary += "\n" + string.Join("\n", notes.Take(6)) + (notes.Count > 6 ? $"\n…and {notes.Count - 6} more." : "");
+        _status.Text = summary;
+        _cts = null;
+        _choices.IsEnabled = true;
+        if (firstSaved == null) { _go.IsEnabled = true; _bar.Visibility = Visibility.Collapsed; return; }
+        // the button now shows the copies in their folder
+        _go.Content = "Show in folder";
+        _go.IsEnabled = true;
+        _saved = firstSaved;
+    }
+
+    /// <summary>"name (reduced).pdf" next to the original, or "name (reduced 2).pdf" … when that is taken.</summary>
+    private static string ReducedName(string file)
+    {
+        string dir = System.IO.Path.GetDirectoryName(file)!, stem = System.IO.Path.GetFileNameWithoutExtension(file);
+        string candidate = System.IO.Path.Combine(dir, stem + " (reduced).pdf");
+        for (int n = 2; File.Exists(candidate); n++) candidate = System.IO.Path.Combine(dir, $"{stem} (reduced {n}).pdf");
+        return candidate;
     }
 
     private void Done(string message)
@@ -227,6 +338,11 @@ public sealed class PdfReduceWindow : Window
     }
 
     private void Open(string path) { PdfWindow.Open(new[] { path }); Close(); }
+
+    private static void Reveal(string path)
+    {
+        try { Process.Start("explorer.exe", $"/select,\"{path}\""); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+    }
 
     /// <summary>The size typed in the box, in bytes: "2", "1.5", "1,5", "2 MB" or "500 KB". A megabyte counts as 1,000,000 bytes here, the
     /// smaller of the two ways sites count it, so the copy fits either way.</summary>

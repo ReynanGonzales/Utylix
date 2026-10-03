@@ -137,7 +137,16 @@ State on 2026-10-02 (v1.4.0, not yet released on GitHub):
   predicts each step's size and repacks only 1-3 times, keeping the sharpest step that fits. If none fits, it ASKS before
   `ReducePagesToSize` (pages as pictures, 150 .. 50 dpi), and offers the smaller of the two if still too big. Tested on the 5 real PDFs:
   2-10 s each. UMessage now widens for long button labels (SizeToContent, text MaxWidth 350).
-- Next, in order: Explorer right-click shortcuts (reduce, combine, pictures -> PDF), phone-photo
+- DONE 2026-10-03 (not released): Explorer right-click PDF tools (setting "explorer_pdf_menu", default on; wizard choice "PDF tools").
+  .pdf: submenu "Utylix Editor" > Reduce file size… (--pdf-reduce) / Combine into one PDF… (--pdf-combine); pictures: "0pdf" entry
+  "Convert to PDF…" (--to-pdf) inside the Convert submenu, or its own verb when Convert is off (RegisterPdfTools runs after Register).
+  Explorer starts one process per selected file -> BatchPack collects them (ops pdf-reduce / pdf-combine, --to-pdf maps to
+  pdf-combine) -> sorted by StrCmpLogicalW -> PdfReduceWindow.Show (several files: saved next to originals as "name (reduced).pdf",
+  no questions) or PdfCombineWindow. Engine/PdfCombiner.cs: FPDF_ImportPagesByIndex for PDFs (SOURCE DOCS MUST STAY OPEN UNTIL THE
+  SAVE - closing them early crashed in GenerateContent on a form PDF), picture pages via LoadPicture (EXIF orientation, JPEG kept
+  as is, PNG lossless; also used by the editor's Add picture now). Protected PDFs are refused. Not tested by me: the save dialog
+  step of the Combine window (my tools can't type into it) - engine output and everything around it is tested.
+- Next, in order: phone-photo
   cleanup (crop, straighten, black & white), resize pages (A4 / Letter / Long 8.5x13), stamps + date tool, real redaction, organize pages /
   merge / split / pictures <-> PDF, OCR (Windows.Media.Ocr, offline), page numbers / watermark / header-footer, PDF -> Word and -> Excel.
   Later maybe: paragraph re-flow editing, making new form fields, certificate signatures, batch processing.

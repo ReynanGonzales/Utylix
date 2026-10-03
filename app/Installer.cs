@@ -416,6 +416,7 @@ internal static partial class Installer
             ShellMenu.RegisterArchive(dataDir, false);
             ShellMenu.RegisterBackground(dataDir, false);
             ShellMenu.RegisterPlayer(dataDir, false);
+            ShellMenu.RegisterPdfTools(dataDir, false);
             ShellMenu.RegisterTorrent(false);
             ShellMenu.RegisterViewer(null);
             ShellMenu.RegisterPdf(null);

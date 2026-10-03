@@ -187,6 +187,7 @@ public partial class App : Application
             ShellMenu.RegisterPlayer(dataDir, _manager.Config.ExplorerPlayMenu);       // right-click -> Play with Utylix, and "Open with"
             ShellMenu.RegisterViewer(dataDir);                                         // "Open with" Utylix on pictures
             ShellMenu.RegisterPdf(dataDir);                                            // "Open with" Utylix PDF on .pdf files
+            ShellMenu.RegisterPdfTools(dataDir, _manager.Config.ExplorerPdfMenu);       // right-click -> Reduce file size, Combine into one PDF, Convert to PDF
             Installer.RefreshAppsEntry();                                              // the version shown in Settings > Apps
             ShellMenu.HidePlainExeFromOpenWith();                                      // (only the named entries: Utylix Editor, Utylix Photos, ...)
             ShellMenu.RegisterTorrent(_manager.Config.TorrentHandler);                 // magnet links and .torrent files can be opened with Utylix
@@ -218,7 +219,11 @@ public partial class App : Application
         if (toolCmd != null)                                                               // started by the right-click menu: no main window
         {
             if (toolCmd.Value.Op == "view") { _ephemeral = true; ViewerWindow.AnyClosed += MaybeQuitAfterArchive; }            // a double-clicked picture: go away when the viewer is closed
-            if (toolCmd.Value.Op == "pdf") { _ephemeral = true; PdfWindow.AnyClosed += MaybeQuitAfterArchive; }                // a double-clicked PDF: go away when its window is closed
+            if (toolCmd.Value.Op is "pdf" or "pdf-reduce" or "pdf-combine")                                                   // a double-clicked PDF, or a PDF tool from the right-click menu: go away when its window is closed
+            {
+                _ephemeral = true;
+                PdfWindow.AnyClosed += MaybeQuitAfterArchive; PdfReduceWindow.AnyClosed += MaybeQuitAfterArchive; PdfCombineWindow.AnyClosed += MaybeQuitAfterArchive;
+            }
             if (toolCmd.Value.Op == "play") { _ephemeral = true; PlayerWindow.AnyClosed += MaybeQuitAfterArchive; MusicWindow.AnyClosed += MaybeQuitAfterArchive; }   // a double-clicked video: go away when the player is closed
             HandleTool(toolCmd.Value.Op, toolCmd.Value.Files);
         }
@@ -231,6 +236,9 @@ public partial class App : Application
         }
         else if (!e.Args.Contains("--minimized")) ShowTab("downloads");
     }
+
+    [System.Runtime.InteropServices.DllImport("shlwapi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int StrCmpLogicalW(string a, string b);
 
     // ---------- Remove background / Play (Explorer right-click) ----------
     private QuickBackground? _quickBackground;
@@ -257,15 +265,24 @@ public partial class App : Application
         if (args.Contains("--extension-help")) return ("extension", new List<string>());    // shows how to add the browser extension
         if (args.Contains("--snip")) return ("snip", new List<string>());                  // opens the Snip window
         if (args.Contains("--brightness")) return ("brightness", new List<string>());       // opens the brightness panel
-        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent" or "--view" or "--pdf");
+        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent" or "--view" or "--pdf" or "--pdf-reduce" or "--pdf-combine" or "--to-pdf");
         if (i < 0) return null;
         var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).ToList();
-        return files.Count == 0 ? null : (args[i] == "--remove-bg" ? "remove-bg" : args[i] == "--torrent" ? "torrent" : args[i] == "--view" ? "view" : args[i] == "--pdf" ? "pdf" : "play", files);
+        // "Convert to PDF" on pictures and "Combine into one PDF" on PDFs end up in the same window
+        return files.Count == 0 ? null : (args[i] == "--to-pdf" ? "pdf-combine" : args[i].TrimStart('-'), files);
     }
 
-    private void HandleTool(string op, List<string> files)
+    private void HandleTool(string op, List<string> files, bool batched = false)
     {
-        if (op == "remove-bg") _quickBackground?.Enqueue(files.Where(BackgroundRemover.IsPicture));
+        if (!batched && op is "pdf-reduce" or "pdf-combine") { BatchPack(op, files); return; }     // the whole selection in one window
+        if (op is "pdf-reduce" or "pdf-combine")
+        {
+            // in the order Explorer shows them (by name, numbers counted as numbers): page1, page2, … page10
+            files.Sort((a, b) => StrCmpLogicalW(Path.GetFileName(a), Path.GetFileName(b)));
+            if (op == "pdf-reduce") PdfReduceWindow.Show(files);
+            else PdfCombineWindow.Show(files);
+        }
+        else if (op == "remove-bg") _quickBackground?.Enqueue(files.Where(BackgroundRemover.IsPicture));
         else if (op == "play")
         {
             // songs go to the music player, videos to the video player (a mix: each to its own)
@@ -325,13 +342,13 @@ public partial class App : Application
 
     private void MaybeQuitAfterArchive()
     {
-        if (!_ephemeral || ArchiveWindow.Count > 0 || PlayerWindow.Count > 0 || ViewerWindow.Count > 0 || MusicWindow.Count > 0 || PdfWindow.Count > 0 || (_shell?.IsVisible ?? false) || _manager == null) return;
+        if (!_ephemeral || ArchiveWindow.Count > 0 || PlayerWindow.Count > 0 || ViewerWindow.Count > 0 || MusicWindow.Count > 0 || PdfWindow.Count > 0 || PdfReduceWindow.Count > 0 || PdfCombineWindow.Count > 0 || (_shell?.IsVisible ?? false) || _manager == null) return;
         if (_manager.All().Any(d => d.Status is DlStatus.Downloading or DlStatus.Queued)) return;      // it is doing something else too
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (_ephemeral && ArchiveWindow.Count == 0 && PlayerWindow.Count == 0 && ViewerWindow.Count == 0 && MusicWindow.Count == 0 && PdfWindow.Count == 0 && !(_shell?.IsVisible ?? false)) Quit();
+            if (_ephemeral && ArchiveWindow.Count == 0 && PlayerWindow.Count == 0 && ViewerWindow.Count == 0 && MusicWindow.Count == 0 && PdfWindow.Count == 0 && PdfReduceWindow.Count == 0 && PdfCombineWindow.Count == 0 && !(_shell?.IsVisible ?? false)) Quit();
         };
         timer.Start();
     }
@@ -366,7 +383,9 @@ public partial class App : Application
                 var ready = _packBatch.ToList();
                 _packBatch.Clear();
                 _packTimer = null;
-                foreach (var (o, fs) in ready) HandleArchive(o, fs, batched: true);
+                foreach (var (o, fs) in ready)
+                    if (o is "pdf-reduce" or "pdf-combine") HandleTool(o, fs, batched: true);
+                    else HandleArchive(o, fs, batched: true);
             };
         }
         _packTimer.Stop();

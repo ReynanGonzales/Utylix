@@ -231,6 +231,50 @@ public static class ShellMenu
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
     }
 
+    // ---------- PDF tools ----------
+    private const string PdfToolsVerb = "Utylix.PdfTools", ToPdfVerb = "Utylix.ToPdf";
+
+    /// <summary>
+    /// Right-click a PDF: "Utylix Editor" &gt; Reduce file size… / Combine into one PDF…. Right-click a picture: "Convert to PDF" (in the
+    /// Convert submenu when that is on, otherwise on its own). Call after <see cref="Register"/>, which rewrites the Convert submenu.
+    /// </summary>
+    public static void RegisterPdfTools(string dataDir, bool enabled)
+    {
+        try
+        {
+            string exe = Environment.ProcessPath!;
+            string key = $@"Software\Classes\SystemFileAssociations\.pdf\shell\{PdfToolsVerb}";
+            Registry.CurrentUser.DeleteSubKeyTree(key, throwOnMissingSubKey: false);
+            if (enabled)
+            {
+                using var menu = Registry.CurrentUser.CreateSubKey(key);
+                menu.SetValue("MUIVerb", "Utylix Editor");
+                menu.SetValue("SubCommands", "");
+                menu.SetValue("Icon", OwnIcon(dataDir, "pdf", IconOf(exe)));
+                Add(menu, "1reduce", "Reduce file size…", $"\"{exe}\" --pdf-reduce \"%1\"");
+                Add(menu, "2combine", "Combine into one PDF…", $"\"{exe}\" --pdf-combine \"%1\"");
+            }
+            foreach (string ext in PdfCombiner.PictureExtensions)
+            {
+                string own = $@"Software\Classes\SystemFileAssociations\.{ext}\shell\{ToPdfVerb}";
+                Registry.CurrentUser.DeleteSubKeyTree(own, throwOnMissingSubKey: false);
+                if (!enabled) continue;
+                string command = $"\"{exe}\" --to-pdf \"%1\"";
+                using var convert = Registry.CurrentUser.OpenSubKey(KeyFor(ext), writable: true);
+                if (convert != null) Add(convert, "0pdf", "Convert to PDF…", command);
+                else
+                {
+                    using var verb = Registry.CurrentUser.CreateSubKey(own);
+                    verb.SetValue("MUIVerb", "Convert to PDF");
+                    verb.SetValue("Icon", OwnIcon(dataDir, "pdf", IconOf(exe)));
+                    using var c = verb.CreateSubKey("command");
+                    c.SetValue("", command);
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
+    }
+
     // ---------- torrents ----------
     private const string TorrentProgId = "Utylix.Torrent", MagnetProgId = "Utylix.Magnet";
 

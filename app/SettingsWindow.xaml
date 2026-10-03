@@ -288,6 +288,9 @@
                         <CheckBox x:Name="ExplorerMenuBox" Content="Show &quot;Convert&quot; when I right-click a picture, video or music file in Windows Explorer" />
                         <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                    Text="Right-click a PNG, MP4, MP3… → Convert → pick a format. Only added for your Windows account; turning it off removes it again." />
+                        <CheckBox x:Name="PdfMenuBox" Margin="0,14,0,0" Content="Show the PDF tools when I right-click PDFs and pictures in Windows Explorer" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="Right-click PDFs → Utylix Editor → Reduce file size or Combine into one PDF. Right-click pictures → Convert → Convert to PDF (several selected pictures become one PDF)." />
                         <CheckBox x:Name="BgMenuBox" Margin="0,14,0,0" Content="Show &quot;Remove background&quot; when I right-click a picture in Windows Explorer" />
                         <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                    Text="Saves a PNG with a transparent background next to the picture. The AI model (about 170 MB) is downloaded once, after asking, and everything runs on this PC: pictures are never uploaded." />

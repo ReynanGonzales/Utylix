@@ -1037,21 +1037,10 @@ public sealed partial class PdfWindow
         BitmapSource picture; byte[]? jpeg = null;
         try
         {
-            byte[] bytes = File.ReadAllBytes(dlg.FileName);
-            var decoder = BitmapDecoder.Create(new MemoryStream(bytes), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-            picture = decoder.Frames[0];
-            bool alpha = picture.Format.Masks.Count == 4 || picture.Format == PixelFormats.Bgra32 || picture.Format == PixelFormats.Pbgra32 || picture.Format == PixelFormats.Indexed8 && picture.Palette?.Colors.Any(c => c.A < 255) == true;
-            // big photos are made a sensible size for a page (they'd make the PDF huge)
-            double big = Math.Max(picture.PixelWidth, picture.PixelHeight) / 2400.0;
-            if (big > 1) { picture = new TransformedBitmap(picture, new ScaleTransform(1 / big, 1 / big)); }
-            if (!alpha && decoder is JpegBitmapDecoder && big <= 1) jpeg = bytes;
-            else if (!alpha)
-            {
-                var enc = new JpegBitmapEncoder { QualityLevel = 88 };
-                enc.Frames.Add(BitmapFrame.Create(new FormatConvertedBitmap(picture, PixelFormats.Bgr24, null, 0)));
-                using var ms = new MemoryStream(); enc.Save(ms); jpeg = ms.ToArray();
-            }
-            picture = new FormatConvertedBitmap(picture, PixelFormats.Bgra32, null, 0);
+            // big photos are made a sensible size for a page (they'd make the PDF huge); phone photos are turned the right way up
+            var loaded = PdfCombiner.LoadPicture(File.ReadAllBytes(dlg.FileName), 2400);
+            jpeg = loaded.Jpeg;
+            picture = new FormatConvertedBitmap(loaded.Pixels, PixelFormats.Bgra32, null, 0);
             picture.Freeze();
         }
         catch (Exception e) when (e is IOException or NotSupportedException or FileFormatException or InvalidOperationException or UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.COMException)

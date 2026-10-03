@@ -64,6 +64,7 @@ public sealed class Config
     // ---- video player ----
     /// <summary>"Play with Utylix" in Explorer's right-click menu for video and music files.</summary>
     [JsonPropertyName("explorer_play_menu")] public bool ExplorerPlayMenu { get; set; } = true;
+    [JsonPropertyName("explorer_pdf_menu")] public bool ExplorerPdfMenu { get; set; } = true;
 
     // ---- archives ----
     /// <summary>Extract / Add to ZIP entries in Explorer's right-click menu, and Utylix in "Open with" for archives.</summary>
@@ -271,6 +272,7 @@ public sealed class Manager
                 ExplorerArchiveMenu = c.ExplorerArchiveMenu,
                 ExplorerBgMenu = c.ExplorerBgMenu,
                 ExplorerPlayMenu = c.ExplorerPlayMenu,
+                ExplorerPdfMenu = c.ExplorerPdfMenu,
                 AfterDownload = Config.AfterDownload,          // not a Settings field: keep what we have
                 TorrentSeed = c.TorrentSeed,
                 TorrentDownKb = Math.Clamp(c.TorrentDownKb, 0, 10_000_000),

@@ -17,7 +17,7 @@ namespace IdmClone;
 
 /// <summary>What was chosen in the setup wizard.</summary>
 internal sealed record Choices(string Dir, bool AllUsers, bool Desktop, bool AutoStart,
-                               bool Convert, bool Archive, bool RemoveBg, bool Play,
+                               bool Convert, bool Archive, bool RemoveBg, bool Play, bool Pdf,
                                bool YtDlp, bool Ffmpeg, bool Vlc, bool Model)
 {
     /// <summary>Command line for the administrator copy of the wizard (started when "all users" needs UAC).</summary>
@@ -31,6 +31,7 @@ internal sealed record Choices(string Dir, bool AllUsers, bool Desktop, bool Aut
         if (!Archive) a.Add("--no-archive");
         if (!RemoveBg) a.Add("--no-bg");
         if (!Play) a.Add("--no-play");
+        if (!Pdf) a.Add("--no-pdf-menu");
         var get = new List<string>();
         if (YtDlp) get.Add("yt"); if (Ffmpeg) get.Add("ff"); if (Vlc) get.Add("vlc"); if (Model) get.Add("ai");
         if (get.Count > 0) { a.Add("--get"); a.Add(string.Join(",", get)); }
@@ -42,7 +43,7 @@ internal sealed record Choices(string Dir, bool AllUsers, bool Desktop, bool Aut
         int d = Array.IndexOf(args, "--dir"), g = Array.IndexOf(args, "--get");
         var get = g >= 0 && g + 1 < args.Length ? args[g + 1].Split(',') : Array.Empty<string>();
         return new Choices(d >= 0 && d + 1 < args.Length ? args[d + 1] : Installer.AllUsersDir, args.Contains("--all-users"), args.Contains("--desktop"), args.Contains("--autostart"),
-                           !args.Contains("--no-convert"), !args.Contains("--no-archive"), !args.Contains("--no-bg"), !args.Contains("--no-play"),
+                           !args.Contains("--no-convert"), !args.Contains("--no-archive"), !args.Contains("--no-bg"), !args.Contains("--no-play"), !args.Contains("--no-pdf-menu"),
                            get.Contains("yt"), get.Contains("ff"), get.Contains("vlc"), get.Contains("ai"));
     }
 }
@@ -79,6 +80,7 @@ internal static partial class Installer
         o["explorer_archive_menu"] = c.Archive;
         o["explorer_bg_menu"] = c.RemoveBg;
         o["explorer_play_menu"] = c.Play;
+        o["explorer_pdf_menu"] = c.Pdf;
         File.WriteAllText(path, o.ToJsonString());
     }
 
@@ -203,13 +205,14 @@ internal static partial class Installer
         var cArchive = Check("Utylix Archive", "SetupArchive", start?.Archive ?? ConfigFlag("explorer_archive_menu", true), "Right-click files or folders -> Add to ZIP / Add to archive, and open or extract ZIP, RAR, 7z ...");
         var cBg = Check("Remove background", "SetupBg", start?.RemoveBg ?? ConfigFlag("explorer_bg_menu", true), "Right-click a picture -> Remove background");
         var cPlay = Check("Play with Utylix", "SetupPlay", start?.Play ?? ConfigFlag("explorer_play_menu", true), "Right-click a video or song -> Play with Utylix, and Utylix in \"Open with\"");
+        var cPdf = Check("PDF tools", "SetupPdf", start?.Pdf ?? ConfigFlag("explorer_pdf_menu", true), "Right-click PDFs -> Reduce file size / Combine into one PDF; pictures -> Convert to PDF");
         var cAuto = Check("Run Utylix when Windows starts", "SetupAutostart", start?.AutoStart ?? true, "It waits quietly in the tray so it can take your browser's downloads and answer the hotkeys");
         var cDesk = Check("Put a Utylix shortcut on the desktop", "SetupDesktop", start?.Desktop ?? false);
         var all3 = new Button { Content = "Turn all on", Style = (Style)R("LinkButton"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
-        all3.Click += (_, _) => { foreach (var b in new[] { cConvert, cArchive, cBg, cPlay, cAuto, cDesk }) b.IsChecked = true; };
+        all3.Click += (_, _) => { foreach (var b in new[] { cConvert, cArchive, cBg, cPlay, cPdf, cAuto, cDesk }) b.IsChecked = true; };
         var features = new StackPanel();
         features.Children.Add(Text("Right-click menus in Explorer", bold: true));
-        features.Children.Add(cConvert); features.Children.Add(cArchive); features.Children.Add(cBg); features.Children.Add(cPlay);
+        features.Children.Add(cConvert); features.Children.Add(cArchive); features.Children.Add(cBg); features.Children.Add(cPlay); features.Children.Add(cPdf);
         features.Children.Add(Text("Startup and shortcuts", bold: true, margin: new Thickness(0, 22, 0, 0)));
         features.Children.Add(cAuto); features.Children.Add(cDesk);
         features.Children.Add(all3);
@@ -322,7 +325,7 @@ internal static partial class Installer
         window.Closing += (_, e) => { if (installing_) e.Cancel = true; };      // not while files are being written
 
         Choices Current() => new(dirBox.Text.Trim(), scopeAll.IsChecked == true, cDesk.IsChecked == true, cAuto.IsChecked == true,
-                                 cConvert.IsChecked == true, cArchive.IsChecked == true, cBg.IsChecked == true, cPlay.IsChecked == true,
+                                 cConvert.IsChecked == true, cArchive.IsChecked == true, cBg.IsChecked == true, cPlay.IsChecked == true, cPdf.IsChecked == true,
                                  dYt.IsChecked == true, dFf.IsChecked == true, dVlc.IsChecked == true, dAi.IsChecked == true);
 
         async Task DoInstall(Choices c)

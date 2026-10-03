@@ -201,27 +201,8 @@ public static class PdfMarkWriter
     {
         IntPtr obj = Pdfium.FPDFPageObj_NewImageObj(doc);
         if (obj == IntPtr.Zero) throw new IOException("The picture couldn't be added.");
-        if (m.Jpeg != null)
-        {
-            if (!Pdfium.LoadJpeg(obj, m.Jpeg)) throw new IOException("The picture couldn't be added.");
-        }
-        else if (m.Pixels != null)
-        {
-            BitmapSource src = m.Pixels.Format == PixelFormats.Bgra32 ? m.Pixels : new FormatConvertedBitmap(m.Pixels, PixelFormats.Bgra32, null, 0);
-            int w = src.PixelWidth, h = src.PixelHeight, stride = w * 4;
-            var pixels = new byte[stride * h];
-            src.CopyPixels(pixels, stride, 0);
-            var pin = GCHandle.Alloc(pixels, GCHandleType.Pinned);
-            try
-            {
-                IntPtr bmp = Pdfium.FPDFBitmap_CreateEx(w, h, Pdfium.BitmapBgra, pin.AddrOfPinnedObject(), stride);
-                if (bmp == IntPtr.Zero) throw new IOException("The picture couldn't be added.");
-                try { if (Pdfium.FPDFImageObj_SetBitmap(IntPtr.Zero, 0, obj, bmp) == 0) throw new IOException("The picture couldn't be added."); }
-                finally { Pdfium.FPDFBitmap_Destroy(bmp); }
-            }
-            finally { pin.Free(); }
-        }
-        else return;
+        if (m.Jpeg == null && m.Pixels == null) return;
+        if (!PdfCombiner.SetPicture(obj, m.Jpeg, m.Pixels)) throw new IOException("The picture couldn't be added.");
         // the picture's square (0..1, upwards) onto its box
         var bottomLeft = map.ToPage(new Point(m.Box.Left, m.Box.Bottom));
         var right = map.Right * m.Box.Width; var up = map.Up * m.Box.Height;
