@@ -6,6 +6,10 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
+
+# the program folder's libraries go into subfolders (dotnet\, wpf\, libs\); the script checks that the result starts and otherwise leaves the folder flat
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "organize-publish.ps1") -Dir $Program
+if ($LASTEXITCODE -ne 0) { Write-Warning "The program folder could not be organized into subfolders: it stays flat (it works the same)." }
 $fw = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319"
 $obj = Join-Path $root "setup\obj"
 New-Item -ItemType Directory -Force $obj | Out-Null

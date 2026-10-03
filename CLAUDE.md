@@ -41,6 +41,26 @@ Release = raise `<Version>` in `app/Utylix.csproj`, run build.bat, create a GitH
 version or the updater loops / never offers), attach **`Utylix-Setup.exe` AND `Utylix.exe`** (updaters of 1.5+ prefer the setup; older
 ones need Utylix.exe). Not a pre-release. `gh` is installed on the work PC (logged in), not on the owner's home PC.
 
+### The program folder has subfolders (2026-10-03, not released)
+`app\publish` (and the installed folder) is `Utylix.exe` + `Utylix.dll` + json + the native libraries + a few core libraries in the main folder (37 files),
+and `dotnet\` (the .NET runtime's managed libraries), `wpf\` (WPF / Windows Forms), `libs\` (NuGet libraries: PdfSharp, MonoTorrent, NAudio, WinRT ...).
+Made by `tools\organize-publish.ps1`, which `tools\pack-setup.ps1` runs first (so build.bat and InstallerBuilder.bat get it). HOW / WHY:
+- .NET (self-contained) only looks for a library by FILE NAME in the app folder (hostpolicy ignores the path inside deps.json for app-local assets, and it
+  ignores `runtimeTargets` for self-contained apps) - so the moved libraries are REMOVED from `Utylix.deps.json` and `app\AppFolders.cs` finds them:
+  `Program.Main` (the entry point, `<StartupObject>`; NOT App, whose base class is a WPF library that would have to be found before any of our code ran)
+  calls `AppFolders.Init()` which hooks `AssemblyLoadContext.Default.Resolving` with a name -> path map of the three folders.
+- The resolver itself may only use libraries that stay beside the exe (`$stay` in the script: CoreLib, System.Runtime, System.Runtime.Loader, System.Collections,
+  System.Threading) - anything else it touches would call the resolver again (it answers "not found" when re-entered, no loops) and fail. No LINQ, no
+  File.AppendAllText etc. on its fast path; rare paths are in separate NoInlining methods. If a new .NET version needs another one, the self-test says which
+  (`scratchpad` loop: run, read the .NET Runtime event "Could not load file or assembly 'X'", add X to `$stay`).
+- Native libraries (coreclr, clrjit, pdfium, onnxruntime, WPF's *_cor3 ...) stay in the main folder (moving them would need DllImport resolvers).
+- `Utylix.exe --selftest` (SelfTest in AppFolders.cs) loads every library, opens a hidden window, calls PDFium, PdfSharp, the OCR engine, MonoTorrent, ONNX Runtime,
+  SharpCompress, NAudio; the script runs it after moving and PUTS EVERYTHING BACK (flat folder) if it fails. `-KeepOnFail` keeps the failed layout for diagnosis.
+  A flat folder, the single-file build and bin\ test builds have no such folders, so AppFolders does nothing there.
+- The installer / updater / manifest already handled subfolders (`Installer.ProgramFiles` is recursive; files of the old manifest that are gone are deleted).
+  Tested: `--setup-update` on a copy with the old flat layout (299 -> 37 root files, old files removed) and on the owner's installed copy. The FanHelper's
+  protected copy (`C:\Program Files\Utylix\FanHelper`) is still the old single-file exe: it works (Generation unchanged); a new `FanTask.Install` copies the folder layout.
+
 ## Things that bit us (read before changing these areas)
 - **Editing C# through shell heredocs mangles backslashes** (`\\` collapses). Use the Edit/Write tools for code with Windows paths or registry keys.
 - **Registry (`ShellMenu`)**: only write what changed (`SetIfDifferent`); never delete/recreate verb keys on every start. Utylix must not override
