@@ -285,6 +285,8 @@ Utylix Editor reads, fills in, edits, signs, prints and shrinks PDFs with PDFium
 
 Songs open in their own player (videos still open in the Video Player): a playlist with cover art (from the file, or a `cover.jpg` / `folder.jpg` next to it), shuffle, repeat (off / all / one), and the keyboard's media keys (play-pause, next, previous) while it is open. Open one song from Explorer and the rest of its folder follows it. "Add folder…" adds a folder and its folders; "Show: …" switches the list and the player between song + artist, artist only and song only; "Small player" hides the list. The tray menu has "Music: play / pause" and "Music: next song".
 
+**Sound…** (under the volume): a 10-band **equalizer** with a preamp and presets (Flat, Bass boost, Treble boost, Vocal, Rock, Pop, Jazz, Classical, Dance; move a slider and the preset becomes your own), **speed** (0.75× to 2×), **even out the volume** (loud and quiet songs sound about the same, from the next song on), and a **sleep timer** (pause after 15 / 30 / 60 minutes, or stop when this song ends). Your choices are remembered. Above the playlist, **Find a song…** jumps to the first match by title, artist, album or file name (Enter: the next one). When the player is opened empty (tray menu > Music player), the playlist you left is back (not playing yet).
+
 ## Background Remover
 
 Right-click a picture (PNG, JPG, WebP, BMP, TIFF, HEIC, AVIF) → **Remove background**. A few seconds later a notice says

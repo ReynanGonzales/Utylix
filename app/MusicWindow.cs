@@ -70,6 +70,9 @@ public sealed class MusicWindow : Window
         public int Display { get; set; }
         public double Width { get; set; } = 900;
         public double Height { get; set; } = 560;
+        public SoundSettings Sound { get; set; } = new();
+        public List<string> Queue { get; set; } = new();          // the playlist as it was left (shown again when the player is opened empty)
+        public int LastIndex { get; set; } = -1;
     }
 
     // ---------- one music window ----------
@@ -112,7 +115,7 @@ public sealed class MusicWindow : Window
     public static void OpenEmpty()
     {
         if (!PlayerWindow.EnsureEngine()) return;
-        if (_main == null) { _main = new MusicWindow(); _main.Show(); }
+        if (_main == null) { _main = new MusicWindow(); _main.Show(); _main.RestoreQueue(); }
         if (_main.WindowState == WindowState.Minimized) _main.WindowState = WindowState.Normal;
         _main.Activate();
     }
@@ -175,6 +178,7 @@ public sealed class MusicWindow : Window
             mp.EncounteredError += (_, _) => Dispatcher.BeginInvoke(new Action(OnError));
             mp.Volume = _volume;
             _mp = mp;
+            Dispatcher.BeginInvoke(new Action(ApplySound));              // (the equalizer and speed chosen last time)
         }
         catch (Exception ex)
         {
@@ -228,16 +232,30 @@ public sealed class MusicWindow : Window
 
     private static Saved LoadSaved()
     {
-        try { if (File.Exists(SavedPath)) return JsonSerializer.Deserialize<Saved>(File.ReadAllText(SavedPath)) ?? new(); }
+        try
+        {
+            if (File.Exists(SavedPath))
+            {
+                var saved = JsonSerializer.Deserialize<Saved>(File.ReadAllText(SavedPath)) ?? new();
+                saved.Sound ??= new SoundSettings();
+                if (saved.Sound.Bands == null || saved.Sound.Bands.Length != 10) saved.Sound.Bands = new double[10];
+                saved.Queue ??= new List<string>();
+                return saved;
+            }
+        }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { }
         return new();
     }
+
+    private SoundSettings _sound => _saved.Sound;
 
     private void Save()
     {
         try
         {
             _saved.Volume = (int)_vol.Value; _saved.Shuffle = _shuffle; _saved.Repeat = (int)_repeat; _saved.Display = Track.DisplayMode;
+            _saved.Queue = _list.Select(t => t.Path).Take(5000).ToList();
+            _saved.LastIndex = _list.ToList().FindIndex(t => t.IsCurrent);
             if (!_compact && WindowState == WindowState.Normal) { _saved.Width = ActualWidth; _saved.Height = ActualHeight; }
             File.WriteAllText(SavedPath, JsonSerializer.Serialize(_saved));
         }
@@ -290,6 +308,10 @@ public sealed class MusicWindow : Window
         var volRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
         volRow.Children.Add(new TextBlock { Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 16, Foreground = new SolidColorBrush(Color.FromRgb(0xA7, 0xAE, 0xBF)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
         volRow.Children.Add(_vol);
+        var soundBtn = new Button { Content = "Sound…", Style = (Style)FindResource("SmallButton"), Margin = new Thickness(16, 0, 0, 0), ToolTip = "Equalizer, speed, even out the volume, sleep timer" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(soundBtn, "MusicSound");
+        soundBtn.Click += (_, _) => ShowSound();
+        volRow.Children.Add(soundBtn);
 
         var left = new StackPanel { Margin = new Thickness(26, 16, 26, 16), VerticalAlignment = VerticalAlignment.Center };
         left.Children.Add(coverBox);
@@ -333,9 +355,22 @@ public sealed class MusicWindow : Window
         _list.CollectionChanged += (_, _) => emptyHint.Visibility = _list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var rightGrid = new Grid();
         rightGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rightGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         rightGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        Grid.SetRow(head, 0); Grid.SetRow(_playlist, 1);
-        rightGrid.Children.Add(head); rightGrid.Children.Add(_playlist);
+        // a box to find a song in a long playlist: typing jumps to the first match, Enter goes to the next, Enter on a chosen song plays it
+        var find = new TextBox { Margin = new Thickness(16, 0, 16, 8), Padding = new Thickness(8, 5, 8, 5), Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1F, 0x2B)), Foreground = Brushes.White, CaretBrush = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(0x2D, 0x34, 0x46)), VerticalContentAlignment = VerticalAlignment.Center, ToolTip = "Find a song in the playlist (title, artist, album or file name). Enter: the next match" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(find, "MusicFind");
+        var findHint = new TextBlock { Text = "Find a song…", Foreground = new SolidColorBrush(Color.FromRgb(0x8B, 0x93, 0xA5)), Margin = new Thickness(26, 0, 0, 8), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+        find.TextChanged += (_, _) => { findHint.Visibility = find.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; FindSong(find.Text, next: false); };
+        find.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { FindSong(find.Text, next: true); e.Handled = true; }
+            else if (e.Key == Key.Escape) { find.Text = ""; _playlist.Focus(); e.Handled = true; }
+            else if (e.Key == Key.Down && _playlist.Items.Count > 0) { _playlist.Focus(); e.Handled = true; }
+        };
+        var findBox = new Grid(); findBox.Children.Add(find); findBox.Children.Add(findHint);
+        Grid.SetRow(head, 0); Grid.SetRow(findBox, 1); Grid.SetRow(_playlist, 2);
+        rightGrid.Children.Add(head); rightGrid.Children.Add(findBox); rightGrid.Children.Add(_playlist);
         var listArea = new Grid(); listArea.Children.Add(rightGrid); listArea.Children.Add(emptyHint);
         _right = new Border { Child = listArea, Background = new SolidColorBrush(Color.FromRgb(0x15, 0x18, 0x21)) };
 
@@ -365,6 +400,102 @@ public sealed class MusicWindow : Window
         Closed += (_, _) => { _main = null; AnyClosed?.Invoke(); };
         RefreshModes();
         emptyHint.Visibility = Visibility.Visible;
+    }
+
+    // ---------- sound: equalizer, speed, sleep timer ----------
+    private Equalizer? _eq;                         // (touched only by the player thread)
+    private MusicSoundWindow? _soundWindow;
+    private DispatcherTimer? _sleepTimer;
+    private DateTime _sleepAt;
+    private bool _sleepAfterSong;
+
+    private void ShowSound()
+    {
+        if (_soundWindow != null) { _soundWindow.Activate(); return; }
+        _soundWindow = new MusicSoundWindow(this, _sound, ApplySound, SetSleep, SleepText);
+        _soundWindow.Closed += (_, _) => { _soundWindow = null; Save(); };
+        _soundWindow.Show();
+    }
+
+    /// <summary>Puts the equalizer and speed chosen in the Sound window on the playing song (and the ones after it).</summary>
+    private void ApplySound()
+    {
+        var s = _sound;
+        bool on = s.EqOn; float preamp = (float)s.Preamp; float[] bands = s.Bands.Select(b => (float)b).ToArray(); float speed = (float)s.Speed;
+        Post(mp =>
+        {
+            if (on)
+            {
+                var eq = new Equalizer();
+                eq.SetPreamp(preamp);
+                for (uint i = 0; i < bands.Length && i < eq.BandCount; i++) eq.SetAmp(bands[i], i);
+                mp.SetEqualizer(eq);
+                _eq?.Dispose(); _eq = eq;
+            }
+            else
+            {
+                var flat = new Equalizer();                                    // (all bands at 0 dB = the sound as it is)
+                mp.SetEqualizer(flat);
+                _eq?.Dispose(); _eq = flat;
+            }
+            mp.SetRate(speed);
+        });
+    }
+
+    /// <summary>0 = off, minutes = stop after that long, -1 = stop when this song ends.</summary>
+    private void SetSleep(int minutes)
+    {
+        _sleepTimer?.Stop();
+        _sleepAfterSong = minutes < 0;
+        if (minutes <= 0) return;
+        _sleepAt = DateTime.UtcNow.AddMinutes(minutes);
+        _sleepTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _sleepTimer.Tick -= SleepTick; _sleepTimer.Tick += SleepTick;
+        _sleepTimer.Start();
+    }
+
+    private void SleepTick(object? sender, EventArgs e)
+    {
+        if (DateTime.UtcNow < _sleepAt) return;
+        _sleepTimer?.Stop();
+        Post(mp => mp.SetPause(true));                                         // (paused, not closed: press play to go on)
+        _nowArtist.Text = "Sleep timer: paused";
+    }
+
+    private string SleepText()
+    {
+        if (_sleepAfterSong) return "The music stops when this song ends.";
+        if (_sleepTimer is { IsEnabled: true }) { var left = _sleepAt - DateTime.UtcNow; if (left < TimeSpan.Zero) left = TimeSpan.Zero; return $"The music pauses in {(int)left.TotalMinutes}:{left.Seconds:00}."; }
+        return "No sleep timer.";
+    }
+
+    // ---------- the playlist as it was left ----------
+    private void RestoreQueue()
+    {
+        if (_list.Count > 0 || _saved.Queue.Count == 0) return;
+        foreach (string path in _saved.Queue) if (File.Exists(path)) _list.Add(new Track { Path = path });
+        if (_list.Count == 0) return;
+        RebuildOrder(keepCurrent: false);
+        if (_saved.LastIndex >= 0 && _saved.LastIndex < _list.Count) { _playlist.SelectedIndex = _saved.LastIndex; _playlist.ScrollIntoView(_list[_saved.LastIndex]); _pos = Math.Max(0, _order.IndexOf(_saved.LastIndex)); }
+        _ = ReadInfoAsync();
+    }
+
+    // ---------- finding a song in the playlist ----------
+    private void FindSong(string text, bool next)
+    {
+        text = text.Trim();
+        if (text.Length == 0 || _list.Count == 0) return;
+        int start = next ? Math.Max(0, _playlist.SelectedIndex) + 1 : 0;
+        for (int k = 0; k < _list.Count; k++)
+        {
+            int i = (start + k) % _list.Count;
+            var t = _list[i];
+            if (t.Title.Contains(text, StringComparison.CurrentCultureIgnoreCase) || t.Artist.Contains(text, StringComparison.CurrentCultureIgnoreCase) || t.Album.Contains(text, StringComparison.CurrentCultureIgnoreCase) || System.IO.Path.GetFileNameWithoutExtension(t.Path).Contains(text, StringComparison.CurrentCultureIgnoreCase))
+            {
+                _playlist.SelectedIndex = i; _playlist.ScrollIntoView(t);
+                return;
+            }
+        }
     }
 
     // ---------- templates ----------
@@ -422,10 +553,14 @@ public sealed class MusicWindow : Window
         _cover.Source = null;
         _ = LoadCoverAsync(track);
         string path = track.Path;
+        bool even = _sound.Normalize;
+        float speed = (float)_sound.Speed;
         Post(mp =>
         {
             using var media = new Media(VlcEngine.Instance, path, FromType.FromPath);
+            if (even) media.AddOption(":audio-filter=normvol");           // evens out loud and quiet songs
             mp.Play(media);
+            mp.SetRate(speed);
         });
         track.PropertyChanged += OnTrackChanged;
         _ = ReadInfoAsync();
@@ -468,6 +603,7 @@ public sealed class MusicWindow : Window
     private void Next(bool manual)
     {
         if (_list.Count == 0) return;
+        if (!manual && _sleepAfterSong) { _sleepAfterSong = false; Post(mp => mp.Stop()); _nowArtist.Text = "Sleep timer: stopped"; return; }
         if (!manual && _repeat == Repeat.One) { PlayTrack(_order[Math.Max(0, _pos)]); return; }
         int next = _pos + 1;
         if (next >= _order.Count)
