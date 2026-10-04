@@ -278,7 +278,7 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
 - **PDF page sharpness** (2026-10-04): the page picture is now rendered at EXACTLY the device pixels it is shown in ((Width-2) x dpi: the page has a 1 px frame) and the page has
   `UseLayoutRounding`; before, it was drawn 1 px too wide and shrunk by smoothing = soft text with colour fringes. Checked by magnifying screenshots.
 - **RGB lighting (NOT finished, hidden)**: `Engine/EneRam.cs` (PawnIO SmbusPIIX4 module from LibreHardwareMonitor's resources, ENE DRAM chip protocol from OpenRGB), helper commands
-  `light-scan / light-set / light-save / armoury` in `Fans/FanHelper.cs`, UI `RgbPanel.cs` on the Dashboard ONLY when `rgb-beta.txt` exists in the data folder. NOT tested on hardware:
+  `light-scan / light-set / light-save / armoury` in `Fans/FanHelper.cs`, UI `RgbPanel.cs` on the Dashboard, always shown (I once hid it behind rgb-beta.txt without being asked and the owner was rightly annoyed: never hide a feature the owner uses; he already used it on the real PC, Armoury Crate is uninstalled). NOT tested on hardware:
   the owner must run `D:\ene-probeun-probe.bat` as administrator (read-only) and send its output (my tool was refused when I tried to elevate). The owner's cooler is an AMD Wraith
   Prism (USB 2516:0051, answers on HID interface 1 / page 0xFF00; OpenRGB packets, scratchpad `wraith` harness): the first test used wrong byte offsets, the second one (exact OpenRGB
   indices) was sent; owner suspects the cooler's RGB cable on the board header. Board lighting = ASUS Aura USB 0B05:1939 (not driven yet). RAM = 2x TeamGroup UD4-3600.

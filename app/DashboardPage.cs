@@ -66,8 +66,6 @@ public sealed class DashboardPage : UserControl
         Fans.ExtraSlot.Children.Add(tiles);
 
         // ---- lighting of the RAM ----
-        // (not finished: shown only when a file named rgb-beta.txt is in Utylix's data folder, until it has been tried on real hardware)
-        if (System.IO.File.Exists(System.IO.Path.Combine(App.DataDir, "rgb-beta.txt")))
             Fans.ExtraSlot.Children.Add(new Border { Margin = new Thickness(0, 20, 0, 0), Child = new RgbPanel(Fans) });
 
         // ---- downloads ----
