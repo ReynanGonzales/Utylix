@@ -128,6 +128,7 @@ public sealed partial class PdfWindow : Window
         public PageView()
         {
             Background = Brushes.White;
+            UseLayoutRounding = true;                          // page edges on whole device pixels, or the picture is smeared across two
             BorderBrush = new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1C));
             BorderThickness = new Thickness(1);
             Margin = new Thickness(0, 0, 0, 12);
@@ -534,7 +535,8 @@ public sealed partial class PdfWindow : Window
         near.Sort((a, b) => Math.Abs(a.Index - _current).CompareTo(Math.Abs(b.Index - _current)));
         foreach (var p in near)
         {
-            int w = (int)Math.Round(p.Width * dpi), h = (int)Math.Round(p.Height * dpi);
+            // the picture sits inside the page's 1 px frame, so it is exactly this many device pixels: drawn at that size it is shown 1:1 (no smoothing = sharp text)
+            int w = Math.Max(1, (int)Math.Round((p.Width - 2) * dpi)), h = Math.Max(1, (int)Math.Round((p.Height - 2) * dpi));
             double big = (double)w * h / 36_000_000;                    // very deep zoom: keep one page under ~36 megapixels
             if (big > 1) { w = (int)(w / Math.Sqrt(big)); h = (int)(h / Math.Sqrt(big)); }
             if (p.RenderedWidth == w || p.WantedWidth == w) continue;
