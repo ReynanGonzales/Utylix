@@ -61,7 +61,17 @@ public sealed partial class PdfWindow
         }
         public override IEnumerable<PdfMark> Marks()
         {
-            if (NewText != Run.Text || Offset.X != 0 || Offset.Y != 0) yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, NewText, Offset.X, Offset.Y, LineAdvance);
+            if (NewText == Run.Text && Offset.X == 0 && Offset.Y == 0) yield break;
+            if (Run.Parts == null) { yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, NewText, Offset.X, Offset.Y, LineAdvance); yield break; }
+            // a line the PDF keeps in bits: unchanged words, every bit moves; changed words, the first bit takes them all and the others go
+            bool same = NewText == Run.Text;
+            for (int i = 0; i < Run.Parts.Count; i++)
+            {
+                var part = Run.Parts[i];
+                if (same) yield return new PdfReplaceTextMark(Page, part.Index, part.Text, part.Text, Offset.X, Offset.Y, LineAdvance);
+                else if (i == 0) yield return new PdfReplaceTextMark(Page, part.Index, part.Text, NewText, Offset.X, Offset.Y, LineAdvance);
+                else yield return new PdfReplaceTextMark(Page, part.Index, part.Text, "");
+            }
         }
         public override void MoveBy(Vector d) => Offset += d;
         public override void ResizeTo(Rect r) { }
@@ -80,11 +90,18 @@ public sealed partial class PdfWindow
     /// <summary>Clicked with "Edit text": the line under the pointer opens for typing.</summary>
     private readonly TextBlock _toolHint = new() { Visibility = Visibility.Collapsed };
 
+    /// <summary>The piece of text under the point that is still where the PDF has it (one already changed or moved has an item of its own: its old place is empty).</summary>
+    private PdfTextRun? RunAt(int page, Point p)
+    {
+        var edited = new HashSet<int>(_items.OfType<RunEditItem>().Where(i => i.Page == page).SelectMany(i => i.Run.Parts?.Select(x => x.Index) ?? new[] { i.Run.Index }));
+        return Runs(page).LastOrDefault(r => { var b = r.Box; b.Inflate(1, 1); return !edited.Contains(r.Index) && b.Contains(p); });
+    }
+
     private void EditTextAt(PageView pv, Point p, bool quiet = false)
     {
         var existing = _items.OfType<RunEditItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
         if (existing != null) { EditRun(existing, isNew: false); return; }
-        var run = Runs(pv.Index).LastOrDefault(r => { var b = r.Box; b.Inflate(1, 1); return b.Contains(p); });
+        var run = RunAt(pv.Index, p);
         if (run == null)
         {
             if (quiet) return;
@@ -179,9 +196,10 @@ public sealed partial class PdfWindow
     /// <summary>With "Edit text", the line under the pointer gets a frame (and the I-beam).</summary>
     private void HoverRun(PageView pv, Point p)
     {
-        var run = Runs(pv.Index).LastOrDefault(r => { var b = r.Box; b.Inflate(1, 1); return b.Contains(p); });
-        (int, Rect)? now = run == null ? null : (pv.Index, run.Box);
-        pv.Overlay.Cursor = run != null ? Cursors.IBeam : Cursors.Arrow;
+        var existing = _items.OfType<RunEditItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
+        var run = existing == null ? RunAt(pv.Index, p) : null;
+        (int, Rect)? now = existing != null ? (pv.Index, existing.Bounds) : run == null ? null : (pv.Index, run.Box);
+        pv.Overlay.Cursor = now != null ? Cursors.IBeam : Cursors.Arrow;
         if (now == _hoverRun) return;
         int? old = _hoverRun?.Page;
         _hoverRun = now;

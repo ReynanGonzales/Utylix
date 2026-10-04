@@ -136,7 +136,7 @@ public sealed partial class PdfFile : IDisposable
         {
             ThrowIfClosed();
             if (_runs.TryGetValue(index, out var r)) return r;
-            r = PdfTextRuns.Read(_doc, index);
+            r = PdfTextRuns.Group(PdfTextRuns.Read(_doc, index));        // (a line stored in bits is one piece for the person)
             _runs[index] = r;
             return r;
         }

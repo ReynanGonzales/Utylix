@@ -910,7 +910,7 @@ public sealed partial class PdfWindow
             {
                 // a line: pressed and let go = change it; pressed and dragged = move it
                 var existingRun = _items.OfType<RunEditItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
-                var runUnder = existingRun == null ? Runs(pv.Index).LastOrDefault(r => { var b = r.Box; b.Inflate(1, 1); return b.Contains(p); }) : null;
+                var runUnder = existingRun == null ? RunAt(pv.Index, p) : null;
                 if (existingRun == null && runUnder == null)
                 {
                     _dragPage = null;
@@ -1086,7 +1086,7 @@ public sealed partial class PdfWindow
             bool moved = _runDragMoved; _runDragMoved = false;
             pv.Overlay.Cursor = CursorFor(_tool);
             if (!moved) EditTextAt(pv, _dragStart);                                    // pressed and let go: change the words
-            else { UpdateEditButtons(); RenderItems(pv.Index); }
+            else { _hoverRun = null; UpdateEditButtons(); RenderItems(pv.Index); }               // (the dashed frame was around the old place)
             _runDragItem = null; _runDragRun = null;
             return;
         }

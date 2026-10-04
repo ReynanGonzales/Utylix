@@ -282,4 +282,8 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
   the owner must run `D:\ene-probeun-probe.bat` as administrator (read-only) and send its output (my tool was refused when I tried to elevate). The owner's cooler is an AMD Wraith
   Prism (USB 2516:0051, answers on HID interface 1 / page 0xFF00; OpenRGB packets, scratchpad `wraith` harness): the first test used wrong byte offsets, the second one (exact OpenRGB
   indices) was sent; owner suspects the cooler's RGB cable on the board header. Board lighting = ASUS Aura USB 0B05:1939 (not driven yet). RAM = 2x TeamGroup UD4-3600.
+- **Edit text: lines stored in bits + phantom fix** (2026-10-04): `PdfTextRuns.Group` (called by `PdfFile.GetTextRuns`) joins pieces on one baseline with the same font / size / colour and a gap <= 0.9 em
+  into ONE `PdfTextRun` (`Parts`, leftmost first; table columns and style changes stay apart). `RunEditItem.Marks` moves every part, or (text changed) puts all words in the first part and removes the others.
+  `RunAt` skips runs that already have a `RunEditItem`, so the old place of a moved line is empty (before: clicking it made a second, phantom item). Tested in the real window with a PDF made of bits
+  (`Prepared by the Finance Dep` + `artment`): drag by the last bit moves the whole line, old place does nothing, typing a new text replaces all bits.
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.

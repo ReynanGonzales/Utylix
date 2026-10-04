@@ -11,9 +11,10 @@ namespace IdmClone.Engine;
 
 /// <summary>
 /// One piece of text already in a page (a line or a part of one), as the PDF stores it: where it is (points from the top-left of the page
-/// as shown), its words, size, font and colour. Only upright text is offered for changing.
+/// as shown), its words, size, font and colour. Only upright text is offered for changing. A line that the PDF stores in several pieces
+/// ("Dep" + "artment") is one run with <paramref name="Parts"/> (left to right): its Index, Box and Baseline are the first piece's / all together.
 /// </summary>
-public sealed record PdfTextRun(int Index, Rect Box, string Text, double Size, string Family, bool Bold, bool Italic, Color Color, Point Baseline);
+public sealed record PdfTextRun(int Index, Rect Box, string Text, double Size, string Family, bool Bold, bool Italic, Color Color, Point Baseline, IReadOnlyList<PdfTextRun>? Parts = null);
 
 /// <summary>
 /// Change the words of a piece of text already in the page (empty = remove it) and / or move it (Dx, Dy in points as shown). A new text with several
@@ -60,6 +61,61 @@ internal static class PdfTextRuns
             Pdfium.FPDF_ClosePage(page);
         }
         return runs;
+    }
+
+    /// <summary>
+    /// Joins the pieces that sit side by side on one line, in the same font, size and colour, into one run: a PDF often stores a line in bits
+    /// (one word, or half a word, each) and the person wants to move or change the line, not a bit. Pieces further apart than a normal gap
+    /// (table columns) stay separate.
+    /// </summary>
+    public static List<PdfTextRun> Group(List<PdfTextRun> runs)
+    {
+        var result = new List<PdfTextRun>();
+        var used = new bool[runs.Count];
+        for (int i = 0; i < runs.Count; i++)
+        {
+            if (used[i]) continue;
+            var a = runs[i];
+            // everything on the same line with the same look, left to right
+            var line = new List<int>();
+            for (int j = 0; j < runs.Count; j++)
+            {
+                if (used[j]) continue;
+                var b = runs[j];
+                if (Math.Abs(b.Baseline.Y - a.Baseline.Y) <= a.Size * 0.25 && Math.Abs(b.Size - a.Size) <= a.Size * 0.05 && b.Family == a.Family && b.Bold == a.Bold && b.Italic == a.Italic && b.Color == a.Color)
+                    line.Add(j);
+            }
+            line.Sort((x, y) => runs[x].Box.X.CompareTo(runs[y].Box.X));
+            // the chain of neighbours that contains this piece
+            int at = line.IndexOf(i);
+            int first = at, last = at;
+            while (first > 0 && Near(runs[line[first - 1]], runs[line[first]])) first--;
+            while (last < line.Count - 1 && Near(runs[line[last]], runs[line[last + 1]])) last++;
+            var chain = line.GetRange(first, last - first + 1);
+            foreach (int k in chain) used[k] = true;
+            if (chain.Count == 1) { result.Add(runs[chain[0]]); continue; }
+            var parts = chain.Select(k => runs[k]).ToList();
+            var text = new StringBuilder();
+            for (int k = 0; k < parts.Count; k++)
+            {
+                if (k > 0)
+                {
+                    double gap = parts[k].Box.Left - parts[k - 1].Box.Right;
+                    if (gap > parts[k].Size * 0.12 && !char.IsWhiteSpace(text[^1]) && !char.IsWhiteSpace(parts[k].Text[0])) text.Append(' ');
+                }
+                text.Append(parts[k].Text);
+            }
+            var box = parts[0].Box;
+            foreach (var part in parts) box.Union(part.Box);
+            result.Add(parts[0] with { Box = box, Text = text.ToString(), Parts = parts });
+        }
+        return result;
+
+        static bool Near(PdfTextRun left, PdfTextRun right)
+        {
+            double gap = right.Box.Left - left.Box.Right;
+            return gap <= left.Size * 0.9 && gap >= -left.Size * 0.3;
+        }
     }
 
     private static string TextOf(IntPtr obj, IntPtr textPage)
