@@ -65,6 +65,9 @@ public sealed class DashboardPage : UserControl
         Tile("", "Check for updates", "DashUpdates", () => AppUpdateWindow.ShowWindow(_manager));
         Fans.ExtraSlot.Children.Add(tiles);
 
+        // ---- lighting of the RAM ----
+        Fans.ExtraSlot.Children.Add(new Border { Margin = new Thickness(0, 20, 0, 0), Child = new RgbPanel(Fans) });
+
         // ---- downloads ----
         var downloads = new Border { Style = (Style)R("Section"), Padding = new Thickness(16, 12, 16, 14), Margin = new Thickness(0, 0, 0, 0) };
         var dstack = new StackPanel();

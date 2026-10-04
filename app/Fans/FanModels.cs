@@ -38,16 +38,40 @@ public sealed class FanConfig
     [JsonPropertyName("emergency_gpu")] public double EmergencyGpu { get; set; } = 85;
 }
 
+/// <summary>How the lights of the RAM should look (the helper keeps every value in range).</summary>
+public sealed class LightLook
+{
+    [JsonPropertyName("mode")] public int Mode { get; set; } = 1;              // see EneModule.ModeNames: 0 off, 1 static ...
+    [JsonPropertyName("r")] public int R { get; set; } = 255;
+    [JsonPropertyName("g")] public int G { get; set; }
+    [JsonPropertyName("b")] public int B { get; set; }
+    [JsonPropertyName("speed")] public int Speed { get; set; } = 2;            // 0 fastest .. 4 slowest
+    [JsonPropertyName("reverse")] public bool Reverse { get; set; }
+}
+
+/// <summary>One RAM stick with lights, as the helper found it.</summary>
+public sealed class LightStick
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("address")] public int Address { get; set; }
+    [JsonPropertyName("leds")] public int Leds { get; set; }
+    [JsonPropertyName("look")] public LightLook? Look { get; set; }           // what it shows now
+}
+
 public sealed class FanRequest
 {
     [JsonPropertyName("cmd")] public string Cmd { get; set; } = "";
     [JsonPropertyName("config")] public FanConfig? Config { get; set; }
+    [JsonPropertyName("look")] public LightLook? Look { get; set; }           // "light-set"
+    [JsonPropertyName("flag")] public bool Flag { get; set; }                 // "armoury": true = switch Armoury Crate's lighting service back on
 }
 
 public sealed class FanReply
 {
     [JsonPropertyName("ok")] public bool Ok { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("sticks")] public List<LightStick>? Sticks { get; set; }
+    [JsonPropertyName("armoury")] public string? Armoury { get; set; }         // state of Armoury Crate's lighting service: "running" | "stopped" | "disabled" | "none"
     [JsonPropertyName("sensors")] public List<FanSensor>? Sensors { get; set; }
     [JsonPropertyName("emergency")] public bool Emergency { get; set; }
     [JsonPropertyName("note")] public string? Note { get; set; }

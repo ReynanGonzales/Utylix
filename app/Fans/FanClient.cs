@@ -53,14 +53,14 @@ internal sealed class FanClient : IDisposable
         finally { _one.Release(); }
     }
 
-    public async Task<FanReply?> AskAsync(FanRequest request)
+    public async Task<FanReply?> AskAsync(FanRequest request, int timeoutSeconds = 6)
     {
         await _one.WaitAsync();
         try
         {
             if (_pipe is not { IsConnected: true } || _writer == null || _reader == null) return null;
             await _writer.WriteLineAsync(JsonSerializer.Serialize(request, FanJson.Options));
-            var line = await _reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(6));
+            var line = await _reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(timeoutSeconds));
             return line == null ? null : JsonSerializer.Deserialize<FanReply>(line, FanJson.Options);
         }
         catch (Exception e) when (e is IOException or TimeoutException or JsonException or ObjectDisposedException or InvalidOperationException)

@@ -71,6 +71,13 @@ public partial class FansPage : UserControl
 
     private async void Start_Click(object sender, RoutedEventArgs e) => await BringUpAsync(interactive: true);
 
+    /// <summary>Starts the administrator helper if it is not running (Windows may ask), for the lighting section that shares it.</summary>
+    public async Task<bool> EnsureHelperAsync()
+    {
+        await BringUpAsync(interactive: true);
+        return FanSettings.Client.Connected;
+    }
+
     /// <summary>
     /// Gets the helper running and connected. "interactive" = the person pressed Start: Windows may be asked for permission. Otherwise
     /// (Utylix just started) it only starts the helper if that can be done without a prompt.

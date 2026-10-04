@@ -7,6 +7,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
 using System.Threading;
+using IdmClone.Engine;
 using LibreHardwareMonitor.Hardware;
 
 namespace IdmClone;
@@ -68,6 +69,7 @@ internal static class FanHelper
             _quit = true;
             RevertAll();
             try { _computer.Close(); } catch (Exception) { /* ending anyway */ }
+            try { _smbus?.Dispose(); } catch (Exception) { /* ending anyway */ }
         }
         return 0;
     }
@@ -115,6 +117,10 @@ internal static class FanHelper
                     Apply();
                     return new FanReply { Ok = true, Emergency = _emergency };
                 }
+            case "light-scan": return LightScan();
+            case "light-set": return LightSet(request.Look ?? new LightLook());
+            case "light-save": return LightSave();
+            case "armoury": return Armoury(request.Flag);
             case "quit":
                 _quit = true;
                 return new FanReply { Ok = true };
@@ -282,6 +288,132 @@ internal static class FanHelper
             foreach (var id in Driven.Keys.ToList()) Release(id);
             _config = new FanConfig();
         }
+    }
+
+    // ------------------------------------------------------------------------------------------ lights of the RAM
+
+    private static readonly object RgbGate = new();
+    private static PawnSmbus? _smbus;
+    private static List<EneModule> _sticks = new();
+
+    private static FanReply Fail(string why) => new() { Ok = false, Error = why };
+
+    private static bool Light(out PawnSmbus bus, out IDisposable? hold, out FanReply? failure)
+    {
+        _smbus ??= PawnSmbus.Open();
+        bus = _smbus!; hold = null; failure = null;
+        if (_smbus == null) { failure = Fail(PawnSmbus.Problem); return false; }
+        hold = _smbus.Lock();
+        if (hold == null) { failure = Fail("Another program is using the motherboard's SMBus right now (Armoury Crate or a monitoring tool). Try again in a moment."); return false; }
+        return true;
+    }
+
+    private static LightStick Describe(PawnSmbus bus, EneModule m)
+    {
+        var s = m.Read(bus);
+        return new LightStick
+        {
+            Name = m.Name, Address = m.Address, Leds = m.Leds,
+            Look = s == null ? null : new LightLook { Mode = s.Value.Mode, R = s.Value.R, G = s.Value.G, B = s.Value.B, Speed = s.Value.Speed, Reverse = s.Value.Reverse },
+        };
+    }
+
+    private static FanReply LightScan()
+    {
+        lock (RgbGate)
+        {
+            if (!Light(out var bus, out var hold, out var failure)) return failure!;
+            using (hold)
+            {
+                _sticks = EneModule.Scan(bus);
+                return new FanReply { Ok = true, Sticks = _sticks.Select(m => Describe(bus, m)).ToList(), Armoury = ArmouryState() };
+            }
+        }
+    }
+
+    private static FanReply LightSet(LightLook look)
+    {
+        lock (RgbGate)
+        {
+            if (_sticks.Count == 0) return Fail("No lit RAM was found yet.");
+            if (!Light(out var bus, out var hold, out var failure)) return failure!;
+            using (hold)
+            {
+                int bad = 0;
+                foreach (var m in _sticks)
+                    if (!m.Apply(bus, Math.Clamp(look.Mode, 0, EneModule.ModeNames.Length - 1), (byte)Math.Clamp(look.R, 0, 255), (byte)Math.Clamp(look.G, 0, 255), (byte)Math.Clamp(look.B, 0, 255), Math.Clamp(look.Speed, 0, 4), look.Reverse)) bad++;
+                return bad == 0 ? new FanReply { Ok = true } : Fail(bad == _sticks.Count ? "The RAM did not answer." : "Some of the RAM did not answer.");
+            }
+        }
+    }
+
+    private static FanReply LightSave()
+    {
+        lock (RgbGate)
+        {
+            if (_sticks.Count == 0) return Fail("No lit RAM was found yet.");
+            if (!Light(out var bus, out var hold, out var failure)) return failure!;
+            using (hold)
+            {
+                int bad = 0;
+                foreach (var m in _sticks) if (!m.Save(bus)) bad++;
+                return bad == 0 ? new FanReply { Ok = true } : Fail("The RAM did not accept the saving.");
+            }
+        }
+    }
+
+    // ---- Armoury Crate's lighting service writes to the same chips, so it has to be out of the way for Utylix's choice to stay
+
+    private const string LightingService = "LightingService";
+    private static string RgbStateFile => Path.Combine(App.DataDir, "rgb-armoury.txt");
+
+    private static string Sc(string arguments)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("sc.exe", arguments) { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            string text = p.StandardOutput.ReadToEnd();
+            p.WaitForExit(8000);
+            return text;
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return ""; }
+    }
+
+    private static string ArmouryState()
+    {
+        string q = Sc("query " + LightingService);
+        if (!q.Contains("STATE", StringComparison.OrdinalIgnoreCase)) return "none";
+        if (q.Contains("RUNNING", StringComparison.OrdinalIgnoreCase)) return "running";
+        return Sc("qc " + LightingService).Contains("DISABLED", StringComparison.OrdinalIgnoreCase) ? "disabled" : "stopped";
+    }
+
+    private static FanReply Armoury(bool back)
+    {
+        string state = ArmouryState();
+        if (state == "none") return new FanReply { Ok = true, Armoury = state };
+        if (!back)
+        {
+            if (state == "running" || state == "stopped")
+            {
+                string qc = Sc("qc " + LightingService);
+                string kind = qc.Contains("DELAYED", StringComparison.OrdinalIgnoreCase) ? "delayed-auto" : qc.Contains("DEMAND", StringComparison.OrdinalIgnoreCase) ? "demand" : "auto";
+                try { File.WriteAllText(RgbStateFile, kind); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                Sc("config " + LightingService + " start= disabled");
+                Sc("stop " + LightingService);
+                for (int i = 0; i < 16 && ArmouryState() == "running"; i++) Thread.Sleep(250);
+            }
+        }
+        else
+        {
+            string kind = "auto";
+            try { if (File.Exists(RgbStateFile)) kind = File.ReadAllText(RgbStateFile).Trim(); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            if (kind is not ("auto" or "demand" or "delayed-auto")) kind = "auto";
+            Sc("config " + LightingService + " start= " + kind);
+            Sc("start " + LightingService);
+            try { File.Delete(RgbStateFile); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        return new FanReply { Ok = true, Armoury = ArmouryState() };
     }
 
     private static void Log(string text)
