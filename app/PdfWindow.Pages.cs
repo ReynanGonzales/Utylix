@@ -78,6 +78,7 @@ public sealed partial class PdfWindow
         menu.Items.Add(new Separator());
         Item("Delete", DeleteSelectedPages);
         menu.Items.Add(new Separator());
+        Item("Page grid…", OpenPageGrid);
         Item("Add pages from a file…", InsertPagesFromFiles);
         Item("Add a blank page after", AddBlankPage);
         Item("Take the page(s) out as a new PDF…", ExtractSelectedPages);

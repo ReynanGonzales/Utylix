@@ -338,4 +338,7 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
   chain build for "trusted", `WholeFile` = last range ends at EOF; PDFium reads the signature objects (`PdfFile.GetSignatures`, `FPDF_GetSignatureObject` family). `PdfSignDialog`, `SignWithCertificate` / `CheckSignatures`
   in `PdfWindow.Tools.cs` (always a COPY via `MakeProtectedCopy`; protected PDFs refused). Tested: engine (good / tampered / appended), real window (make own cert, sign through the real save dialog, check dialog); the test certificate was
   removed from the store again. NOT tested: a certificate file (.pfx), a CA-issued certificate, a hardware token / smart card, Acrobat itself opening the file.
+- **PDF: page grid** (2026-10-05): `PdfPageGridWindow` (modal; tiles in a WrapPanel, manual mouse drag with a drop line - no DoDragDrop, so scripted mouse tests work; thumbnails rendered one by one on a background task) produces a plan
+  `List<PdfPageTools.PagePlan(Source, Turns)>` (Source -1 = blank); `PdfPageTools.Rearrange` applies it with the existing primitives: `DeletePages`, then `MovePages` page by page into order, `TurnPages`, `InsertBlank` front to back, `Reload()`.
+  `OpenPageGrid` (PdfWindow.PageMore.cs) wraps it in ONE `PageOp` (one undo). Tested in the real window: turn, drag to another row, blank page, Apply (9 pages, correct order and turn). Not tested: very large PDFs (hundreds of pages: every tile renders once, 300 px wide).
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.

@@ -112,6 +112,49 @@ public static class PdfPageTools
         return new CropMargins(Math.Max(0, left * kx - pad), Math.Max(0, top * ky - pad), Math.Max(0, size.Width - (right + 1) * kx - pad), Math.Max(0, size.Height - (bottom + 1) * ky - pad));
     }
 
+    /// <summary>One page of the new order: a page of the document (0-based) or <c>-1</c> for a new blank page, and how many quarter turns clockwise to turn it.</summary>
+    public readonly record struct PagePlan(int Source, int Turns);
+
+    /// <summary>
+    /// Makes the document's pages match <paramref name="plan"/>: pages left out are deleted, the others are put in the order given and turned, and blank
+    /// pages go in where the plan has them. At least one page of the document must stay.
+    /// </summary>
+    public static void Rearrange(PdfFile pdf, IReadOnlyList<PagePlan> plan)
+    {
+        var keep = plan.Where(p => p.Source >= 0).Select(p => p.Source).ToList();
+        if (keep.Count == 0) throw new InvalidOperationException("At least one page of the PDF must stay.");
+        if (keep.Distinct().Count() != keep.Count || keep.Any(i => i >= pdf.PageCount)) throw new InvalidOperationException("The page plan doesn't fit this PDF.");
+        pdf.DeletePages(Enumerable.Range(0, pdf.PageCount).Except(keep).ToList());
+        // the order: bring each page, front to back, to its place
+        var current = keep.OrderBy(i => i).ToList();
+        for (int i = 0; i < keep.Count; i++)
+        {
+            int at = current.IndexOf(keep[i]);
+            if (at == i) continue;
+            pdf.MovePages(new[] { at }, i);
+            current.RemoveAt(at); current.Insert(i, keep[i]);
+        }
+        // the turns (pages are now in the order of the plan, without the blanks)
+        int k = 0;
+        var byTurns = new Dictionary<int, List<int>>();
+        foreach (var p in plan)
+        {
+            if (p.Source < 0) continue;
+            int t = ((p.Turns % 4) + 4) % 4;
+            if (t != 0) { if (!byTurns.TryGetValue(t, out var list)) byTurns[t] = list = new List<int>(); list.Add(k); }
+            k++;
+        }
+        foreach (var (turns, pages) in byTurns) pdf.TurnPages(pages, turns);
+        // the blank pages, front to back, so every position is still right when it is inserted
+        for (int pos = 0; pos < plan.Count; pos++)
+        {
+            if (plan[pos].Source >= 0) continue;
+            var like = pdf.PageSize(Math.Clamp(pos > 0 ? pos - 1 : 0, 0, pdf.PageCount - 1));
+            InsertBlank(pdf, pos, (like.Width, like.Height));
+        }
+        pdf.Reload();
+    }
+
     /// <summary>Puts an empty page at this place (0 = in front of the first page); its size is <paramref name="like"/> (a neighbouring page), points.</summary>
     public static void InsertBlank(PdfFile dest, int at, (double Width, double Height) like)
     {

@@ -29,6 +29,7 @@ public sealed partial class PdfWindow
             menu.Items.Add(m);
         }
         Heading("PAGES");
+        Item("Page grid: see, move, turn and delete pages…", OpenPageGrid, "PdfMenuGrid");
         Item("Add pages from a PDF or pictures…", InsertPagesFromFiles, "PdfMenuInsert");
         Item("Add a blank page after the chosen page", AddBlankPage, "PdfMenuBlank");
         Item("Crop pages…", CropPages, "PdfMenuCrop");
@@ -52,6 +53,20 @@ public sealed partial class PdfWindow
         Item("Save as Word or Excel…", ExportToOffice, "PdfMenuExport");
         Themed(menu);
         menu.PlacementTarget = under ?? _morePages; menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; menu.IsOpen = true;
+    }
+
+    /// <summary>Every page as a big picture: moving, turning, deleting and adding blank pages, applied in one go (one Undo).</summary>
+    private void OpenPageGrid()
+    {
+        if (_pdf == null || _path == null) return;
+        if (!PreparePageOp()) return;
+        var grid = new PdfPageGridWindow(this, _pdf, _current);
+        bool applied = grid.ShowDialog() == true && grid.Result != null;
+        if (!applied) { if (grid.GoTo >= 0) GoTo(grid.GoTo); return; }
+        var plan = grid.Result!;
+        int firstChanged = Math.Max(0, plan.FindIndex(p => p.Source < 0 || p.Turns % 4 != 0));
+        PageOp(p => PdfPageTools.Rearrange(p, plan), new[] { Math.Clamp(_current, 0, Math.Max(0, plan.Count - 1)) },
+               $"Pages changed: now {plan.Count} page{(plan.Count == 1 ? "" : "s")}. Undo goes back until you save");
     }
 
     private void OpenPagesDialog(bool split)
