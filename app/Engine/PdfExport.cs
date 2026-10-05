@@ -169,6 +169,152 @@ public static class PdfExport
         return parts;
     }
 
+    // ---------- tables (Word) ----------
+    private sealed class TCell { public int Col; public double Left, Right; public List<Piece> Pieces = new(); }
+    private sealed class TRow { public Line Line = null!; public List<TCell> Cells = new(); public double Pitch; }
+    private sealed class Table
+    {
+        public List<TRow> Rows = new();
+        public List<(double From, double To)> Columns = new();
+        public bool[] Numeric = Array.Empty<bool>();
+        public double Top => Rows[0].Line.Top;
+    }
+
+    /// <summary>The line cut into cells: pieces that are far apart (more than about a letter's width) are different cells.</summary>
+    private static List<TCell> CellsOf(Line line)
+    {
+        var cells = new List<TCell>();
+        TCell? cell = null; Piece? prev = null;
+        foreach (var piece in line.Pieces)
+        {
+            if (cell == null || prev == null || piece.Left - prev.Right > Math.Max(line.Size * 0.9, 7)) { cell = new TCell { Left = piece.Left }; cells.Add(cell); }
+            cell.Pieces.Add(piece); cell.Right = piece.Right;
+            prev = piece;
+        }
+        return cells;
+    }
+
+    /// <summary>
+    /// Finds the tables of a page: neighbouring lines that are made of several cells which line up in columns. A line with a single cell between two
+    /// such lines is a row with empty cells. Lines that belong to a table are taken out of <paramref name="lines"/>.
+    /// </summary>
+    private static List<Table> FindTables(List<Line> lines, double pageText)
+    {
+        var tables = new List<Table>();
+        var cellsOf = lines.Select(CellsOf).ToList();
+        var inTable = new HashSet<Line>();
+        int i = 0;
+        while (i < lines.Count)
+        {
+            if (cellsOf[i].Count < 2) { i++; continue; }
+            int j = i, multi = 1;
+            while (j + 1 < lines.Count)
+            {
+                double limit = Math.Max(lines[j].Size, lines[j + 1].Size) * 2.6;
+                if (lines[j + 1].Baseline - lines[j].Baseline > limit) break;
+                if (cellsOf[j + 1].Count >= 2) { j++; multi++; continue; }
+                if (j + 2 < lines.Count && cellsOf[j + 2].Count >= 2 && lines[j + 2].Baseline - lines[j + 1].Baseline <= limit) { j += 2; multi++; continue; }
+                break;
+            }
+            if (multi >= 2 && TryBuildTable(lines, cellsOf, i, j, pageText) is Table table) { tables.Add(table); foreach (var r in table.Rows) inTable.Add(r.Line); i = j + 1; }
+            else i++;
+        }
+        lines.RemoveAll(inTable.Contains);
+        return tables;
+    }
+
+    private static Table? TryBuildTable(List<Line> lines, List<List<TCell>> cellsOf, int from, int to, double pageText)
+    {
+        // the columns: x ranges covered by the cells of rows that have several cells (a wide cell across the table is left out)
+        double typical = lines.Skip(from).Take(to - from + 1).Average(l => l.Size);
+        var spans = new List<TCell>();
+        for (int k = from; k <= to; k++) if (cellsOf[k].Count >= 2) spans.AddRange(cellsOf[k].Where(c => c.Right - c.Left < pageText * 0.6));
+        spans.Sort((a, b) => a.Left.CompareTo(b.Left));
+        var columns = new List<(double From, double To)>();
+        foreach (var span in spans)
+        {
+            if (columns.Count > 0 && span.Left <= columns[^1].To + typical * 0.9) columns[^1] = (columns[^1].From, Math.Max(columns[^1].To, span.Right));
+            else columns.Add((span.Left, span.Right));
+        }
+        if (columns.Count < 2) return null;
+        int ColumnOf(double x) { int best = 0; for (int c = 0; c < columns.Count; c++) if (columns[c].From <= x + typical * 0.5) best = c; return best; }
+
+        var table = new Table { Columns = columns };
+        int rowsWithSeveralColumns = 0;
+        for (int k = from; k <= to; k++)
+        {
+            var row = new TRow { Line = lines[k], Pitch = k < to ? lines[k + 1].Baseline - lines[k].Baseline : 0 };
+            int last = -1;
+            foreach (var cell in cellsOf[k])
+            {
+                int col = cellsOf[k].Count >= 2 ? Math.Max(ColumnOf((cell.Left + cell.Right) / 2), ColumnOfStart(columns, cell.Left, typical)) : ColumnOf(cell.Left);
+                col = Math.Max(col, last + 1);
+                if (col >= columns.Count) return null;                                     // (more cells than columns: not a tidy table)
+                cell.Col = col; last = col;
+                row.Cells.Add(cell);
+            }
+            if (row.Cells.Select(c => c.Col).Distinct().Count() >= 2) rowsWithSeveralColumns++;
+            table.Rows.Add(row);
+        }
+        if (rowsWithSeveralColumns < 2) return null;
+        double avgPitch = table.Rows.Where(r => r.Pitch > 0).Select(r => r.Pitch).DefaultIfEmpty(typical * 1.2).Average();
+        foreach (var r in table.Rows) if (r.Pitch <= 0) r.Pitch = avgPitch;
+        // columns of numbers are written against the right edge of their cell
+        table.Numeric = new bool[columns.Count];
+        for (int c = 0; c < columns.Count; c++)
+        {
+            var texts = table.Rows.SelectMany(r => r.Cells.Where(x => x.Col == c)).Select(x => string.Concat(x.Pieces.Select(p => p.Text)).Trim()).Where(t => t.Length > 0).ToList();
+            table.Numeric[c] = texts.Count >= 2 && texts.Count(t => t.All(ch => char.IsDigit(ch) || ",.-()%$₱€£ ".IndexOf(ch) >= 0) && t.Any(char.IsDigit)) * 2 > texts.Count;
+        }
+        return table;
+    }
+
+    private static string TableXml(Table table, double pageLeft, double above)
+    {
+        var cols = table.Columns;
+        var widths = new List<double>();
+        double right = Math.Max(cols[^1].To, table.Rows.SelectMany(r => r.Cells).Max(c => c.Right));
+        for (int c = 0; c < cols.Count; c++) widths.Add(c + 1 < cols.Count ? cols[c + 1].From - cols[c].From : Math.Max(24, right - cols[c].From + 8));
+        double indent = Math.Max(0, cols[0].From - pageLeft - 2);
+        var sb = new StringBuilder();
+        // (the space the page has between the text above and the table: an empty paragraph of exactly that height)
+        if (above > 3) sb.Append($"<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"{Tw(above)}\" w:lineRule=\"exact\"/></w:pPr></w:p>");
+        sb.Append("<w:tbl><w:tblPr>");
+        sb.Append($"<w:tblW w:w=\"{Tw(widths.Sum())}\" w:type=\"dxa\"/><w:tblInd w:w=\"{Tw(indent)}\" w:type=\"dxa\"/>");
+        sb.Append("<w:tblBorders>");
+        foreach (var side in new[] { "top", "left", "bottom", "right", "insideH", "insideV" }) sb.Append($"<w:{side} w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"BFBFBF\"/>");
+        sb.Append("</w:tblBorders><w:tblLayout w:type=\"fixed\"/><w:tblCellMar><w:top w:w=\"0\" w:type=\"dxa\"/><w:left w:w=\"40\" w:type=\"dxa\"/><w:bottom w:w=\"0\" w:type=\"dxa\"/><w:right w:w=\"40\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr>");
+        sb.Append("<w:tblGrid>" + string.Concat(widths.Select(w => $"<w:gridCol w:w=\"{Tw(w)}\"/>")) + "</w:tblGrid>");
+        foreach (var row in table.Rows)
+        {
+            sb.Append($"<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val=\"{Tw(Math.Clamp(row.Pitch, 8, 80))}\" w:hRule=\"atLeast\"/></w:trPr>");
+            for (int c = 0; c < cols.Count; c++)
+            {
+                sb.Append($"<w:tc><w:tcPr><w:tcW w:w=\"{Tw(widths[c])}\" w:type=\"dxa\"/><w:vAlign w:val=\"center\"/></w:tcPr>");
+                var cell = row.Cells.FirstOrDefault(x => x.Col == c);
+                double size = cell?.Pieces.Max(p => p.Size) ?? row.Line.Size;
+                sb.Append($"<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"{Tw(Math.Max(6, size * 1.2))}\" w:lineRule=\"atLeast\"/>{(table.Numeric[c] ? "<w:jc w:val=\"right\"/>" : "")}</w:pPr>");
+                if (cell != null)
+                {
+                    Piece? prev = null;
+                    foreach (var piece in cell.Pieces)
+                    {
+                        string text = piece.Text;
+                        if (prev != null && piece.Left - prev.Right > row.Line.Size * 0.18 && !prev.Text.EndsWith(' ') && !text.StartsWith(' ')) text = " " + text;
+                        sb.Append(RunXml(text, piece, false));
+                        prev = piece;
+                    }
+                }
+                sb.Append("</w:p></w:tc>");
+            }
+            sb.Append("</w:tr>");
+        }
+        sb.Append("</w:tbl>");
+        // (a table must be followed by a paragraph: a thin empty one)
+        sb.Append("<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"20\" w:lineRule=\"exact\"/></w:pPr></w:p>");
+        return sb.ToString();
+    }
+
     // ---------- Word ----------
     public static byte[] ToDocx(IReadOnlyList<ExportPage> pages)
     {
@@ -179,7 +325,12 @@ public static class PdfExport
         {
             var page = pages[p];
             var lines = Lines(page.Runs);
+            // the margins and the text block are worked out from ALL the lines (the tables included); the tables are then taken out of the running text
+            var allLines = lines.ToList();
+            double pageText = allLines.Count > 0 ? Math.Max(1, allLines.Max(l => l.Right) - allLines.Min(l => l.Left)) : 1;
+            var tables = FindTables(lines, pageText);
             var paras = Paragraphs(lines);
+            lines = allLines;
             double left = lines.Count > 0 ? Math.Max(0, lines.Min(l => l.Left)) : 36, right = lines.Count > 0 ? lines.Max(l => l.Right) : page.Size.Width - 36;
             double topMargin = lines.Count > 0 ? Math.Clamp(Math.Min(lines[0].Top, page.Pictures.Count > 0 ? page.Pictures.Min(pic => pic.Box.Top) : double.MaxValue) - 2, 12, page.Size.Height / 2) : 36;
             double rightMargin = Math.Max(12, page.Size.Width - right);
@@ -193,6 +344,14 @@ public static class PdfExport
             // paragraphs and pictures in reading order
             var items = new List<(double Top, Func<string> Xml)>();
             foreach (var para in paras) items.Add((para.Top, () => ParagraphXml(para, left, right, textWidth, pageWidth)));
+            foreach (var table in tables)
+            {
+                var t = table;
+                var rowLines = new HashSet<Line>(t.Rows.Select(r => r.Line));
+                var above = allLines.Where(l => l.Baseline < t.Top && !rowLines.Contains(l) && !tables.Any(o => o.Rows.Any(r => r.Line == l))).OrderByDescending(l => l.Baseline).FirstOrDefault();
+                double gap = above == null ? 0 : Math.Clamp(t.Top - (above.Baseline + above.Size * 0.3), 0, 60);
+                items.Add((t.Top, () => TableXml(t, left, gap)));
+            }
             foreach (var (box, png) in page.Pictures)
             {
                 media.Add(png);
