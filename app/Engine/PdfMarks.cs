@@ -15,7 +15,7 @@ public enum PdfFontKind { Sans, Serif, Mono }
 public abstract record PdfMark(int Page);
 
 /// <summary>Lines of text. Baseline of line i = Top + i * LineSpacing * Size + Baseline * Size (the font's own numbers, as WPF shows them).</summary>
-public sealed record PdfTextMark(int Page, Point TopLeft, string Text, PdfFontKind Font, bool Bold, double Size, Color Color, double LineSpacing, double Baseline, string? FontName = null, double Angle = 0, Point? Pivot = null, bool Invisible = false, double Stretch = 1) : PdfMark(Page);
+public sealed record PdfTextMark(int Page, Point TopLeft, string Text, PdfFontKind Font, bool Bold, double Size, Color Color, double LineSpacing, double Baseline, string? FontName = null, double Angle = 0, Point? Pivot = null, bool Invisible = false, double Stretch = 1, bool Watermark = false) : PdfMark(Page);
 
 /// <summary>One figure of a path: a start, then lines (Curve = false, only To) or curves (C1, C2, To).</summary>
 public sealed record PdfFigure(Point Start, IReadOnlyList<PdfSegment> Segments, bool Closed);
@@ -29,7 +29,7 @@ public readonly record struct PdfSegment(Point C1, Point C2, Point To, bool Curv
 public sealed record PdfPathMark(int Page, IReadOnlyList<PdfFigure> Figures, Color? Stroke, double Width, Color? Fill, bool Multiply) : PdfMark(Page);
 
 /// <summary>A picture in a box: JPEG bytes as they are, or pixels (BGRA, transparency kept).</summary>
-public sealed record PdfImageMark(int Page, Rect Box, byte[]? Jpeg, BitmapSource? Pixels) : PdfMark(Page);
+public sealed record PdfImageMark(int Page, Rect Box, byte[]? Jpeg, BitmapSource? Pixels, bool Watermark = false) : PdfMark(Page);
 
 /// <summary>
 /// A real PDF comment (other readers list it and can remove it): highlight / underline / strike-out over the given text boxes
@@ -88,6 +88,13 @@ public static class PdfMarkWriter
     private static (uint R, uint G, uint B, uint A) Rgba(Color c) => (c.R, c.G, c.B, c.A);
 
     // ---------- text ----------
+    /// <summary>Marks a piece of content as a watermark the way Acrobat does (/Artifact, /Subtype /Watermark), so it can be found and removed later, even on a single page.</summary>
+    private static void TagWatermark(IntPtr doc, IntPtr obj)
+    {
+        IntPtr mark = Pdfium.FPDFPageObj_AddMark(obj, "Artifact");
+        if (mark != IntPtr.Zero) Pdfium.FPDFPageObjMark_SetStringParam(doc, obj, mark, "Subtype", "Watermark");
+    }
+
     private static void WriteText(IntPtr doc, IntPtr page, PageMapping map, PdfTextMark t, Dictionary<string, IntPtr> fonts)
     {
         string[] lines = t.Text.Replace("\r\n", "\n").Split('\n');
@@ -112,6 +119,7 @@ public static class PdfMarkWriter
             double k = t.Stretch;
             Pdfium.FPDFPageObj_Transform(obj, (map.Right.X * cos - map.Up.X * sin) * k, (map.Right.Y * cos - map.Up.Y * sin) * k, map.Right.X * sin + map.Up.X * cos, map.Right.Y * sin + map.Up.Y * cos, baseline.X, baseline.Y);
             if (t.Invisible) Pdfium.FPDFTextObj_SetTextRenderMode(obj, Pdfium.TextInvisible);        // (text that is there for searching and copying only)
+            if (t.Watermark) TagWatermark(doc, obj);
             Pdfium.FPDFPage_InsertObject(page, obj);
         }
     }
@@ -231,6 +239,7 @@ public static class PdfMarkWriter
         var bottomLeft = map.ToPage(new Point(m.Box.Left, m.Box.Bottom));
         var right = map.Right * m.Box.Width; var up = map.Up * m.Box.Height;
         Pdfium.FPDFImageObj_SetMatrix(obj, right.X, right.Y, up.X, up.Y, bottomLeft.X, bottomLeft.Y);
+        if (m.Watermark) TagWatermark(doc, obj);
         Pdfium.FPDFPage_InsertObject(page, obj);
     }
 }

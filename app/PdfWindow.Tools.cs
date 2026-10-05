@@ -15,6 +15,9 @@ public sealed partial class PdfWindow
     partial void AddMoreTools(ContextMenu menu, Action<string, Action, string> item)
     {
         item("Page numbers, header, footer, watermark…", AddPageMarks, "PdfMenuMarks");
+        item("Remove a watermark…", RemoveWatermark, "PdfMenuWatermark");
+        item("Border around the pages…", AddBorder, "PdfMenuBorder");
+        item("Text in columns…", AddColumns, "PdfMenuColumns");
         item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");
         item("Save as Word or Excel…", () => { if (_pdf != null && _path != null && CommitItems()) new PdfExportDialog(this, _pdf, _path, SelectedPages()).ShowDialog(); }, "PdfMenuExport");
     }

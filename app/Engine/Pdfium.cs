@@ -177,6 +177,13 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern int FPDFPageObj_SetMatrix(IntPtr obj, ref Matrix matrix);
     [DllImport(Dll)] public static extern int FPDFPageObj_GetFillColor(IntPtr obj, out uint r, out uint g, out uint b, out uint a);
     [DllImport(Dll)] public static extern int FPDFPage_RemoveObject(IntPtr page, IntPtr obj);
+    // marked content: how a program says "this is a watermark" (/Artifact with /Subtype /Watermark)
+    [DllImport(Dll)] public static extern int FPDFPageObj_CountMarks(IntPtr obj);
+    [DllImport(Dll)] public static extern IntPtr FPDFPageObj_GetMark(IntPtr obj, uint index);
+    [DllImport(Dll)] public static extern IntPtr FPDFPageObj_AddMark(IntPtr obj, [MarshalAs(UnmanagedType.LPStr)] string name);
+    [DllImport(Dll)] public static extern int FPDFPageObjMark_GetName(IntPtr mark, byte[]? buffer, uint length, out uint outLength);
+    [DllImport(Dll)] public static extern int FPDFPageObjMark_GetParamStringValue(IntPtr mark, [MarshalAs(UnmanagedType.LPStr)] string key, byte[]? buffer, uint length, out uint outLength);
+    [DllImport(Dll)] public static extern int FPDFPageObjMark_SetStringParam(IntPtr doc, IntPtr obj, IntPtr mark, [MarshalAs(UnmanagedType.LPStr)] string key, [MarshalAs(UnmanagedType.LPStr)] string value);
     [DllImport(Dll)] public static extern void FPDFPageObj_Destroy(IntPtr obj);
 
     [StructLayout(LayoutKind.Sequential)] public struct Matrix { public float A, B, C, D, E, F; }

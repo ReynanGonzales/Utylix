@@ -689,6 +689,7 @@ public sealed partial class PdfWindow
         _colorRow.Visibility = item is ImageItem || run || redact ? Visibility.Collapsed : Visibility.Visible;
         if (redact) { _toolHint.Text = "Drag over what must go. Saving removes it from the file for good (Save replaces the file: use Save as… to keep the original)."; _toolHint.Visibility = Visibility.Visible; }
         if (run) ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
+        if (item is ColumnsItem) { _toolHint.Text = "Double-click (or Enter) to change the words or the number of columns. Drag a side handle to make it wider or narrower; the height follows the words."; _toolHint.Visibility = Visibility.Visible; }
         if (item is StampItem) { _toolHint.Text = "Drag the round handle above the stamp to turn it (Shift: steps of 15°), the square corner to resize, the stamp itself to move."; _toolHint.Visibility = Visibility.Visible; }
         MarkColor();
     }
@@ -937,6 +938,7 @@ public sealed partial class PdfWindow
                 Select(item);
                 if (item is TextItem t && e.ClickCount == 2) { EditText(t, isNew: false); return; }
                 if (item is NoteItem n && e.ClickCount == 2) { OpenNote(n, isNew: false); return; }
+                if (item is ColumnsItem columns && e.ClickCount == 2) { EditColumns(columns); return; }
                 if (item != null) { _drag = DragMode.Move; _dragBox = item.Bounds; }
                 break;
             case EditTool.Text:
@@ -1278,6 +1280,7 @@ public sealed partial class PdfWindow
             case Key.Delete or Key.Back when _selected != null: DeleteSelected(); return true;
             case Key.Escape when _selected != null: Select(null); return true;
             case Key.Enter when _selected is TextItem t: EditText(t, isNew: false); return true;
+            case Key.Enter when _selected is ColumnsItem columns: EditColumns(columns); return true;
             case Key.Left or Key.Right or Key.Up or Key.Down when _selected != null:
             {
                 double step = shift ? 10 : 1;

@@ -118,7 +118,7 @@ internal static class PdfTextRuns
         }
     }
 
-    private static string TextOf(IntPtr obj, IntPtr textPage)
+    internal static string TextOf(IntPtr obj, IntPtr textPage)
     {
         uint len = Pdfium.FPDFTextObj_GetText(obj, textPage, null, 0);
         if (len <= 2 || len > 1 << 20) return "";

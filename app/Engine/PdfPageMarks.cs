@@ -102,7 +102,7 @@ public static class PdfPageMarks
             double pw = picture.Pixels.PixelWidth, ph = picture.Pixels.PixelHeight;
             double w = Math.Clamp(s.Width * wm.Width, 8, s.Width), h = w * ph / pw;
             if (h > s.Height * 0.95) { h = s.Height * 0.95; w = h * pw / ph; }
-            yield return new PdfImageMark(page, new Rect(centre.X - w / 2, centre.Y - h / 2, w, h), null, WithOpacity(picture.Pixels, wm.Opacity));
+            yield return new PdfImageMark(page, new Rect(centre.X - w / 2, centre.Y - h / 2, w, h), null, WithOpacity(picture.Pixels, wm.Opacity), Watermark: true);
             yield break;
         }
         string text = wm.Text.Trim();
@@ -115,7 +115,7 @@ public static class PdfPageMarks
         double textW = WidthOf(text, wm.Font, true, size);
         var f = Family(wm.Font);
         var topLeft = new Point(centre.X - textW / 2, centre.Y - f.LineSpacing * size / 2);
-        yield return new PdfTextMark(page, topLeft, text, wm.Font, true, size, Color.FromArgb(alpha, wm.Color.R, wm.Color.G, wm.Color.B), f.LineSpacing, f.Baseline, null, wm.Angle, centre);
+        yield return new PdfTextMark(page, topLeft, text, wm.Font, true, size, Color.FromArgb(alpha, wm.Color.R, wm.Color.G, wm.Color.B), f.LineSpacing, f.Baseline, null, wm.Angle, centre, Watermark: true);
     }
 
     /// <summary>The picture with its transparency made less opaque (a picture without transparency becomes see-through all over).</summary>
