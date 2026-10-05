@@ -114,6 +114,14 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern IntPtr FPDF_NewFormObjectFromXObject(IntPtr xobject);
     [DllImport(Dll)] public static extern int FPDFPage_GetMediaBox(IntPtr page, out float left, out float bottom, out float right, out float top);
     [DllImport(Dll)] public static extern int FPDFPage_GetCropBox(IntPtr page, out float left, out float bottom, out float right, out float top);
+    // ---------- signatures ----------
+    [DllImport(Dll)] public static extern int FPDF_GetSignatureCount(IntPtr doc);
+    [DllImport(Dll)] public static extern IntPtr FPDF_GetSignatureObject(IntPtr doc, int index);
+    [DllImport(Dll)] public static extern uint FPDFSignatureObj_GetContents(IntPtr signature, byte[]? buffer, uint length);
+    [DllImport(Dll)] public static extern uint FPDFSignatureObj_GetByteRange(IntPtr signature, int[]? buffer, uint length);
+    [DllImport(Dll)] public static extern uint FPDFSignatureObj_GetSubFilter(IntPtr signature, byte[]? buffer, uint length);
+    [DllImport(Dll)] public static extern uint FPDFSignatureObj_GetReason(IntPtr signature, byte[]? buffer, uint length);
+    [DllImport(Dll)] public static extern uint FPDFSignatureObj_GetTime(IntPtr signature, byte[]? buffer, uint length);
     [DllImport(Dll)] public static extern void FPDFPage_SetCropBox(IntPtr page, float left, float bottom, float right, float top);
 
     // ---------- the text on a page ----------

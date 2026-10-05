@@ -43,6 +43,8 @@ public sealed partial class PdfWindow
         Heading("PROTECT");
         Item("Add a password or limits…", AddPassword, "PdfMenuPassword");
         Item("Remove the password…", RemovePassword, "PdfMenuRemovePassword");
+        Item("Sign with a certificate…", SignWithCertificate, "PdfMenuSign");
+        Item("Check the signatures…", CheckSignatures, "PdfMenuCheckSign");
         Heading("CLEAN UP");
         Item("Remove a watermark…", RemoveWatermark, "PdfMenuWatermark");
         Item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");

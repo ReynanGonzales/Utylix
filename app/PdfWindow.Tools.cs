@@ -63,6 +63,50 @@ public sealed partial class PdfWindow
         MakeProtectedCopy(" (no password)", "Save the PDF without its password as", bytes => PdfSecurity.Unprotect(bytes, _pdf!.Password ?? ""), "is now free of passwords and limits");
     }
 
+    /// <summary>A signed copy (a certificate signature, like Acrobat's "Sign with a certificate"). The open PDF stays as it is.</summary>
+    private void SignWithCertificate()
+    {
+        if (_pdf == null || _path == null) return;
+        if (_pdf.IsProtected) { UMessage.Show(this, "A password-protected PDF can't be signed here. Make a copy without its password first (Tools > Remove the password).", "Sign", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        if (!CommitItems()) return;
+        var dialog = new PdfSignDialog(this, _pdf.PageCount, _current);
+        if (dialog.ShowDialog() != true || dialog.Result == null) return;
+        var options = dialog.Result;
+        MakeProtectedCopy(" (signed)", "Save the signed PDF as", bytes => PdfSigning.Sign(bytes, options), "is signed by " + PdfSigning.Name(options.Certificate) + ". Don't change it any more, or the signature will say it was changed");
+    }
+
+    /// <summary>Tells who signed the open PDF and whether it was changed since.</summary>
+    private void CheckSignatures()
+    {
+        if (_pdf == null || _path == null) return;
+        List<PdfSignatureInfo> found;
+        byte[] file;
+        try { found = _pdf.GetSignatures(); file = File.ReadAllBytes(_path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ObjectDisposedException) { Toast("Couldn't check: " + e.Message); return; }
+        if (found.Count == 0) { UMessage.Show(this, "This PDF has no digital signature.", "Signatures", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        var lines = new List<string>();
+        int n = 0;
+        foreach (var c in PdfSigning.Check(file, found))
+        {
+            n++;
+            if (found.Count > 1) lines.Add($"Signature {n}");
+            lines.Add("Signed by " + c.Signer + (c.When.Length > 0 ? " on " + c.When : ""));
+            if (c.Reason.Length > 0) lines.Add("Reason: " + c.Reason);
+            if (c.Problem.Length > 0) lines.Add("Couldn't be checked: " + c.Problem);
+            else
+            {
+                lines.Add(!c.SignatureOk ? "✘ The PDF was CHANGED after it was signed (or the signature is damaged)."
+                        : c.WholeFile ? "✔ The PDF has not been changed since it was signed."
+                        : "✔ What was signed is unchanged, but something was added to the file after signing.");
+                lines.Add(c.Trusted ? "✔ Windows trusts this certificate (" + c.Issuer + ")."
+                        : "• Windows does not know this signer yet" + (c.Issuer.Length > 0 && c.Issuer != c.Signer ? " (certificate from " + c.Issuer + ")" : " (a certificate the signer made)") + ", so who signed is not verified.");
+            }
+            lines.Add("");
+        }
+        var text = string.Join("\n", lines);
+        UMessage.Show(this, text.TrimEnd(), "Signatures", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private void MakeProtectedCopy(string suffix, string title, Func<byte[], byte[]> change, string result)
     {
         if (_pdf == null || _path == null) return;

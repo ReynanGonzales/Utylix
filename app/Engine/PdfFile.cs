@@ -171,6 +171,46 @@ public sealed partial class PdfFile : IDisposable
         }
     }
 
+    /// <summary>The digital signatures the PDF carries (empty for most files).</summary>
+    public List<PdfSignatureInfo> GetSignatures()
+    {
+        var list = new List<PdfSignatureInfo>();
+        lock (Pdfium.Sync)
+        {
+            ThrowIfClosed();
+            int count = Math.Max(0, Pdfium.FPDF_GetSignatureCount(_doc));
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr sig = Pdfium.FPDF_GetSignatureObject(_doc, i);
+                if (sig == IntPtr.Zero) continue;
+                uint n = Pdfium.FPDFSignatureObj_GetContents(sig, null, 0);
+                var contents = new byte[n];
+                if (n > 0) Pdfium.FPDFSignatureObj_GetContents(sig, contents, n);
+                uint rn = Pdfium.FPDFSignatureObj_GetByteRange(sig, null, 0);
+                var ranges = new int[rn];
+                if (rn > 0) Pdfium.FPDFSignatureObj_GetByteRange(sig, ranges, rn);
+                string Ascii(Func<byte[]?, uint, uint> get)
+                {
+                    uint len = get(null, 0);
+                    if (len <= 1 || len > 4096) return "";
+                    var buf = new byte[len];
+                    get(buf, len);
+                    return System.Text.Encoding.ASCII.GetString(buf, 0, (int)len - 1);
+                }
+                string reason = "";
+                uint reasonLen = Pdfium.FPDFSignatureObj_GetReason(sig, null, 0);
+                if (reasonLen > 2 && reasonLen < 8192)
+                {
+                    var rb = new byte[reasonLen];
+                    Pdfium.FPDFSignatureObj_GetReason(sig, rb, reasonLen);
+                    reason = System.Text.Encoding.Unicode.GetString(rb, 0, (int)reasonLen - 2);
+                }
+                list.Add(new PdfSignatureInfo(contents, ranges, Ascii((b, l) => Pdfium.FPDFSignatureObj_GetSubFilter(sig, b, l)), reason, Ascii((b, l) => Pdfium.FPDFSignatureObj_GetTime(sig, b, l))));
+            }
+        }
+        return list;
+    }
+
     /// <summary>The raw PDFium document, for the engines in this folder (use under <see cref="Pdfium.Sync"/>).</summary>
     internal IntPtr Handle { get { ThrowIfClosed(); return _doc; } }
 
