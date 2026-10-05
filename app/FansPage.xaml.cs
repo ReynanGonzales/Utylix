@@ -219,6 +219,25 @@ public partial class FansPage : UserControl
         public TextBlock Value = null!, Hint = null!;
         public ColumnDefinition Fill = null!, Rest = null!;
         public System.Windows.Shapes.Polyline Line = null!;
+        public System.Windows.Shapes.Path Icon = null!;
+    }
+
+    /// <summary>A small line drawing of what is measured (24 x 24 units): a processor with its pins, a graphics card with two fans, a motherboard.</summary>
+    private static System.Windows.Shapes.Path SensorIcon(string kind)
+    {
+        string d = kind switch
+        {
+            "cpu" => "M6,6 H18 V18 H6 Z M9.5,9.5 H14.5 V14.5 H9.5 Z M9,3 V6 M12,3 V6 M15,3 V6 M9,18 V21 M12,18 V21 M15,18 V21 M3,9 H6 M3,12 H6 M3,15 H6 M18,9 H21 M18,12 H21 M18,15 H21",
+            "gpu" => "M2,6.5 H22 V16.5 H2 Z M5.3,11.5 A3.2,3.2 0 1 0 11.7,11.5 A3.2,3.2 0 1 0 5.3,11.5 M12.3,11.5 A3.2,3.2 0 1 0 18.7,11.5 A3.2,3.2 0 1 0 12.3,11.5 M5,16.5 V19 M8,16.5 V19 M11,16.5 V19 M14,16.5 V19",
+            "board" => "M3,3 H21 V21 H3 Z M6.5,6.5 H12 V12 H6.5 Z M15,6 V13 M18,6 V13 M6.5,16 H17.5 M6.5,18.5 H12",
+            _ => "M12,3 V12 L17,15 M12,21 A9,9 0 1 1 12,3 A9,9 0 0 1 12,21",
+        };
+        return new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse(d), Width = 28, Height = 28, Stretch = Stretch.Uniform, StrokeThickness = 1.5, Fill = Brushes.Transparent,
+            StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false,
+        };
     }
 
     private const double SparkWidth = 180, SparkHeight = 28;
@@ -239,8 +258,14 @@ public partial class FansPage : UserControl
         if (name.StartsWith('#')) name = "Sensor " + name;
         var tile = new TempTile();
         var stack = new StackPanel();
-        stack.Children.Add(new TextBlock { Text = kind, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = muted });
-        stack.Children.Add(new TextBlock { Text = name, FontSize = 11.5, Foreground = muted, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) });
+        var heading = new StackPanel { Margin = new Thickness(0, 0, 36, 0) };
+        heading.Children.Add(new TextBlock { Text = kind, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = muted });
+        heading.Children.Add(new TextBlock { Text = name, FontSize = 11.5, Foreground = muted, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) });
+        tile.Icon = SensorIcon(t.Kind);
+        tile.Icon.Stroke = muted;
+        var top = new Grid();
+        top.Children.Add(heading); top.Children.Add(tile.Icon);
+        stack.Children.Add(top);
 
         var number = new StackPanel { Orientation = Orientation.Horizontal };
         tile.Value = new TextBlock { Text = "–", FontSize = 32, FontWeight = FontWeights.SemiBold, LineHeight = 38 };
@@ -284,7 +309,7 @@ public partial class FansPage : UserControl
         var (color, word) = Heat(v);
         var brush = new SolidColorBrush(color);
         tile.Value.Text = v.ToString("0", CultureInfo.InvariantCulture);
-        tile.Value.Foreground = brush; tile.Bar.Background = brush; tile.Line.Stroke = brush;
+        tile.Value.Foreground = brush; tile.Bar.Background = brush; tile.Line.Stroke = brush; tile.Icon.Stroke = brush;
         tile.Hint.Text = word; tile.Hint.Foreground = brush;
         double share = Math.Clamp(v, 1, 100);
         tile.Fill.Width = new GridLength(share, GridUnitType.Star); tile.Rest.Width = new GridLength(100 - share + 0.001, GridUnitType.Star);
