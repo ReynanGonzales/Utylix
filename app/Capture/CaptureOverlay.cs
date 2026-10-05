@@ -122,8 +122,8 @@ public sealed class CaptureOverlay : Window
         void Add(Kind k, string glyph, string label)
         {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
-            content.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 16, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
-            content.Children.Add(new TextBlock { Text = label, FontFamily = new FontFamily("Segoe UI"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+            content.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 16, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            content.Children.Add(new TextBlock { Text = label, FontFamily = new FontFamily("Segoe UI"), FontSize = 13, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center });
             var b = new RadioButton { Content = content, IsChecked = k == _kind, Template = ModeButtonTemplate(), Margin = new Thickness(2, 0, 2, 0), Cursor = Cursors.Hand, Focusable = false };
             System.Windows.Automation.AutomationProperties.SetAutomationId(b, "OverlayMode" + k);
             System.Windows.Automation.AutomationProperties.SetName(b, label);
