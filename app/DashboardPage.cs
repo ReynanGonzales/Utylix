@@ -36,7 +36,6 @@ public sealed class DashboardPage : UserControl
         root.Children.Add(head);
 
         // ---- the PC: fans and temperatures ----
-        root.Children.Add(Heading("This PC"));
         root.Children.Add(Fans);
 
         // ---- quick actions (in the fans' area, under the fan cards and above the safety settings) ----
