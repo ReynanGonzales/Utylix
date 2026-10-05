@@ -20,7 +20,12 @@ public sealed record PdfTextRun(int Index, Rect Box, string Text, double Size, s
 /// Change the words of a piece of text already in the page (empty = remove it) and / or move it (Dx, Dy in points as shown). A new text with several
 /// lines (separated by newlines) is written one line under the other, <paramref name="LineAdvance"/> points apart.
 /// </summary>
-public sealed record PdfReplaceTextMark(int Page, int Index, string OldText, string NewText, double Dx = 0, double Dy = 0, double LineAdvance = 0) : PdfMark(Page);
+/// <remarks>
+/// <paramref name="Family"/> (any font name Windows knows), <paramref name="Bold"/>, <paramref name="Size"/> (points, as shown) and <paramref name="Color"/> are only set
+/// when the person changed the look of the text; null keeps the PDF's own.
+/// </remarks>
+public sealed record PdfReplaceTextMark(int Page, int Index, string OldText, string NewText, double Dx = 0, double Dy = 0, double LineAdvance = 0,
+                                        string? Family = null, bool? Bold = null, double? Size = null, Color? Color = null) : PdfMark(Page);
 
 internal static class PdfTextRuns
 {
@@ -182,7 +187,9 @@ internal static class PdfTextRuns
                 double moveX = step.X - origin.X, moveY = step.Y - origin.Y;
                 void Shift(IntPtr o) { if (moveX != 0 || moveY != 0) Pdfium.FPDFPageObj_Transform(o, 1, 0, 0, 1, moveX, moveY); }
 
-                if (lines.Length == 1 && m.NewText == m.OldText) { Shift(obj); continue; }                          // only moved
+                bool fontChanged = m.Family != null || m.Bold != null;
+                bool restyled = fontChanged || m.Size != null || m.Color != null;
+                if (lines.Length == 1 && m.NewText == m.OldText && !restyled) { Shift(obj); continue; }             // only moved
 
                 IntPtr font = Pdfium.FPDFTextObj_GetFont(obj);
                 letters ??= LettersByFont(page, tp);
@@ -190,21 +197,24 @@ internal static class PdfTextRuns
                 Pdfium.FPDFTextObj_GetFontSize(obj, out float fs);
                 Pdfium.FPDFPageObj_GetFillColor(obj, out uint r, out uint g, out uint b, out uint a);
                 // the PDF's own font, when it already has every letter needed (a font in a PDF often has only the letters it uses)
-                bool ownFont = letters.TryGetValue(font, out var has) && lines.All(l => l.All(c => has!.Contains(c)));
+                bool ownFont = !fontChanged && letters.TryGetValue(font, out var has) && lines.All(l => l.All(c => has!.Contains(c)));
                 IntPtr useFont = font;
                 if (!ownFont)
                 {
-                    // otherwise the same font from Windows (or one like it)
+                    // otherwise the font the person chose, or the same font from Windows (or one like it)
                     var (family, bold, italic) = Describe(font);
-                    useFont = Substitute(doc, family, bold, italic, m.NewText.Replace("\n", " "), fonts);
+                    useFont = Substitute(doc, m.Family ?? family, m.Bold ?? bold, m.Family == null && italic, m.NewText.Replace("\n", " "), fonts);
                 }
                 // the lines below the first sit one step down the text's own "up" direction (matrix c, d), a line apart
                 double up = Math.Sqrt(matrix.C * matrix.C + matrix.D * matrix.D);
                 double ux = up > 1e-9 ? matrix.C / up : 0, uy = up > 1e-9 ? matrix.D / up : 1;
                 double advance = m.LineAdvance > 0 ? m.LineAdvance : fs * up * 1.2;
+                if (m.Size is double wanted && up > 1e-9) fs = (float)(wanted / up);                                 // (size as shown = font size x the matrix's scale)
+                if (m.Color is Color nc) { r = nc.R; g = nc.G; b = nc.B; a = nc.A; }
 
                 bool firstDone = false;
-                if (ownFont && lines[0].Length > 0 && Pdfium.FPDFText_SetText(obj, lines[0]) != 0) { Shift(obj); firstDone = true; }
+                // (a piece can only change its words in place: another size or colour is written as a new piece)
+                if (ownFont && !restyled && lines[0].Length > 0 && Pdfium.FPDFText_SetText(obj, lines[0]) != 0) { Shift(obj); firstDone = true; }
                 for (int i = 0; i < lines.Length; i++)
                 {
                     if (i == 0 && firstDone) continue;

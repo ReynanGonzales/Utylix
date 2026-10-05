@@ -70,7 +70,7 @@ public sealed class PdfPageMarksDialog : Window
     public int FirstPage { get; private set; }
     public int LastPage { get; private set; }
 
-    public PdfPageMarksDialog(Window owner, PdfFile pdf, string path, int currentPage)
+    public PdfPageMarksDialog(Window owner, PdfFile pdf, string path, int currentPage, string focus = "")
     {
         _pdf = pdf; _count = pdf.PageCount; _stem = Path.GetFileNameWithoutExtension(path);
         _previewPage = Math.Clamp(currentPage, 0, _count - 1);
@@ -208,7 +208,8 @@ public sealed class PdfPageMarksDialog : Window
         var root = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
         root.Children.Add(body); root.Children.Add(buttons);
         Content = root;
-        _useMark.IsChecked = false;
+        _useMark.IsChecked = focus == "mark";
+        if (focus == "mark") _useLine.IsChecked = false;
 
         System.Windows.Automation.AutomationProperties.SetAutomationId(_text, "PdfMarkText");
         System.Windows.Automation.AutomationProperties.SetAutomationId(_markText, "PdfMarkWatermarkText");

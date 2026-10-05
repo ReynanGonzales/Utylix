@@ -19,10 +19,11 @@ public sealed partial class PdfWindow
     }
 
     // ---------- page numbers, header / footer, watermark ----------
-    private void AddPageMarks()
+    /// <param name="focus">"line" (page numbers, header, footer) or "mark" (watermark): which half the dialog starts on; "" = as the dialog starts</param>
+    private void AddPageMarks(string focus = "")
     {
         if (_pdf == null || _path == null) return;
-        var dialog = new PdfPageMarksDialog(this, _pdf, _path, _current);
+        var dialog = new PdfPageMarksDialog(this, _pdf, _path, _current, focus);
         if (dialog.ShowDialog() != true) return;
         var pdf = _pdf;
         string stem = Path.GetFileNameWithoutExtension(_path);

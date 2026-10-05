@@ -344,7 +344,7 @@ public sealed partial class PdfWindow
     private void MarkColor()
     {
         if (_moreColor == null) return;
-        Color now = _selected != null && _selected is not ImageItem ? _selected.Color : _toolColors.TryGetValue(_tool, out var tc) ? tc : Colors.Black;
+        Color now = _runTyping != null ? _runTyping.EffColor : _selected != null && _selected is not ImageItem ? _selected.Color : _toolColors.TryGetValue(_tool, out var tc) ? tc : Colors.Black;
         bool known = false;
         foreach (var (b, c) in _swatchButtons)
         {
@@ -404,10 +404,27 @@ public sealed partial class PdfWindow
             _toolButtons[tool] = b;
             tools.Children.Add(b);
         }
+        void ActionButton(string label, string tip, Action action, string id, UIElement icon)
+        {
+            var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+            content.Children.Add(icon);
+            content.Children.Add(new TextBlock { Text = label, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center, Foreground = Soft, Margin = new Thickness(0, 2, 0, 0) });
+            var b = new Button { Content = content, ToolTip = tip, Template = ToolActionTemplate(), Focusable = false, Margin = new Thickness(1, 0, 1, 0) };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(b, id);
+            System.Windows.Automation.AutomationProperties.SetName(b, label);
+            b.Click += (_, _) => action();
+            tools.Children.Add(b);
+        }
         ToolButton(EditTool.Select, "↖", "Select", "Select, move and resize what you added (double-click a text to change it)", "Segoe UI Symbol");
         ToolButton(EditTool.Text, "", "Text", "Click anywhere to type (also for filling in forms)");
         ToolButton(EditTool.EditText, "", "Edit text", "Click on text already in the PDF to change it (Enter or click elsewhere when done)");
-        ToolButton(EditTool.Signature, "", "Sign", "Add your signature (draw it once, use it again)");
+        ActionButton("Columns", "Text in columns, like Word: choose how many columns and type the words", AddColumns, "PdfActionColumns",
+                     new StackPanel
+                     {
+                         Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
+                         Children = { ColumnBar(), ColumnBar(), ColumnBar() },
+                     });
+        ToolButton(EditTool.Signature,"", "Sign", "Add your signature (draw it once, use it again)");
         ToolButton(EditTool.Image, "", "Picture", "Add a picture");
         ToolButton(EditTool.Check, "", "Check", "Click to put a check mark");
         ToolButton(EditTool.Cross, "", "Cross", "Click to put a cross");
@@ -423,9 +440,16 @@ public sealed partial class PdfWindow
         ToolButton(EditTool.Shapes, "▭", "Shapes", "Box, circle, line or arrow: click again to choose (Shift: straight / square)", "Segoe UI Symbol");
         ShapesMenu();
         StampMenus();
-        ToolButton(EditTool.WhiteOut, "⬜", "White-out", "Drag to cover something with white (it hides it on the page; the words underneath are not erased from the file)", "Segoe UI Symbol");
+        ActionButton("Border", "A frame around the pages (colour, thickness, dashed, rounded ...)", AddBorder, "PdfActionBorder",
+                     new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.6), CornerRadius = new CornerRadius(5), Width = 22, Height = 17, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0) });
+        ToolButton(EditTool.WhiteOut,"⬜", "White-out", "Drag to cover something with white (it hides it on the page; the words underneath are not erased from the file)", "Segoe UI Symbol");
         ToolButton(EditTool.Redact, "", "Redact", "Drag a box over what must disappear for good: when you save, the words, pictures and comments under it are really removed from the file (not just covered)",
                    icon: new Border { Width = 24, Height = 15, Background = Brushes.Black, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(2), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0) });
+
+        ActionButton("Watermark", "A big pale text or picture across the pages (CONFIDENTIAL, DRAFT, a logo). To take one out: Tools > Remove a watermark", () => AddPageMarks("mark"), "PdfActionWatermark",
+                     new TextBlock { Text = "ABC", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 1), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new RotateTransform(-24) });
+        ActionButton("Page no.", "Page numbers, header and footer on the pages", () => AddPageMarks("line"), "PdfActionPageNumbers",
+                     new TextBlock { Text = "#", FontSize = 17, FontWeight = FontWeights.Bold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, -2, 0, -1) });
 
         // colours, size, font
         foreach (var c in Swatches)
@@ -502,9 +526,10 @@ public sealed partial class PdfWindow
         _colorRow.Children.Insert(0, new TextBlock { Text = "Colour", Foreground = Soft, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
         row2.Children.Add(_colorRow); row2.Children.Add(sizeRow);
         _toolHint.Foreground = Soft; _toolHint.FontSize = 12; _toolHint.VerticalAlignment = VerticalAlignment.Center;
-        row2.Children.Add(_toolHint);
         _fontRow.Margin = new Thickness(14, 0, 0, 0);
         row2.Children.Add(_fontRow);
+        row2.Children.Add(_toolHint);                                   // (after the font row: with a line open both show, and the long hint must not push the fonts away)
+        _toolHint.Margin = new Thickness(14, 0, 0, 0);
 
         var rows = new StackPanel();
         rows.Children.Add(row1);
@@ -528,6 +553,15 @@ public sealed partial class PdfWindow
         $"<Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Background='Transparent' CornerRadius='6' MinWidth='{(small ? 40 : 46)}' Height='{(small ? 26 : 44)}' Padding='{(small ? "6,0" : "3,2")}'><ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' /></Border>" +
         "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='Background' Value='#22FFFFFF' /></Trigger>" +
         "<Trigger Property='IsChecked' Value='True'><Setter TargetName='bd' Property='Background' Value='#5B8DEF' /></Trigger></ControlTemplate.Triggers></ControlTemplate>");
+
+    private static Border ColumnBar() => new() { Width = 5, Height = 17, Margin = new Thickness(1.5, 0, 1.5, 0), Background = Brushes.White, CornerRadius = new CornerRadius(1) };
+
+    /// <summary>A tool-bar button that is not "chosen" (it opens a dialog): the same hover as a tool.</summary>
+    private static ControlTemplate ToolActionTemplate() => (ControlTemplate)XamlReader.Parse(
+        "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'>" +
+        "<Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Background='Transparent' CornerRadius='6' MinWidth='46' Height='44' Padding='3,2'><ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' /></Border>" +
+        "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='Background' Value='#22FFFFFF' /></Trigger>" +
+        "<Trigger Property='IsPressed' Value='True'><Setter TargetName='bd' Property='Background' Value='#44FFFFFF' /></Trigger></ControlTemplate.Triggers></ControlTemplate>");
 
     private static ControlTemplate ToggleTemplate() => (ControlTemplate)XamlReader.Parse(
         "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ToggleButton'>" +
@@ -667,28 +701,36 @@ public sealed partial class PdfWindow
     private void UpdateProperties()
     {
         var item = _selected;
-        bool text = item is TextItem || (item == null && _tool is EditTool.Text or EditTool.Date);
+        var typingRun = _runTyping;                                // Edit text with a line open: the font, size and colour are that line's
+        bool text = item is TextItem || (item == null && _tool is EditTool.Text or EditTool.Date) || typingRun != null;
         bool line = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.Line or ShapeKind.Arrow } || item is InkItem { Signature: false }
                     || (item == null && _tool is EditTool.Pen or EditTool.Shapes);
         _fontRow.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)_sizeLabel.Parent).Visibility = text || line ? Visibility.Visible : Visibility.Collapsed;
         _sizeLabel.Text = text ? "Size" : "Line";
-        double size = item switch { TextItem t => t.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, _ => text ? _textSize : _lineWidth };
+        double size = typingRun != null ? typingRun.EffSize : item switch { TextItem t => t.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, _ => text ? _textSize : _lineWidth };
         _sizeText.Text = size.ToString(size < 10 ? "0.#" : "0", CultureInfo.InvariantCulture);
         _syncingFont = true;                                       // (showing the font must not change it)
         try
         {
-            if (item is TextItem ti) { ShowFont(ti.Font, ti.FontName); _boldButton.IsChecked = ti.Bold; }
+            if (typingRun != null)
+            {
+                foreach (var chip in _fontButtons.Values) chip.IsChecked = false;
+                _fontLabel.Text = typingRun.FontOverride ?? typingRun.Run.Family;       // (the PDF's own font, until another one is chosen)
+                _boldButton.IsChecked = typingRun.EffBold;
+            }
+            else if (item is TextItem ti) { ShowFont(ti.Font, ti.FontName); _boldButton.IsChecked = ti.Bold; }
             else if (text) { ShowFont(_font, _fontName); _boldButton.IsChecked = _bold; }
         }
         finally { _syncingFont = false; }
         bool run = item is RunEditItem || (item == null && _tool == EditTool.EditText);
-        _toolHint.Text = run ? "Click a line of text to change it, or drag it to move it. Shift+Enter makes a new line; Enter or a click beside it finishes; Save puts it into the PDF." : "";
+        _toolHint.Text = typingRun != null ? "Shift+Enter: new line · Enter: done"
+                       : run ? "Click a line of text to change it, or drag it to move it. Shift+Enter makes a new line; Enter or a click beside it finishes; Save puts it into the PDF." : "";
         _toolHint.Visibility = run ? Visibility.Visible : Visibility.Collapsed;
         bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
-        _colorRow.Visibility = item is ImageItem || run || redact ? Visibility.Collapsed : Visibility.Visible;
+        _colorRow.Visibility = item is ImageItem || (run && typingRun == null) || redact ? Visibility.Collapsed : Visibility.Visible;
         if (redact) { _toolHint.Text = "Drag over what must go. Saving removes it from the file for good (Save replaces the file: use Save as… to keep the original)."; _toolHint.Visibility = Visibility.Visible; }
-        if (run) ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
+        if (run && typingRun == null) ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
         if (item is ColumnsItem) { _toolHint.Text = "Double-click (or Enter) to change the words or the number of columns. Drag a side handle to make it wider or narrower; the height follows the words."; _toolHint.Visibility = Visibility.Visible; }
         if (item is StampItem) { _toolHint.Text = "Drag the round handle above the stamp to turn it (Shift: steps of 15°), the square corner to resize, the stamp itself to move."; _toolHint.Visibility = Visibility.Visible; }
         MarkColor();
@@ -696,6 +738,7 @@ public sealed partial class PdfWindow
 
     private void SetColor(Color c)
     {
+        if (_runTyping != null) { _runTyping.ColorOverride = c; StyleRunBox(); RenderItems(_runTyping.Page); MarkColor(); return; }
         if (_selected != null && _selected is not ImageItem)
         {
             Snapshot();
@@ -713,6 +756,7 @@ public sealed partial class PdfWindow
     {
         static double Next(double[] steps, double now, int dir) =>
             dir > 0 ? steps.FirstOrDefault(s => s > now + 0.01, steps[^1]) : steps.LastOrDefault(s => s < now - 0.01, steps[0]);
+        if (_runTyping != null) { _runTyping.SizeOverride = Next(TextSizes, _runTyping.EffSize, step); StyleRunBox(); RenderItems(_runTyping.Page); return; }
         switch (_selected)
         {
             case TextItem t: Snapshot(); t.FontSize = Next(TextSizes, t.FontSize, step); _textSize = t.FontSize; RenderItems(t.Page); break;
@@ -729,6 +773,14 @@ public sealed partial class PdfWindow
     private void SetFont(PdfFontKind? kind, bool? bold, string? name = null)
     {
         if (_syncingFont) return;
+        if (_runTyping != null)                                    // Edit text: the font of the line being changed (not the default for new text)
+        {
+            if (kind is PdfFontKind rk) _runTyping.FontOverride = rk switch { PdfFontKind.Serif => "Times New Roman", PdfFontKind.Mono => "Courier New", _ => "Arial" };
+            if (name != null) _runTyping.FontOverride = name;
+            if (bold is bool rb) _runTyping.BoldOverride = rb;
+            StyleRunBox(); RenderItems(_runTyping.Page);
+            return;
+        }
         if (kind is PdfFontKind k) { _font = k; _fontName = null; if (_fontLabel != null) _fontLabel.Text = "More fonts"; }
         if (name != null) _fontName = name;
         if (bold is bool b) _bold = b;

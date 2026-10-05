@@ -34,8 +34,8 @@ public sealed partial class PdfWindow
         Item("Split into several PDFs…", () => OpenPagesDialog(split: true), "PdfMenuSplit");
         Item("Save pages as pictures (PNG / JPG)…", () => OpenPagesDialog(split: false), "PdfMenuPictures");
         Heading("ADD TO THE PAGES");
-        Item("Page numbers, header and footer…", AddPageMarks, "PdfMenuMarks");
-        Item("Add a watermark…", AddPageMarks, "PdfMenuAddWatermark");
+        Item("Page numbers, header and footer…", () => AddPageMarks("line"), "PdfMenuMarks");
+        Item("Add a watermark…", () => AddPageMarks("mark"), "PdfMenuAddWatermark");
         Item("Border around the pages…", AddBorder, "PdfMenuBorder");
         Item("Text in columns…", AddColumns, "PdfMenuColumns");
         Heading("CLEAN UP");
