@@ -13,14 +13,18 @@ public static class WindowTheme
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
-    /// <summary>Dark title bar when Windows is in dark mode (Windows 10 20H1+/11).</summary>
+    /// <summary>A dark or light title bar to match the app's theme (Windows 10 20H1+/11).</summary>
     public static void DarkTitleBar(Window w) =>
-        w.SourceInitialized += (_, _) =>
-        {
-            if (!App.IsDarkTheme) return;
-            int on = 1;
-            DwmSetWindowAttribute(new WindowInteropHelper(w).Handle, 20, ref on, sizeof(int));
-        };
+        w.SourceInitialized += (_, _) => RefreshTitleBar(w);
+
+    /// <summary>Sets the title bar of an open window to the app's current theme (after the theme was changed).</summary>
+    public static void RefreshTitleBar(Window w)
+    {
+        IntPtr handle = new WindowInteropHelper(w).Handle;
+        if (handle == IntPtr.Zero) return;
+        int on = App.IsDarkTheme ? 1 : 0;
+        DwmSetWindowAttribute(handle, 20, ref on, sizeof(int));
+    }
 
     // ---------- a taskbar button of its own ----------
     [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

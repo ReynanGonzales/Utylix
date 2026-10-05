@@ -29,10 +29,15 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
 - **Brightness** – tray icon → **Brightness**: a small panel with a slider for every screen, like *Monitorian* (external
   monitors over the cable, a laptop's own screen through Windows).
 - **Updates** – Utylix checks GitHub now and then for a newer version of itself and asks before installing it (tray icon →
-  **Check for updates…**, or Settings → *Updates*).
-- **Settings match the tab** – *Settings* opens with just the settings of the tool you are in (Downloads, Image
-  Converter or Screen Capture), with *Show all settings* to see the rest.
-- **Backup** – Settings → *Backup* exports your settings to a file and imports them again after a reinstall.
+  **Check for updates…**, or Settings → *General*).
+- **Settings with a page for each thing** – a list on the left: *General* (start with Windows, the "still running in the tray" notice
+  - off by default -, updates, backup), *Appearance*, *Right-click menus and browser* (every Explorer entry, the magnet-link handler and
+  all the browser-extension options together), *Hotkeys* (Win + S, Ctrl + Alt + S, Ctrl + Alt + R / P, Win + F and the whole list of PDF
+  editor keys), *Downloads*, *Video sites*, *Torrents*, *Screen Capture*, *Screen Recorder*, *Video Player*. *Settings* opens on the page of
+  the tool you are in.
+- **Theme** – Settings → *Appearance*: match Windows, Dark or Light, and an accent colour (blue, purple, teal, green, orange, pink, red).
+  The change shows at once; Save keeps it, Cancel puts it back.
+- **Backup** – Settings → *General* exports your settings to a file and imports them again after a reinstall.
 
 ## Use it
 

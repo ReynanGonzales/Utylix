@@ -42,6 +42,14 @@ public sealed class Config
     /// <summary>Let the browser extension start Utylix when it is closed.</summary>
     [JsonPropertyName("allow_autostart_by_browser")] public bool AllowBrowserStart { get; set; } = true;
 
+    // ---- looks and notices ----
+    /// <summary>"system" (follow Windows), "dark" or "light".</summary>
+    [JsonPropertyName("theme")] public string Theme { get; set; } = "system";
+    /// <summary>The accent colour: a key of App.Accents ("blue", "purple" ...).</summary>
+    [JsonPropertyName("accent")] public string Accent { get; set; } = "blue";
+    /// <summary>Show the "Utylix is still running in the tray" notice when the main window is closed (off by default).</summary>
+    [JsonPropertyName("tray_notice")] public bool TrayNotice { get; set; }
+
     // ---- utilities ----
     /// <summary>"Convert" entry in Explorer's right-click menu for pictures.</summary>
     [JsonPropertyName("explorer_convert_menu")] public bool ExplorerMenu { get; set; } = true;
@@ -274,6 +282,9 @@ public sealed class Manager
                 ExplorerPlayMenu = c.ExplorerPlayMenu,
                 ExplorerPdfMenu = c.ExplorerPdfMenu,
                 AfterDownload = Config.AfterDownload,          // not a Settings field: keep what we have
+                Theme = c.Theme is "dark" or "light" ? c.Theme : "system",
+                Accent = string.IsNullOrWhiteSpace(c.Accent) ? "blue" : c.Accent,
+                TrayNotice = c.TrayNotice,
                 TorrentSeed = c.TorrentSeed,
                 TorrentDownKb = Math.Clamp(c.TorrentDownKb, 0, 10_000_000),
                 TorrentUpKb = Math.Clamp(c.TorrentUpKb, 0, 10_000_000),

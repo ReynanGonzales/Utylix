@@ -286,4 +286,13 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
   into ONE `PdfTextRun` (`Parts`, leftmost first; table columns and style changes stay apart). `RunEditItem.Marks` moves every part, or (text changed) puts all words in the first part and removes the others.
   `RunAt` skips runs that already have a `RunEditItem`, so the old place of a moved line is empty (before: clicking it made a second, phantom item). Tested in the real window with a PDF made of bits
   (`Prepared by the Finance Dep` + `artment`): drag by the last bit moves the whole line, old place does nothing, typing a new text replaces all bits.
+- **Settings / theme / hotkeys / snip** (2026-10-05): `SettingsWindow.xaml` is a list of pages on the left (`Page<Name>` panels, `Nav_Checked` / `ShowPage`; `PageFor(tool)` picks the page the
+  window opens on). Everything about Explorer right-click + browser is on ONE page, hotkeys on one (plus a reference list of the PDF editor's keys built in `BuildPdfKeys`).
+  Theme: `Config.Theme` (system / dark / light) + `Config.Accent` (`App.Accents`); `App.PreviewTheme` / `ReapplyTheme` change the brushes' colours IN PLACE (so brushes captured with
+  `(Brush)R("...")` follow too) and `WindowTheme.RefreshTitleBar` flips title bars; Settings previews live and restores on Cancel. `Config.TrayNotice` (off) gates the "still running in
+  the tray" balloon. PDF editor tool hotkeys are **Alt + letter** (`ToolKeys` in PdfWindow.Edit.cs; WPF reports the letter as `e.SystemKey` while Alt is down) because plain letters would
+  collide with typing; Ctrl+E edit on/off, Ctrl+Shift+S save as, Ctrl+G go to page. `App.HideForCapture` keeps the PDF editor on screen (like the player and photo viewer).
+  `CaptureOverlay`: a drag that starts on the snip mode bar (moves > 5 px) starts the selection (`BarPressed` / `BarMoved`); a plain click still switches the mode.
+  STILL TO DO: the owner wants "a unique Utylix Editor font" - he said to do it LAST; needs his OK to download an open-licence font (or a choice of style), then bundle + embed it
+  through `Engine/PdfFonts.cs` and list it in `PdfWindow.Fonts.cs`.
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.

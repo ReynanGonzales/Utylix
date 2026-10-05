@@ -116,6 +116,9 @@ public sealed class CaptureOverlay : Window
             Background = new SolidColorBrush(Color.FromArgb(235, 20, 24, 34)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x2B, 0x31, 0x45)), BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10), Padding = new Thickness(6), Child = row, Cursor = Cursors.Arrow,
         };
+        border.PreviewMouseLeftButtonDown += BarPressed;
+        border.PreviewMouseMove += BarMoved;
+        border.PreviewMouseLeftButtonUp += (_, _) => _barPress = null;
         void Add(Kind k, string glyph, string label)
         {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
@@ -144,6 +147,28 @@ public sealed class CaptureOverlay : Window
             "<Trigger Property='IsChecked' Value='True'><Setter TargetName='bd' Property='Background' Value='#FF5B8DEF' /></Trigger>" +
             "</ControlTemplate.Triggers></ControlTemplate>";
         return (ControlTemplate)System.Windows.Markup.XamlReader.Parse(xaml);
+    }
+
+    // The bar sits on top of the screen, so a drag that happens to start on one of its buttons would otherwise do nothing. A press that
+    // moves a few pixels is treated as the start of the selection (the button is not clicked); a plain click still switches the kind.
+    private Point? _barPress;
+
+    private void BarPressed(object sender, MouseButtonEventArgs e) => _barPress = e.GetPosition(this);
+
+    private void BarMoved(object sender, MouseEventArgs e)
+    {
+        if (_barPress is not { } from) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { _barPress = null; return; }
+        var now = e.GetPosition(this);
+        if ((now - from).Length < 5) return;
+        _barPress = null;
+        if (_kind == Kind.Window || _done) return;                       // (windows are picked by clicking)
+        Mouse.Capture(null);                                              // the button had the mouse: the picture takes it, so the button is never clicked
+        _start = from;
+        if (_kind == Kind.FreeForm) { _points.Clear(); _points.Add(from); _line.Points = new PointCollection(_points); }
+        CaptureMouse();
+        OnMove(this, e);
+        e.Handled = true;
     }
 
     private void SwitchTo(Kind k)

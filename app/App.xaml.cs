@@ -127,6 +127,7 @@ public partial class App : Application
         AppUpdater.CleanLeftovers();
         ApplyTheme();
         _manager = new Manager(dataDir);
+        ApplyTheme();                                  // (again: now the saved theme and accent are known)
         _ = System.Threading.Tasks.Task.Run(() => ExtensionFiles.Ensure());           // the browser extension is unpacked next to the settings (and kept current)
         // another Windows user (signed in at the same time) or another program may hold 6800: take the next free port
         int chosen = 0;
@@ -610,8 +611,8 @@ public partial class App : Application
     /// <summary>Hides every Utylix window that is showing (so a capture never contains Utylix); the returned action shows them again.</summary>
     public static Action HideForCapture()
     {
-        // the video player and the photo viewer stay: what they show is exactly what a snip of the screen is for
-        var shown = Current.Windows.Cast<Window>().Where(w => w.IsVisible && w is not (CaptureOverlay or PlayerWindow or ViewerWindow)).ToList();
+        // the video player, the photo viewer and the PDF editor stay: what they show is exactly what a snip of the screen is for
+        var shown = Current.Windows.Cast<Window>().Where(w => w.IsVisible && w is not (CaptureOverlay or PlayerWindow or ViewerWindow or PdfWindow)).ToList();
         foreach (var w in shown) w.Hide();
         return () => { foreach (var w in shown) { try { w.Show(); } catch (InvalidOperationException) { /* closed meanwhile */ } } };
     }
@@ -754,7 +755,7 @@ public partial class App : Application
         if (_shell != null)
             _shell.IsVisibleChanged += (_, _) =>
             {
-                if (!_shell.IsVisible && !_hintShown && !_exiting && !Capturing)
+                if (!_shell.IsVisible && !_hintShown && !_exiting && !Capturing && _manager?.Config.TrayNotice == true)
                 {
                     _hintShown = true;
                     _tray.ShowBalloonTip(3000, "Utylix is still running",
@@ -804,29 +805,63 @@ public partial class App : Application
     }
 
     // ---------- theme ----------
-    private void ApplyTheme()
+    /// <summary>The accent colours to choose from (key, name, for the dark theme, for the light one): all dark enough for white text on them.</summary>
+    public static readonly (string Key, string Name, string Dark, string Light)[] Accents =
     {
+        ("blue", "Blue", "#4F7DE8", "#2563EB"), ("purple", "Purple", "#8B5CF6", "#6D28D9"), ("teal", "Teal", "#0F9D91", "#0D7F76"),
+        ("green", "Green", "#1F9D55", "#15803D"), ("orange", "Orange", "#D9680F", "#C2410C"), ("pink", "Pink", "#D6336C", "#BE185D"),
+        ("red", "Red", "#D64550", "#B91C1C"),
+    };
+
+    private void ApplyTheme() => ApplyTheme(_manager?.Config.Theme ?? "system", _manager?.Config.Accent ?? "blue");
+
+    /// <summary>Tries a theme and accent now (Settings shows the choice while it is being made); nothing is stored.</summary>
+    public static void PreviewTheme(string theme, string accent)
+    {
+        ((App)Current).ApplyTheme(theme, accent);
+        foreach (Window w in Current.Windows) WindowTheme.RefreshTitleBar(w);
+    }
+
+    /// <summary>Puts the saved theme and accent back (Settings was cancelled, or they were just saved).</summary>
+    public static void ReapplyTheme()
+    {
+        var app = (App)Current;
+        app.ApplyTheme();
+        foreach (Window w in Current.Windows) WindowTheme.RefreshTitleBar(w);
+    }
+
+    private void ApplyTheme(string theme, string accent)
+    {
+        bool windowsDark;
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            IsDarkTheme = key?.GetValue("AppsUseLightTheme") is int v && v == 0;
+            windowsDark = key?.GetValue("AppsUseLightTheme") is int v && v == 0;
         }
-        catch (Exception) { IsDarkTheme = false; }
+        catch (Exception) { windowsDark = false; }
+        IsDarkTheme = theme == "dark" || (theme != "light" && windowsDark);
 
-        void Set(string name, string hex) =>
-            Resources[name] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+        // The colour of each brush is changed in place, so everything that already holds the brush (not only what looks it up by name) follows at once.
+        void Set(string name, string hex)
+        {
+            var colour = (Color)ColorConverter.ConvertFromString(hex);
+            if (Resources[name] is SolidColorBrush brush && !brush.IsFrozen) brush.Color = colour;
+            else Resources[name] = new SolidColorBrush(colour);
+        }
 
+        var pick = Array.Find(Accents, a => a.Key == accent);
+        if (pick.Key == null) pick = Accents[0];
         if (IsDarkTheme)
         {
             Set("BgBrush", "#12151C"); Set("CardBrush", "#1A1F2B"); Set("TextBrush", "#E6E9F0");
-            Set("MutedBrush", "#8B93A5"); Set("LineBrush", "#2A3142"); Set("AccentBrush", "#5B8DEF");
+            Set("MutedBrush", "#8B93A5"); Set("LineBrush", "#2A3142"); Set("AccentBrush", pick.Dark);
             Set("OkBrush", "#4ADE80"); Set("ErrBrush", "#F87171"); Set("TrackBrush", "#2A3142");
             Set("ConnBrush", "#2DD4BF");
         }
         else
         {
             Set("BgBrush", "#F5F6F8"); Set("CardBrush", "#FFFFFF"); Set("TextBrush", "#1C2333");
-            Set("MutedBrush", "#6B7280"); Set("LineBrush", "#E3E6EC"); Set("AccentBrush", "#2563EB");
+            Set("MutedBrush", "#6B7280"); Set("LineBrush", "#E3E6EC"); Set("AccentBrush", pick.Light);
             Set("OkBrush", "#16A34A"); Set("ErrBrush", "#DC2626"); Set("TrackBrush", "#E5E7EB");
             Set("ConnBrush", "#0D9488");
         }

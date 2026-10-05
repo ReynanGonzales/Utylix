@@ -379,6 +379,15 @@ public sealed partial class PdfWindow
         return _editButton;
     }
 
+    /// <summary>Alt + a letter picks each tool while editing (a plain letter would be typed into a text by accident). Shown in the tool's tip and in Settings &gt; Hotkeys.</summary>
+    private static readonly (EditTool Tool, Key Key, string Letter)[] ToolKeys =
+    {
+        (EditTool.Select, Key.V, "V"), (EditTool.EditText, Key.E, "E"), (EditTool.Text, Key.T, "T"), (EditTool.Signature, Key.G, "G"), (EditTool.Image, Key.I, "I"),
+        (EditTool.Check, Key.C, "C"), (EditTool.Cross, Key.X, "X"), (EditTool.Stamp, Key.M, "M"), (EditTool.Date, Key.D, "D"), (EditTool.Highlight, Key.H, "H"),
+        (EditTool.Underline, Key.U, "U"), (EditTool.Strike, Key.K, "K"), (EditTool.Note, Key.N, "N"), (EditTool.Pen, Key.P, "P"), (EditTool.Shapes, Key.S, "S"),
+        (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"),
+    };
+
     private UIElement BuildEditBar()
     {
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -387,7 +396,8 @@ public sealed partial class PdfWindow
             var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
             content.Children.Add(icon ?? new TextBlock { Text = glyph, FontFamily = new FontFamily(font), FontSize = 16, HorizontalAlignment = HorizontalAlignment.Center, Foreground = Brushes.White });
             content.Children.Add(new TextBlock { Text = label, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center, Foreground = Soft, Margin = new Thickness(0, 2, 0, 0) });
-            var b = new RadioButton { Content = content, GroupName = "pdftool", ToolTip = tip, Template = ToolChoiceTemplate(), Focusable = false, Margin = new Thickness(1, 0, 1, 0) };
+            string letter = Array.Find(ToolKeys, k => k.Tool == tool).Letter;
+            var b = new RadioButton { Content = content, GroupName = "pdftool", ToolTip = letter == null ? tip : tip + "  [Alt+" + letter + "]", Template = ToolChoiceTemplate(), Focusable = false, Margin = new Thickness(1, 0, 1, 0) };
             System.Windows.Automation.AutomationProperties.SetAutomationId(b, "PdfTool" + tool);
             System.Windows.Automation.AutomationProperties.SetName(b, label);
             b.Checked += (_, _) => SetTool(tool);
@@ -1249,6 +1259,17 @@ public sealed partial class PdfWindow
             return false;                                                      // (the text box gets every other key)
         }
         if (e.Key == Key.Delete && _strip.IsKeyboardFocusWithin) { DeleteSelectedPages(); return true; }          // (pages chosen at the side)
+        bool alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
+        if (alt && !ctrl && !shift && Keyboard.FocusedElement is not TextBox)
+        {
+            Key letterKey = e.Key == Key.System ? e.SystemKey : e.Key;            // (with Alt held, WPF reports the letter as SystemKey)
+            var hit = Array.Find(ToolKeys, k => k.Key == letterKey);
+            if (hit.Letter != null)
+            {
+                if (_toolButtons[hit.Tool].IsChecked == true) SetTool(hit.Tool); else _toolButtons[hit.Tool].IsChecked = true;
+                return true;
+            }
+        }
         switch (e.Key)
         {
             case Key.Z when ctrl && !shift: Undo(); return true;

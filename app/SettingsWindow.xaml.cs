@@ -20,6 +20,7 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         _manager = manager;
         MaxHeight = SystemParameters.WorkArea.Height * 0.94;
+        Height = Math.Min(Height, MaxHeight);
 
         var c = manager.Config;
         BuildCategoryRows(c);
@@ -68,32 +69,134 @@ public partial class SettingsWindow : Window
         ExcludeBox.Text = c.CaptureExclude;
         (c.CaptureTypesOnly ? TypesRadio : AllRadio).IsChecked = true;
         Mode_Changed(null, null!);
-        ShowSettingsFor(tool);
+        // looks, notices
+        TrayNoticeBox.IsChecked = c.TrayNotice;
+        _theme = c.Theme is "dark" or "light" ? c.Theme : "system"; _accent = c.Accent;
+        (_theme == "dark" ? ThemeDarkRadio : _theme == "light" ? ThemeLightRadio : ThemeSystemRadio).IsChecked = true;
+        BuildAccentChips();
+        _themeLoading = false;
+        BuildPdfKeys();
+        ShowPage(PageFor(tool));
     }
 
-    /// <summary>Show just the settings of one tool (null = everything). Backup is always there.</summary>
-    private void ShowSettingsFor(string? tool)
+    // ---------- the list of pages on the left ----------
+    private static string PageFor(string? tool) => tool switch
     {
-        bool all = tool is not ("downloads" or "converter" or "capture" or "recorder" or "player");
-        GroupDownloads.Visibility = all || tool == "downloads" ? Visibility.Visible : Visibility.Collapsed;
-        GroupConverter.Visibility = all || tool == "converter" ? Visibility.Visible : Visibility.Collapsed;
-        GroupCapture.Visibility = all || tool == "capture" ? Visibility.Visible : Visibility.Collapsed;
-        GroupRecorder.Visibility = all || tool == "recorder" ? Visibility.Visible : Visibility.Collapsed;
-        GroupPlayer.Visibility = all || tool == "player" ? Visibility.Visible : Visibility.Collapsed;
-        GroupArchive.Visibility = all || tool == "converter" ? Visibility.Visible : Visibility.Collapsed;   // (both are Explorer right-click options)
-        ShowAllBtn.Visibility = all ? Visibility.Collapsed : Visibility.Visible;
-        Title = tool switch
+        "downloads" => "Downloads", "converter" => "RightClick", "capture" => "Capture", "recorder" => "Recorder", "player" => "Player", _ => "General",
+    };
+
+    private bool _showing;
+
+    private void ShowPage(string name)
+    {
+        if (_showing) return;
+        _showing = true;
+        try
         {
-            "downloads" => "Settings - Downloads",
-            "converter" => "Settings - Multi Convert",
-            "capture" => "Settings - Screen Capture",
-            "recorder" => "Settings - Screen Recorder",
-            "player" => "Settings - Video Player",
-            _ => "Settings",
-        };
+            foreach (var child in ((Grid)PageScroll.Content).Children.OfType<StackPanel>())
+                child.Visibility = child.Name == "Page" + name ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var tab in SideNav.Children.OfType<RadioButton>())
+                tab.IsChecked = (string?)tab.Tag == name;
+            PageScroll.ScrollToTop();
+            string label = SideNav.Children.OfType<RadioButton>().FirstOrDefault(t => (string?)t.Tag == name)?.Content as string ?? "";
+            Title = name == "General" ? "Settings" : "Settings - " + label;
+        }
+        finally { _showing = false; }
     }
 
-    private void ShowAll_Click(object sender, RoutedEventArgs e) => ShowSettingsFor(null);
+    private void Nav_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton { Tag: string name } && !_showing) ShowPage(name);
+    }
+
+    // ---------- theme and accent (tried at once; Cancel puts them back) ----------
+    private string _theme = "system", _accent = "blue";
+    private bool _themeLoading = true;
+    private readonly List<(RadioButton Chip, string Key)> _accentChips = new();
+
+    private void Theme_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_themeLoading) return;
+        _theme = ThemeDarkRadio.IsChecked == true ? "dark" : ThemeLightRadio.IsChecked == true ? "light" : "system";
+        App.PreviewTheme(_theme, _accent);
+        ColourAccentChips();
+    }
+
+    private void BuildAccentChips()
+    {
+        const string xaml = "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='RadioButton'>" +
+            "<Grid><Ellipse x:Name='ring' Stroke='Transparent' StrokeThickness='2.5' /><Ellipse Margin='5' Fill='{TemplateBinding Background}' /></Grid>" +
+            "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='ring' Property='Stroke' Value='{DynamicResource MutedBrush}' /></Trigger>" +
+            "<Trigger Property='IsChecked' Value='True'><Setter TargetName='ring' Property='Stroke' Value='{DynamicResource TextBrush}' /></Trigger>" +
+            "</ControlTemplate.Triggers></ControlTemplate>";
+        var template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(xaml);
+        foreach (var a in App.Accents)
+        {
+            var chip = new RadioButton { GroupName = "accent", Width = 38, Height = 38, Margin = new Thickness(0, 0, 8, 4), Template = template, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = a.Name, IsChecked = a.Key == _accent, Focusable = false };
+            System.Windows.Automation.AutomationProperties.SetName(chip, a.Name + " accent");
+            System.Windows.Automation.AutomationProperties.SetAutomationId(chip, "SettingsAccent" + a.Key);
+            string key = a.Key;
+            chip.Checked += (_, _) => { if (_themeLoading) return; _accent = key; App.PreviewTheme(_theme, _accent); };
+            AccentPanel.Children.Add(chip);
+            _accentChips.Add((chip, a.Key));
+        }
+        if (!_accentChips.Any(x => x.Chip.IsChecked == true)) { _accent = "blue"; _accentChips[0].Chip.IsChecked = true; }
+        ColourAccentChips();
+    }
+
+    /// <summary>Each chip shows the colour it gives in the theme that is on now.</summary>
+    private void ColourAccentChips()
+    {
+        foreach (var (chip, key) in _accentChips)
+        {
+            var a = Array.Find(App.Accents, x => x.Key == key);
+            chip.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(App.IsDarkTheme ? a.Dark : a.Light));
+        }
+    }
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        base.OnClosing(e);
+        // Cancel (or the X): the saved theme comes back; Save already stored the new one
+        if (DialogResult != true) App.ReapplyTheme();
+    }
+
+    // ---------- the PDF editor's keys, for reference ----------
+    private void BuildPdfKeys()
+    {
+        void Heading(string text) => PdfKeysPanel.Children.Add(new TextBlock { Text = text, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, PdfKeysPanel.Children.Count == 0 ? 0 : 16, 0, 6) });
+        void Row(string keys, string what)
+        {
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(210) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var chip = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(8, 2, 8, 2), HorizontalAlignment = HorizontalAlignment.Left, BorderThickness = new Thickness(1) };
+            chip.SetResourceReference(Border.BackgroundProperty, "BgBrush");
+            chip.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
+            chip.Child = new TextBlock { Text = keys, FontFamily = new System.Windows.Media.FontFamily("Consolas"), FontSize = 12.5 };
+            var text = new TextBlock { Text = what, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(text, 1);
+            row.Children.Add(chip);
+            row.Children.Add(text);
+            PdfKeysPanel.Children.Add(row);
+        }
+        Heading("Tools while editing (hold Alt)");
+        foreach (var (key, what) in new[] { ("V", "Select, move, resize"), ("E", "Edit text already in the PDF"), ("T", "Text"), ("G", "Sign"), ("I", "Picture"), ("C", "Check mark"), ("X", "Cross"),
+                                            ("M", "Stamp"), ("D", "Date"), ("H", "Highlight"), ("U", "Underline"), ("K", "Strike"), ("N", "Note"), ("P", "Pen"), ("S", "Shapes"),
+                                            ("W", "White-out"), ("R", "Redact") })
+            Row("Alt + " + key, what);
+        Heading("File");
+        foreach (var (keys, what) in new[] { ("Ctrl + O", "Open a PDF"), ("Ctrl + S", "Save"), ("Ctrl + Shift + S", "Save as"), ("Ctrl + P", "Print"), ("Ctrl + W", "Close the window") }) Row(keys, what);
+        Heading("Editing");
+        foreach (var (keys, what) in new[] { ("Ctrl + E", "Turn Edit on or off"), ("Ctrl + Z", "Undo"), ("Ctrl + Y  /  Ctrl + Shift + Z", "Redo"), ("Delete", "Remove what is selected"),
+                                             ("Arrow keys", "Nudge what is selected (Shift = bigger steps)"), ("Enter", "Change the selected text"), ("Esc", "Let go of the selection / finish typing"),
+                                             ("Shift + Enter", "New line while changing a line of the PDF's own text") }) Row(keys, what);
+        Heading("Looking");
+        foreach (var (keys, what) in new[] { ("Ctrl + F", "Search"), ("F3  /  Shift + F3", "Next / previous result"), ("Ctrl + A", "Select all text on the page"), ("Ctrl + C", "Copy the selected text"),
+                                             ("Ctrl + +  /  Ctrl + -", "Zoom in / out"), ("Ctrl + 0", "Whole page"), ("Ctrl + 1", "100 %"), ("Ctrl + 2", "Fit the width"), ("Ctrl + R", "Turn the pages (for looking only)"),
+                                             ("Ctrl + G", "Go to a page"), ("Home  /  End", "First / last page"), ("F4", "Pages at the side") }) Row(keys, what);
+    }
+
 
     private void ExtensionHelp_Click(object sender, RoutedEventArgs e) => ExtensionFiles.ShowHelp(this);
 
@@ -381,6 +484,9 @@ public partial class SettingsWindow : Window
                 ShotCtrlAltS = ShotCtrlAltBox.IsChecked == true,
                 ShotCopy = ShotCopyBox.IsChecked == true,
                 ShotAutoSave = ShotAutoSaveBox.IsChecked == true,
+                Theme = _theme,
+                Accent = _accent,
+                TrayNotice = TrayNoticeBox.IsChecked == true,
                 ShotDir = ShotDirBox.Text,
                 RecHotkey = RecHotkeyBox.IsChecked == true,
                 RecDir = RecDirBox.Text,
