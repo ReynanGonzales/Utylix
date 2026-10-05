@@ -36,7 +36,9 @@ internal sealed class MusicCardWindow : Window
         Drop += (_, e) => onDrop(e);
         DragOver += (_, e) => { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
         PreviewMouseLeftButtonDown += OnDown;
-        Closing += (_, e) => { if (!_reallyClosing) { e.Cancel = true; _closeAll(); } };        // the x / Alt+F4 close the whole player
+        // the x / Alt+F4 close the whole player. Not from inside this event: closing the player closes this window too, and a window that is
+        // already closing may not be closed again ("Cannot set Visibility to Visible or call Show, ShowDialog, Close ... while a Window is closing").
+        Closing += (_, e) => { if (!_reallyClosing) { e.Cancel = true; Dispatcher.BeginInvoke(new Action(() => { if (!_reallyClosing) _closeAll(); })); } };
     }
 
     public void SetCard(FrameworkElement card)
@@ -46,7 +48,7 @@ internal sealed class MusicCardWindow : Window
         _host.Children.Add(card);
     }
 
-    public void CloseForReal() { _reallyClosing = true; Close(); }
+    public void CloseForReal() { if (_reallyClosing) return; _reallyClosing = true; try { Close(); } catch (InvalidOperationException) { /* already on its way out */ } }
 
     private static bool OnControl(DependencyObject? source)
     {

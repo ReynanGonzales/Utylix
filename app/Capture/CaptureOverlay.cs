@@ -52,6 +52,9 @@ public sealed class CaptureOverlay : Window
     /// <summary>The kind of snip in use when the overlay closed (the person can switch it with the bar at the top).</summary>
     public Kind ChosenKind => _kind;
 
+    /// <summary>When the person chose a timer on the bar: take the snip again after this many seconds (the overlay closes without a picture).</summary>
+    public int RetakeAfter { get; private set; }
+
     /// <param name="what">What is being chosen, for the hint at the top ("capture" or e.g. "record").</param>
     public CaptureOverlay(BitmapSource shot, Int32Rect area, Kind kind, string what = "capture", bool modeBar = false)
     {
@@ -135,7 +138,35 @@ public sealed class CaptureOverlay : Window
         Add(Kind.Rectangle, "", "Rectangle");
         Add(Kind.Window, "", "Window");
         Add(Kind.Full, "", "Full screen");
+
+        // the timer: to snip again after a count-down (a menu or a tooltip that disappears, something to arrange first)
+        row.Children.Add(new Border { Width = 1, Background = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), Margin = new Thickness(8, 6, 8, 6) });
+        row.Children.Add(new TextBlock { Text = "Snip again in", FontFamily = new FontFamily("Segoe UI"), FontSize = 12.5, Foreground = new SolidColorBrush(Color.FromRgb(0xA7, 0xAE, 0xBF)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 6, 0) });
+        foreach (int seconds in new[] { 3, 5, 10 })
+        {
+            int chosen = seconds;
+            var b = new Button
+            {
+                Content = new TextBlock { Text = seconds + " s", FontFamily = new FontFamily("Segoe UI"), FontSize = 13, Foreground = Brushes.White },
+                Template = TimerButtonTemplate(), Margin = new Thickness(2, 0, 2, 0), Cursor = Cursors.Hand, Focusable = false,
+                ToolTip = $"Close this and snip again after {seconds} seconds, so you can set the screen up first",
+            };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(b, "OverlayTimer" + seconds);
+            System.Windows.Automation.AutomationProperties.SetName(b, seconds + " seconds");
+            b.Click += (_, _) => { if (_done) return; RetakeAfter = chosen; Finish(null); };
+            row.Children.Add(b);
+        }
         return border;
+    }
+
+    private static ControlTemplate TimerButtonTemplate()
+    {
+        const string xaml = "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
+            "<Border x:Name='bd' CornerRadius='7' Padding='10,7' Background='#22FFFFFF'><ContentPresenter HorizontalAlignment='Center' /></Border>" +
+            "<ControlTemplate.Triggers>" +
+            "<Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='Background' Value='#FF5B8DEF' /></Trigger>" +
+            "</ControlTemplate.Triggers></ControlTemplate>";
+        return (ControlTemplate)System.Windows.Markup.XamlReader.Parse(xaml);
     }
 
     private static ControlTemplate ModeButtonTemplate()

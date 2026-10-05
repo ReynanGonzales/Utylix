@@ -178,7 +178,10 @@ opens the window instead). The small **Utylix Snip** window, in Utylix's own loo
 Snipping Tool has them:
 **New**, **Mode** (*Free-form*, *Rectangular*, *Window*, *Full-screen* snip, and *Text Detector*; choosing one starts the
 snip), **Delay** (none, 1 to 5 seconds), **Cancel** and **Options** (the capture settings). Utylix hides itself, freezes the
-screen and dims it: drag over the part you want, draw around it, or click a window; Esc or right-click cancels. The snip
+screen and dims it: drag over the part you want, draw around it, or click a window; Esc or right-click cancels. While you
+are choosing, the bar at the top also has **Snip again in 3 s / 5 s / 10 s**: it closes the dimmed screen, counts down
+(a small "Snipping in 3…" at the top of the screen; click it to cancel) and then starts a fresh snip, so you can set up a menu
+or a tooltip first. That timer is used once; the **Delay** button keeps its own setting. The snip
 shows in the window, where you can draw on it with the **Pen**, **Highlighter** (six colors, three thicknesses),
 **Eraser** and **Undo**, then **Copy** (Ctrl + C), **Save** or **Save as…** (Ctrl + S), or **Detect text**. Ctrl + N takes a
 new snip, Ctrl + O opens a picture, Ctrl + V pastes one, and you can drop a picture on the window. The window opens where

@@ -35,6 +35,7 @@ public partial class SnipWindow : Window
     private static SnipWindow? _instance;
     private static Mode _mode = Mode.Rectangle;              // remembered while Utylix runs
     private static int _delaySeconds;
+    private static int _oneShotDelay;                        // a timer chosen on the snip bar: used once, for the next snip only
 
     private readonly Manager _manager;
     private Tool _tool = Tool.Pen;
@@ -147,14 +148,22 @@ public partial class SnipWindow : Window
         _cts = new CancellationTokenSource();
         Action? restore = null;
         bool got = false;
+        int retake = 0;                                                         // a timer chosen on the bar while snipping: snip again after it
+        SnipCountdown? pill = null;
+        int seconds = _oneShotDelay > 0 ? _oneShotDelay : _delaySeconds;
+        _oneShotDelay = 0;
         try
         {
-            // a delay: the window stays in view (with a count-down and a working Cancel) until the last moment
-            for (int left = _delaySeconds; left > 0; left--)
+            // a delay: the window stays in view (with a count-down and a working Cancel) until the last moment; when the window shows a picture
+            // (or is not open at all), a small count-down at the top of the screen says how long is left, and a click on it cancels
+            for (int left = seconds; left > 0; left--)
             {
-                if (IsVisible) { CancelBtn.IsEnabled = true; if (_image == null) MessageText.Text = $"Snipping in {left}…  (Cancel stops it)"; }
+                if (IsVisible) CancelBtn.IsEnabled = true;
+                if (IsVisible && _image == null) MessageText.Text = $"Snipping in {left}…  (Cancel stops it)";
+                else { pill ??= new SnipCountdown(() => _cts?.Cancel()); pill.ShowAt(left); }
                 await Task.Delay(1000, _cts.Token);
             }
+            pill?.Close(); pill = null;
             CancelBtn.IsEnabled = false;
             restore = App.HideForCapture();                                      // never capture ourselves
             await Task.Delay(260);
@@ -172,9 +181,10 @@ public partial class SnipWindow : Window
                 if (_overlay.ChosenKind != kind)
                     _mode = _overlay.ChosenKind switch { CaptureOverlay.Kind.FreeForm => Mode.FreeForm, CaptureOverlay.Kind.Window => Mode.Window, CaptureOverlay.Kind.Full => Mode.Full, _ => Mode.Rectangle };
                 if (_overlay.SelectedArea is { } taken) _placeAt = taken;
+                retake = _overlay.RetakeAfter;
                 _overlay = null;
             }
-            if (result == null) return;                                         // cancelled
+            if (result == null) return;                                         // cancelled (or: snip again after a timer, see finally)
 
             SetImage(result);
             got = true;
@@ -190,12 +200,14 @@ public partial class SnipWindow : Window
         }
         finally
         {
+            pill?.Close();
             _busy = false;
             App.Capturing = false;
             CancelBtn.IsEnabled = false;
             if (_image == null) MessageText.Text = DefaultMessage;
             restore?.Invoke();
             if (got || wasVisible) Open();
+            if (retake > 0 && !got) { _oneShotDelay = retake; _ = CaptureAsync(); }      // "snip again in N s" chosen on the bar
         }
     }
 
