@@ -80,6 +80,10 @@ public sealed partial class MusicWindow : Window
         public string Look { get; set; } = "classic";              // how the player looks (see MusicWindow.Looks.cs)
         public List<string> Favourites { get; set; } = new();       // songs marked with the heart
         public bool ShowList { get; set; } = true;                 // the wide look: the playlist under the card
+        public bool Floating { get; set; }                         // the small player (just the card) was left open
+        public double? FloatLeft { get; set; }
+        public double? FloatTop { get; set; }
+        public bool FloatOnTop { get; set; }
     }
 
     // ---------- one music window ----------
@@ -325,7 +329,7 @@ public sealed partial class MusicWindow : Window
         Small("Add songs…", () => Browse(add: true), "MusicAdd");
         Small("Add folder…", AddFolder, "MusicFolder");
         Small("Clear", Clear, "MusicClear");
-        Small("Small player", ToggleCompact, "MusicCompact");
+        Small("Small player", ToggleFloating, "MusicCompact").ToolTip = "Just the card, in a window you can drag anywhere";
         Button? lookBtn = null; lookBtn = Small("Look…", () => ShowLookMenu(lookBtn), "MusicLook"); lookBtn.ToolTip = "Change how the player looks (key L cycles through the looks)";
         Small("\u2665", PlayFavourites, "MusicFavourites").ToolTip = "Play only my favourites (the songs with a heart)";
         head.Children.Add(new TextBlock { Text = "Playlist", Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
@@ -393,11 +397,11 @@ public sealed partial class MusicWindow : Window
         }), true);
         _vol.ValueChanged += (_, _) => { int v = (int)_vol.Value; Post(mp => mp.Volume = v); };
         PreviewKeyDown += OnKey;
-        Drop += (_, e) => { if (e.Data.GetData(DataFormats.FileDrop) is string[] dropped) { var songs = Expand(dropped); if (songs.Count > 0) AddAndPlay(songs, enqueue: _list.Count > 0 && _snap.Playing); } };
+        Drop += (_, e) => DropFiles(e);
         DragOver += (_, e) => { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
-        Loaded += (_, _) => { _thread = new Thread(PlayerThread) { IsBackground = true, Name = "Utylix music" }; _thread.SetApartmentState(ApartmentState.MTA); _thread.Start(); _ui.Start(); RegisterMediaKeys(); };
+        Loaded += (_, _) => { if (_saved.Floating) Dispatcher.BeginInvoke(new Action(EnterFloating), DispatcherPriority.ApplicationIdle); _thread = new Thread(PlayerThread) { IsBackground = true, Name = "Utylix music" }; _thread.SetApartmentState(ApartmentState.MTA); _thread.Start(); _ui.Start(); RegisterMediaKeys(); };
         _ui.Tick += (_, _) => UpdateUi();
-        Closing += (_, _) => { Save(); _ui.Stop(); UnregisterMediaKeys(); _threadStop = true; };
+        Closing += (_, _) => { if (_floating != null) { _saved.FloatLeft = _floating.Left; _saved.FloatTop = _floating.Top; _saved.FloatOnTop = _floating.Topmost; } Save(); _ui.Stop(); UnregisterMediaKeys(); _threadStop = true; _floating?.CloseForReal(); };
         Closed += (_, _) => { _main = null; AnyClosed?.Invoke(); };
         RefreshModes();
         emptyHint.Visibility = Visibility.Visible;
@@ -578,6 +582,11 @@ public sealed partial class MusicWindow : Window
     /// <summary>The big text of the player follows the "Show" choice: song and artist, only the artist, or only the song.</summary>
     private void UpdateNow(Track t)
     {
+        try { UpdateNowCore(t); if (_floating != null) _floating.Title = Title; } catch (InvalidOperationException) { }
+    }
+
+    private void UpdateNowCore(Track t)
+    {
         string artist = t.Artist.Length > 0 ? t.Artist : "";
         switch (Track.DisplayMode)
         {
@@ -656,6 +665,16 @@ public sealed partial class MusicWindow : Window
         _right.Visibility = _compact || (_vertical && !_saved.ShowList) ? Visibility.Collapsed : Visibility.Visible;
         if (!_compact) { SizeToContent = SizeToContent.Manual; Width = Math.Clamp(_saved.Width, 640, SystemParameters.WorkArea.Width); Height = Math.Clamp(_saved.Height, 420, SystemParameters.WorkArea.Height); }
         FitWindowToLook();
+    }
+
+    /// <summary>Songs or a folder dropped on the player (or on the small player).</summary>
+    private void DropFiles(DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] dropped)
+        {
+            var songs = Expand(dropped);
+            if (songs.Count > 0) AddAndPlay(songs, enqueue: _list.Count > 0 && _snap.Playing);
+        }
     }
 
     private void OnError()
@@ -781,7 +800,7 @@ public sealed partial class MusicWindow : Window
             case Key.MediaPlayPause: TogglePause(); break;
             case Key.MediaNextTrack: Next(manual: true); break;
             case Key.MediaPreviousTrack: Previous(); break;
-            case Key.Escape: Close(); break;
+            case Key.Escape: if (_floating != null) ExitFloating(); else Close(); break;
             default: handled = false; break;
         }
         e.Handled = handled;

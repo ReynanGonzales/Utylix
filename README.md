@@ -290,6 +290,7 @@ Utylix Editor reads, fills in, edits, signs, prints and shrinks PDFs with PDFium
 
 - **Six looks** (press **L**, or the ⋮ button > Look): *Classic* (big cover, playlist beside it), *Wide card* (one slim card with the playlist dropping under it), *Dark card*, *Frosted card*,
   *Light card* and *Waveform card* (draws the song's loudness as bars; click or drag to jump). The heart marks **favourites** (key **F**; the ♥ button plays only your favourites).
+- **Small player**: the *Small player* button (or ⋮ > Small player) turns the player into just the card: no title bar, rounded, see-through around it, with its shadow. Press on any empty part of it and drag to move it anywhere (it remembers the place, and can stay on top of other windows). Double-click it, or press Esc, to get the full player and the playlist back. It stays this way if you close Utylix like that.
 - **Song info editor** (**F2**, right-click a song > *Edit song info…*, or ⋮ menu): title, artist, album artist, album, year, track and disc numbers, genre, composer, comment, lyrics and the cover
   picture, written into the file itself (MP3, FLAC, M4A, OGG, WAV ...). Choose several songs to set the same album, artist or cover on all of them (only what you change is written). A song that
   is playing is stopped for a moment and carries on where it was. Uses the open-source TagLib# library.

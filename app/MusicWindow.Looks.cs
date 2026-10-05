@@ -126,6 +126,13 @@ public sealed partial class MusicWindow
     }
 
     // ---------- choosing and building a look ----------
+    private MusicCardWindow? _floating;                                    // the "small player": just the card in a window of its own, drag it anywhere
+
+    private FrameworkElement BuildCardFor(string key) => key switch
+    {
+        "wide" => BuildWide(), "dark" => BuildDark(), "frost" => BuildFrost(), "light" => BuildLight(), "wave" => BuildWave(), _ => BuildClassic(),
+    };
+
     private void ApplyLook(string key)
     {
         if (!LookList.Any(l => l.Key == key)) key = "classic";
@@ -136,25 +143,29 @@ public sealed partial class MusicWindow
         _vertical = key == "wide";
         _wave = null;
 
-        FrameworkElement card = key switch
-        {
-            "wide" => BuildWide(), "dark" => BuildDark(), "frost" => BuildFrost(), "light" => BuildLight(), "wave" => BuildWave(), _ => BuildClassic(),
-        };
+        FrameworkElement card = BuildCardFor(key);
 
-        if (_vertical)
+        if (_floating != null)
         {
-            _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            Grid.SetRow(card, 0); Grid.SetRow(_right, 1);
+            _floating.SetCard(FloatingWrap(card));
         }
         else
         {
-            _root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            Grid.SetColumn(card, 0); Grid.SetColumn(_right, 1);
+            if (_vertical)
+            {
+                _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                Grid.SetRow(card, 0); Grid.SetRow(_right, 1);
+            }
+            else
+            {
+                _root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetColumn(card, 0); Grid.SetColumn(_right, 1);
+            }
+            _root.Children.Add(card); _root.Children.Add(_right);
+            _right.Visibility = _vertical && !_saved.ShowList ? Visibility.Collapsed : Visibility.Visible;
         }
-        _root.Children.Add(card); _root.Children.Add(_right);
-        _right.Visibility = _compact || (_vertical && !_saved.ShowList) ? Visibility.Collapsed : Visibility.Visible;
 
         RefreshModes();
         UpdateHeart();
@@ -162,13 +173,61 @@ public sealed partial class MusicWindow
         if (current != null) UpdateNow(current);
         UpdateCoverVisibility();
         if (_wave != null && current != null) _ = LoadWaveAsync(current);
-        FitWindowToLook();
+        if (_floating == null) FitWindowToLook();
+    }
+
+    // ---------- the small player: the card IS the window ----------
+    /// <summary>The card as the floating window shows it: the classic look gets a rounded dark body of its own (the others already are cards).</summary>
+    private FrameworkElement FloatingWrap(FrameworkElement card)
+    {
+        if (_look != "classic") return card;
+        if (card is ScrollViewer sv && sv.Content is FrameworkElement inner) { sv.Content = null; card = inner; }
+        return new Border { Background = Hex("#14161E"), CornerRadius = new CornerRadius(26), Margin = new Thickness(20), Width = _cardWidth, Child = card, BorderBrush = Hex("#2B3145"), BorderThickness = new Thickness(1) };
+    }
+
+    private void ToggleFloating()
+    {
+        if (_floating == null) EnterFloating(); else ExitFloating();
+    }
+
+    private void EnterFloating()
+    {
+        if (_floating != null) return;
+        foreach (var e in SharedControls()) Detach(e);
+        Detach(_right);
+        _root.Children.Clear();
+        _floating = new MusicCardWindow(OnKey, DropFiles, ExitFloating, () => Close(), _saved.FloatOnTop);
+        if (_saved.FloatLeft is double x && _saved.FloatTop is double y)
+        {
+            var work = SystemParameters.VirtualScreenLeft; _floating.WindowStartupLocation = WindowStartupLocation.Manual;
+            _floating.Left = Math.Clamp(x, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - 120);
+            _floating.Top = Math.Clamp(y, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 120);
+        }
+        else { _floating.WindowStartupLocation = WindowStartupLocation.CenterScreen; }
+        _saved.Floating = true;
+        ApplyLook(_look);                                                    // builds the card into the floating window
+        _floating.Show();
+        Hide();
+        var current = _list.FirstOrDefault(t => t.IsCurrent);
+        if (current != null) _floating.Title = current.Title + " - Utylix Music";
+    }
+
+    private void ExitFloating()
+    {
+        if (_floating == null) return;
+        var f = _floating;
+        _saved.FloatLeft = f.Left; _saved.FloatTop = f.Top; _saved.FloatOnTop = f.Topmost; _saved.Floating = false;
+        foreach (var e in SharedControls()) Detach(e);
+        _floating = null;
+        f.CloseForReal();
+        Show();
+        ApplyLook(_look);
+        Activate();
     }
 
     /// <summary>The window is as wide as the card (and the playlist, when it shows).</summary>
     private void FitWindowToLook()
     {
-        if (_compact) { MinWidth = _cardWidth + 10; Width = _cardWidth + 40; SizeToContent = SizeToContent.Height; return; }
         if (_vertical)
         {
             MinWidth = _cardWidth + 40;
@@ -490,8 +549,9 @@ public sealed partial class MusicWindow
             looks.Items.Add(it);
         }
         menu.Items.Add(looks);
-        if (_vertical) menu.Items.Add(Item(_saved.ShowList ? "Hide the playlist" : "Show the playlist", TogglePlaylistUnderCard));
-        else menu.Items.Add(Item(_compact ? "Show the playlist" : "Small player (hide the playlist)", ToggleCompact));
+        if (_vertical && _floating == null) menu.Items.Add(Item(_saved.ShowList ? "Hide the playlist" : "Show the playlist", TogglePlaylistUnderCard));
+        menu.Items.Add(Item(_floating != null ? "Open the full player (with the playlist)" : "Small player: just the card, drag it anywhere", ToggleFloating));
+        if (_floating != null) menu.Items.Add(Item("Keep on top of other windows", () => { _floating!.Topmost = !_floating.Topmost; _saved.FloatOnTop = _floating.Topmost; Save(); }, _floating.Topmost, true));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Shuffle   (S)", () => { _shuffle = !_shuffle; RebuildOrder(keepCurrent: true); RefreshModes(); }, _shuffle, true));
         var repeat = new MenuItem { Header = "Repeat   (R)", Style = (Style)FindResource("ThemedMenuItem") };
@@ -533,7 +593,7 @@ public sealed partial class MusicWindow
     {
         _saved.ShowList = !_saved.ShowList;
         _right.Visibility = _saved.ShowList ? Visibility.Visible : Visibility.Collapsed;
-        if (!_compact) FitWindowToLook();
+        FitWindowToLook();
         Save();
     }
 
