@@ -307,6 +307,7 @@ public sealed partial class PdfWindow : Window
         _toastBox.Child = _toast;
         stage.Children.Add(_toastBox);
         stage.Children.Add(SearchBar());
+        stage.Children.Add(GridButton());
 
         var body = new DockPanel();
         DockPanel.SetDock(_stripBox, Dock.Left);
@@ -412,24 +413,36 @@ public sealed partial class PdfWindow : Window
         var sizes = await Task.Run(() => Enumerable.Range(0, pdf.PageCount).Select(pdf.PageSize).ToArray());
         if (generation != _generation) { pdf.Dispose(); return; }
 
-        int keepPage = keepEditing ? _current : 0;
+        // (after saving, the same page is shown at the same place and zoom: it is not a new document)
+        int keepPage = keepEditing ? Math.Clamp(_current, 0, Math.Max(0, sizes.Length - 1)) : 0;
+        double keepV = _scroll.VerticalOffset, keepH = _scroll.HorizontalOffset, keepZoom = _zoom;
+        var keepFit = _fit;
+        bool sameLook = keepEditing && _sizes.Length == sizes.Length && _rotation == 0;
         _pdf?.Dispose();
-        _pdf = pdf; _path = path; _sizes = sizes; _rotation = 0; _current = 0;
+        _pdf = pdf; _path = path; _sizes = sizes; _rotation = 0; _current = keepEditing ? keepPage : 0;
         ResetEdits(keepEditing);
         Title = System.IO.Path.GetFileName(path) + " - Utylix Editor";
         _info.Text = $"{System.IO.Path.GetFileName(path)}   ·   {pdf.PageCount} page{(pdf.PageCount == 1 ? "" : "s")}   ·   {PdfReduceWindow.Bytes(pdf.Length)}";
         _pageCount.Text = "/ " + pdf.PageCount;
-        _pageBox.Text = pdf.PageCount == 0 ? "" : "1";
+        _pageBox.Text = pdf.PageCount == 0 ? "" : (keepPage + 1).ToString();
         foreach (var e in _needsDocument) e.IsEnabled = true;
         _message.Visibility = pdf.PageCount == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (pdf.PageCount == 0) _message.Text = "This PDF has no pages.";
         BuildPages();
         OnDocumentLoaded();
-        _fit = Fit.Width;
+        _fit = sameLook ? keepFit : Fit.Width;
         UpdateLayout();
-        ApplyZoom(FitZoom(Fit.Width), keepPlace: false);
-        _scroll.ScrollToTop();
-        if (keepPage > 0) { UpdateLayout(); GoTo(keepPage); }
+        ApplyZoom(sameLook ? (keepFit == Fit.None ? keepZoom : FitZoom(keepFit)) : FitZoom(Fit.Width), keepPlace: false);
+        if (sameLook)
+        {
+            UpdateLayout();
+            _scroll.ScrollToVerticalOffset(keepV); _scroll.ScrollToHorizontalOffset(keepH);
+        }
+        else
+        {
+            _scroll.ScrollToTop();
+            if (keepPage > 0) { UpdateLayout(); GoTo(keepPage); }
+        }
         _scroll.Focus();
     }
 

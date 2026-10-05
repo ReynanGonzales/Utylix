@@ -29,9 +29,6 @@ public sealed partial class PdfWindow
             menu.Items.Add(m);
         }
         Heading("PAGES");
-        Item("Page grid: see, move, turn and delete pages…", OpenPageGrid, "PdfMenuGrid");
-        Item("Add pages from a PDF or pictures…", InsertPagesFromFiles, "PdfMenuInsert");
-        Item("Add a blank page after the chosen page", AddBlankPage, "PdfMenuBlank");
         Item("Crop pages…", CropPages, "PdfMenuCrop");
         Item("Take the chosen page(s) out as a new PDF…", ExtractSelectedPages, "PdfMenuExtract");
         Item("Split into several PDFs…", () => OpenPagesDialog(split: true), "PdfMenuSplit");

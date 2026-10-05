@@ -561,8 +561,56 @@ public sealed partial class PdfWindow
         panel.Children.Add(tabs);
         DockPanel.SetDock(pageTools, Dock.Top);
         panel.Children.Add(pageTools);
+        var add = AddPageButton();
+        _pagesTab.Checked += (_, _) => add.Visibility = Visibility.Visible;
+        _marksTab.Checked += (_, _) => add.Visibility = Visibility.Collapsed;
+        DockPanel.SetDock(add, Dock.Bottom);
+        panel.Children.Add(add);
         panel.Children.Add(body);
         return panel;
+    }
+
+    /// <summary>"+ Add page" under the small pages: a blank page after the chosen one, or pages from a PDF or pictures.</summary>
+    private UIElement AddPageButton()
+    {
+        var content = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        content.Children.Add(new TextBlock { Text = "+", FontSize = 17, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, Margin = new Thickness(0, -2, 7, 0), VerticalAlignment = VerticalAlignment.Center });
+        content.Children.Add(new TextBlock { Text = "Add page", FontSize = 12.5, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center });
+        var b = new Button { Content = content, Template = BarButtonTemplate(), Height = 34, Margin = new Thickness(10, 6, 10, 10), Focusable = false, IsEnabled = false, ToolTip = "Add a blank page, or pages from a PDF or pictures" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(b, "PdfStripAdd");
+        b.Click += (_, _) =>
+        {
+            var menu = new ContextMenu();
+            void Item(string text, Action action, string id) { var m = new MenuItem { Header = text }; System.Windows.Automation.AutomationProperties.SetAutomationId(m, id); m.Click += (_, _) => action(); menu.Items.Add(m); }
+            Item("A blank page after the chosen page", AddBlankPage, "PdfStripAddBlank");
+            Item("Pages from a PDF or pictures…", InsertPagesFromFiles, "PdfStripAddFile");
+            Themed(menu);
+            menu.PlacementTarget = b; menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top; menu.IsOpen = true;
+        };
+        _needsDocument.Add(b);
+        return b;
+    }
+
+    /// <summary>A round button in the bottom-right corner of the pages: opens the page grid.</summary>
+    private UIElement GridButton()
+    {
+        var b = new Button
+        {
+            Content = new TextBlock { Text = "\uE80A", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 17, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+            Width = 42, Height = 42, Focusable = false, IsEnabled = false, Cursor = Cursors.Hand, ToolTip = "Page grid: see every page big, move, turn and delete them",
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 30, 22),
+            Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
+                "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'>" +
+                "<Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Background='#E6232834' BorderBrush='#55FFFFFF' BorderThickness='1' CornerRadius='21'><ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' /></Border>" +
+                "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='Background' Value='#FF3B5998' /></Trigger>" +
+                "<Trigger Property='IsEnabled' Value='False'><Setter TargetName='bd' Property='Opacity' Value='0.45' /></Trigger></ControlTemplate.Triggers></ControlTemplate>"),
+        };
+        b.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.45 };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(b, "PdfGridButton");
+        System.Windows.Automation.AutomationProperties.SetName(b, "Page grid");
+        b.Click += (_, _) => OpenPageGrid();
+        _needsDocument.Add(b);
+        return b;
     }
 
     /// <summary>A new PDF is shown: forget the old selection and search, read its bookmarks.</summary>

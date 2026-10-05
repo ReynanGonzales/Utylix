@@ -442,6 +442,7 @@ public sealed partial class PdfWindow
     private UIElement BuildEditBar()
     {
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var actions = new Dictionary<string, Button>();                       // (the buttons that open a dialog instead of being a chosen tool)
         void ToolButton(EditTool tool, string glyph, string label, string tip, string font = "Segoe MDL2 Assets", UIElement? icon = null)
         {
             var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
@@ -465,6 +466,7 @@ public sealed partial class PdfWindow
             System.Windows.Automation.AutomationProperties.SetName(b, label);
             b.Click += (_, _) => action();
             tools.Children.Add(b);
+            actions[id] = b;
         }
         ToolButton(EditTool.Select, "↖", "Select", "Select, move and resize what you added (double-click a text to change it)", "Segoe UI Symbol");
         ToolButton(EditTool.Text, "", "Text", "Click anywhere to type (also for filling in forms)");
@@ -501,6 +503,21 @@ public sealed partial class PdfWindow
                      new TextBlock { Text = "ABC", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 1), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new RotateTransform(-24) });
         ActionButton("Page no.", "Page numbers, header and footer on the pages", () => AddPageMarks("line"), "PdfActionPageNumbers",
                      new TextBlock { Text = "#", FontSize = 17, FontWeight = FontWeights.Bold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, -2, 0, -1) });
+
+        // the tools are put in groups, with a thin line between them: choose / write / mark up / put on the page / hide / the whole pages
+        tools.Children.Clear();
+        UIElement Sep() => new Border { Width = 1, Height = 30, Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)), Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
+        void Group(params UIElement[] items)
+        {
+            if (tools.Children.Count > 0) tools.Children.Add(Sep());
+            foreach (var item in items) tools.Children.Add(item);
+        }
+        Group(_toolButtons[EditTool.Select]);
+        Group(_toolButtons[EditTool.Text], _toolButtons[EditTool.EditText], _toolButtons[EditTool.Date], actions["PdfActionColumns"]);
+        Group(_toolButtons[EditTool.Highlight], _toolButtons[EditTool.Underline], _toolButtons[EditTool.Strike], _toolButtons[EditTool.Note], _toolButtons[EditTool.Pen]);
+        Group(_toolButtons[EditTool.Image], _toolButtons[EditTool.Signature], _toolButtons[EditTool.Stamp], _toolButtons[EditTool.Check], _toolButtons[EditTool.Cross], _toolButtons[EditTool.Shapes]);
+        Group(_toolButtons[EditTool.WhiteOut], _toolButtons[EditTool.Redact]);
+        Group(actions["PdfActionBorder"], actions["PdfActionWatermark"], actions["PdfActionPageNumbers"]);
 
         // colours, size, font
         foreach (var c in Swatches)
@@ -562,25 +579,28 @@ public sealed partial class PdfWindow
         foreach (var (b, id) in new[] { (_saveButton, "PdfEditSave"), (saveAs, "PdfEditSaveAs"), (done, "PdfEditDone"), (_undoButton, "PdfEditUndo"), (_redoButton, "PdfEditRedo"), (_deleteButton, "PdfEditDelete") })
             System.Windows.Automation.AutomationProperties.SetAutomationId(b, id);
 
-        var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        right.Children.Add(_undoButton); right.Children.Add(_redoButton); right.Children.Add(_deleteButton);
-        right.Children.Add(_saveButton); right.Children.Add(saveAs); right.Children.Add(done);
+        // the two rows: the tools (grouped) on top, and below them the look of the tool or of what is selected (colour, size, font) on the left,
+        // with undo / redo / delete and Save / Save as / Done on the right, so the tools have the whole width
+        var actionsRight = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 4, 0) };
+        actionsRight.Children.Add(_undoButton); actionsRight.Children.Add(_redoButton); actionsRight.Children.Add(_deleteButton);
+        actionsRight.Children.Add(new Border { Width = 1, Height = 22, Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)), Margin = new Thickness(8, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center });
+        actionsRight.Children.Add(_saveButton); actionsRight.Children.Add(saveAs); actionsRight.Children.Add(done);
+        var row1 = new ScrollViewer { Content = tools, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
 
-        // first row: the tools, and undo / save / done; second row: colour, size and font of the tool or of what is selected
-        var row1 = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(right, Dock.Right);
-        row1.Children.Add(right);
-        row1.Children.Add(new ScrollViewer { Content = tools, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled });
-
-        var row2 = new StackPanel { Orientation = Orientation.Horizontal, Height = 32, Margin = new Thickness(6, 2, 0, 0) };
+        var look = new DockPanel { LastChildFill = true, VerticalAlignment = VerticalAlignment.Center, ClipToBounds = true };
         // ("Colour" sits inside the colour row, so it goes away with it)
         _colorRow.Children.Insert(0, new TextBlock { Text = "Colour", Foreground = Soft, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
-        row2.Children.Add(_colorRow); row2.Children.Add(sizeRow);
-        _toolHint.Foreground = Soft; _toolHint.FontSize = 12; _toolHint.VerticalAlignment = VerticalAlignment.Center;
+        _toolHint.Foreground = Soft; _toolHint.FontSize = 12; _toolHint.VerticalAlignment = VerticalAlignment.Center; _toolHint.TextTrimming = TextTrimming.CharacterEllipsis;
         _fontRow.Margin = new Thickness(14, 0, 0, 0);
-        row2.Children.Add(_fontRow);
-        row2.Children.Add(_toolHint);                                   // (after the font row: with a line open both show, and the long hint must not push the fonts away)
         _toolHint.Margin = new Thickness(14, 0, 0, 0);
+        sizeRow.Margin = new Thickness(14, 0, 0, 0);
+        foreach (UIElement part in new UIElement[] { _colorRow, sizeRow, _fontRow }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
+        look.Children.Add(_toolHint);                                   // (last: it takes what is left, and is cut with "..." when it is long)
+
+        var row2 = new DockPanel { Height = 36, Margin = new Thickness(6, 2, 0, 0), LastChildFill = true };
+        DockPanel.SetDock(actionsRight, Dock.Right);
+        row2.Children.Add(actionsRight);
+        row2.Children.Add(look);
 
         var rows = new StackPanel();
         rows.Children.Add(row1);
@@ -601,7 +621,7 @@ public sealed partial class PdfWindow
 
     private static ControlTemplate ToolChoiceTemplate(bool small = false) => (ControlTemplate)XamlReader.Parse(
         "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='RadioButton'>" +
-        $"<Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Background='Transparent' CornerRadius='6' MinWidth='{(small ? 40 : 46)}' Height='{(small ? 26 : 44)}' Padding='{(small ? "6,0" : "3,2")}'><ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' /></Border>" +
+        $"<Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Background='Transparent' CornerRadius='6' MinWidth='{(small ? 40 : 42)}' Height='{(small ? 26 : 44)}' Padding='{(small ? "6,0" : "3,2")}'><ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' /></Border>" +
         "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='Background' Value='#22FFFFFF' /></Trigger>" +
         "<Trigger Property='IsChecked' Value='True'><Setter TargetName='bd' Property='Background' Value='#5B8DEF' /></Trigger></ControlTemplate.Triggers></ControlTemplate>");
 
