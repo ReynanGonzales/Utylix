@@ -66,7 +66,10 @@ public partial class FansPage : UserControl
         StopBtn.Visibility = Visibility.Collapsed;
         StatusText.Text = "Fan control is off: the PC controls its fans";
         Intro.Visibility = Visibility.Visible;
-        TempsCard.Visibility = SafetyCard.Visibility = Visibility.Collapsed;
+        SafetyCard.Visibility = Visibility.Collapsed;
+        Temps.Children.Clear(); _tempTiles.Clear();                               // (only the memory tile stays: it does not need fan control)
+        TempsTitle.Text = "Memory"; TempsCard.Visibility = Visibility.Visible;
+        UpdateMemory();
         Cards.Children.Clear(); _cards.Clear(); _layout = "";
         ProblemText.Text = problem ?? "";
         ProblemText.Visibility = string.IsNullOrEmpty(problem) ? Visibility.Collapsed : Visibility.Visible;
@@ -150,6 +153,7 @@ public partial class FansPage : UserControl
     // ---------- reading ----------
     private async Task TickAsync()
     {
+        UpdateMemory();
         if (_busy || !FanSettings.Client.Connected) { if (!FanSettings.Client.Connected && _cards.Count > 0) SetOff("Lost contact with the fan helper. Every fan is back under the PC's own control."); return; }
         _busy = true;
         try
@@ -163,6 +167,7 @@ public partial class FansPage : UserControl
             ProblemText.Visibility = readable ? Visibility.Collapsed : Visibility.Visible;
             Intro.Visibility = readable ? Visibility.Collapsed : Visibility.Visible;
             TempsCard.Visibility = SafetyCard.Visibility = Visibility.Visible;
+            TempsTitle.Text = "Temperatures and memory";
             StatusText.Text = reply.Emergency ? "Too hot: every controlled fan is at 100 %" : "Fan control is on";
             StatusText.Foreground = reply.Emergency ? new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)) : (Brush)FindResource("MutedBrush");
             string layout = string.Join("|", _sensors.Where(s => s.Type == "control").Select(s => s.Id)) + "#" + _settings.ShowUnused + "#" + string.Join(",", _sensors.Where(s => s.Type == "fan" && (s.Value ?? 0) > 0).Select(s => s.Id));
@@ -209,6 +214,7 @@ public partial class FansPage : UserControl
         Relayout();
         if (_cards.Count == 0)
             Cards.Children.Add(new TextBlock { Text = "No fan that can be set was found. Reading the temperatures still works.", Foreground = (Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 10, 0, 0) });
+        UpdateMemory();                                                              // (Clear() above took the memory tile out: it goes back after the temperatures)
         _building = false;
     }
 
@@ -220,6 +226,7 @@ public partial class FansPage : UserControl
         public ColumnDefinition Fill = null!, Rest = null!;
         public System.Windows.Shapes.Polyline Line = null!;
         public System.Windows.Shapes.Path Icon = null!;
+        public TextBlock Name = null!;
     }
 
     /// <summary>A small line drawing of what is measured (24 x 24 units): a processor with its pins, a graphics card with two fans, a motherboard.</summary>
@@ -230,6 +237,7 @@ public partial class FansPage : UserControl
             "cpu" => "M6,6 H18 V18 H6 Z M9.5,9.5 H14.5 V14.5 H9.5 Z M9,3 V6 M12,3 V6 M15,3 V6 M9,18 V21 M12,18 V21 M15,18 V21 M3,9 H6 M3,12 H6 M3,15 H6 M18,9 H21 M18,12 H21 M18,15 H21",
             "gpu" => "M2,6.5 H22 V16.5 H2 Z M5.3,11.5 A3.2,3.2 0 1 0 11.7,11.5 A3.2,3.2 0 1 0 5.3,11.5 M12.3,11.5 A3.2,3.2 0 1 0 18.7,11.5 A3.2,3.2 0 1 0 12.3,11.5 M5,16.5 V19 M8,16.5 V19 M11,16.5 V19 M14,16.5 V19",
             "board" => "M3,3 H21 V21 H3 Z M6.5,6.5 H12 V12 H6.5 Z M15,6 V13 M18,6 V13 M6.5,16 H17.5 M6.5,18.5 H12",
+            "ram" => "M2,7 H22 V16 H2 Z M5,10 H8 V13 H5 Z M10.5,10 H13.5 V13 H10.5 Z M16,10 H19 V13 H16 Z M4,16 V18.5 M7,16 V18.5 M10,16 V18.5 M14,16 V18.5 M17,16 V18.5 M20,16 V18.5",
             _ => "M12,3 V12 L17,15 M12,21 A9,9 0 1 1 12,3 A9,9 0 0 1 12,21",
         };
         return new System.Windows.Shapes.Path
@@ -242,6 +250,35 @@ public partial class FansPage : UserControl
 
     private const double SparkWidth = 180, SparkHeight = 28;
 
+    // ---------- memory (RAM): read in this program, no administrator permission needed ----------
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct MemoryStatus
+    {
+        public uint Length, Load;
+        public ulong TotalPhys, AvailPhys, TotalPageFile, AvailPageFile, TotalVirtual, AvailVirtual, AvailExtendedVirtual;
+    }
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
+
+    private TempTile? _memTile;
+
+    private static (Color Color, string Word) MemoryHeat(double percent) =>
+        percent < 60 ? (Color.FromRgb(0x2E, 0xB8, 0x7A), "Plenty free")
+        : percent < 80 ? (Color.FromRgb(0xE0, 0xA3, 0x2B), "Busy")
+        : percent < 90 ? (Color.FromRgb(0xE8, 0x74, 0x2F), "Low free")
+        : (Color.FromRgb(0xE5, 0x48, 0x4D), "Almost full");
+
+    /// <summary>The memory tile: how much of the RAM is in use. It is shown with or without fan control (it needs nothing from the helper).</summary>
+    private void UpdateMemory()
+    {
+        var status = new MemoryStatus { Length = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MemoryStatus>() };
+        if (!GlobalMemoryStatusEx(ref status) || status.TotalPhys == 0) return;
+        double total = status.TotalPhys / 1073741824.0, used = total - status.AvailPhys / 1073741824.0, percent = Math.Clamp(used / total * 100, 0, 100);
+        _memTile ??= BuildTile("MEMORY", "RAM in use", "ram", "%");
+        if (_memTile.Frame.Parent == null) Temps.Children.Add(_memTile.Frame);
+        _memTile.Name.Text = $"{used.ToString("0.0", CultureInfo.InvariantCulture)} of {total.ToString("0.0", CultureInfo.InvariantCulture)} GB in use";
+        UpdateTile("ram", _memTile, percent, MemoryHeat);
+    }
+
     /// <summary>How hot a reading is: the colour and the word that go with it (below 55 cool, 70 warm, 82 hot, then very hot).</summary>
     private static (Color Color, string Word) Heat(double c) =>
         c < 55 ? (Color.FromRgb(0x2E, 0xB8, 0x7A), "Cool")
@@ -252,16 +289,25 @@ public partial class FansPage : UserControl
     /// <summary>One temperature as a tile: what it is, the big number in the colour of its heat, a gauge and the last minute and a half as a small line.</summary>
     private TempTile BuildTempTile(FanSensor t)
     {
-        var muted = (Brush)FindResource("MutedBrush");
         string kind = t.Kind switch { "cpu" => "PROCESSOR", "gpu" => "GRAPHICS CARD", "board" => "MOTHERBOARD", _ => (t.Hardware ?? "").ToUpperInvariant() };
         string name = t.Name.Replace("Temperature ", "").Trim();
         if (name.StartsWith('#')) name = "Sensor " + name;
+        var tile = BuildTile(kind, name, t.Kind, "°C");
+        UpdateTile(t.Id, tile, t.Value, Heat);
+        return tile;
+    }
+
+    /// <summary>The tile itself (also used for the memory): small heading, big number with its unit, the heat word, a gauge and the line of the last readings.</summary>
+    private TempTile BuildTile(string kind, string name, string iconKind, string unit)
+    {
+        var muted = (Brush)FindResource("MutedBrush");
         var tile = new TempTile();
         var stack = new StackPanel();
         var heading = new StackPanel { Margin = new Thickness(0, 0, 36, 0) };
         heading.Children.Add(new TextBlock { Text = kind, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = muted });
-        heading.Children.Add(new TextBlock { Text = name, FontSize = 11.5, Foreground = muted, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) });
-        tile.Icon = SensorIcon(t.Kind);
+        tile.Name = new TextBlock { Text = name, FontSize = 11.5, Foreground = muted, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) };
+        heading.Children.Add(tile.Name);
+        tile.Icon = SensorIcon(iconKind);
         tile.Icon.Stroke = muted;
         var top = new Grid();
         top.Children.Add(heading); top.Children.Add(tile.Icon);
@@ -270,7 +316,7 @@ public partial class FansPage : UserControl
         var number = new StackPanel { Orientation = Orientation.Horizontal };
         tile.Value = new TextBlock { Text = "–", FontSize = 32, FontWeight = FontWeights.SemiBold, LineHeight = 38 };
         number.Children.Add(tile.Value);
-        number.Children.Add(new TextBlock { Text = "°C", FontSize = 14, Foreground = muted, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(3, 0, 0, 6) });
+        number.Children.Add(new TextBlock { Text = unit, FontSize = 14, Foreground = muted, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(3, 0, 0, 6) });
         tile.Hint = new TextBlock { FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 0, 7) };
         var row = new Grid { Margin = new Thickness(0, 6, 0, 0) };
         row.Children.Add(number); row.Children.Add(tile.Hint);
@@ -299,14 +345,13 @@ public partial class FansPage : UserControl
             Child = stack, Width = SparkWidth + 30, Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(0, 0, 10, 10),
             Background = (Brush)FindResource("BgBrush"), BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
         };
-        UpdateTile(t.Id, tile, t);
         return tile;
     }
 
-    private void UpdateTile(string id, TempTile tile, FanSensor t)
+    private void UpdateTile(string id, TempTile tile, double? value, Func<double, (Color Color, string Word)> heat)
     {
-        if (t.Value is not double v) { tile.Value.Text = "–"; tile.Hint.Text = ""; return; }
-        var (color, word) = Heat(v);
+        if (value is not double v) { tile.Value.Text = "–"; tile.Hint.Text = ""; return; }
+        var (color, word) = heat(v);
         var brush = new SolidColorBrush(color);
         tile.Value.Text = v.ToString("0", CultureInfo.InvariantCulture);
         tile.Value.Foreground = brush; tile.Bar.Background = brush; tile.Line.Stroke = brush; tile.Icon.Stroke = brush;
@@ -507,7 +552,7 @@ public partial class FansPage : UserControl
     private void Refresh()
     {
         foreach (var (id, tile) in _tempTiles)
-            if (_sensors.FirstOrDefault(s => s.Id == id) is { } t) UpdateTile(id, tile, t);
+            if (_sensors.FirstOrDefault(s => s.Id == id) is { } t) UpdateTile(id, tile, t.Value, Heat);
         foreach (var (id, card) in _cards)
         {
             var control = _sensors.FirstOrDefault(s => s.Id == id);

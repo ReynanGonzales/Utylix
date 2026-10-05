@@ -68,7 +68,7 @@ point is `temperature in °C : speed in %`). Double-click a fan's name to call i
   one in your own folder, and the copy is checked against Utylix; after an update, press Start once more (one prompt). Untick
   *Start fan control by itself* to go back to a prompt each time, or *Remove this from the PC…* to delete the copy and the task
   (uninstalling Utylix does that too). The Fans page lists only the processor, graphics card and one board temperature unless
-  you tick *Show every sensor*. Each temperature is a tile: what it is, the big number in the colour of its heat (cool green, warm amber, hot orange, very hot red, from 55 / 70 / 82 degrees), a 0-100 degree gauge, and a small line of the last minute and a half.
+  you tick *Show every sensor*. Each temperature is a tile: what it is, the big number in the colour of its heat (cool green, warm amber, hot orange, very hot red, from 55 / 70 / 82 degrees), a 0-100 degree gauge, and a small line of the last minute and a half. A **Memory** tile (RAM in use as a percentage and "x of y GB", with the same gauge and line) sits beside them; it needs no administrator permission, so it shows even when fan control is off.
 - **Start fan control** asks Windows for administrator permission: reading the motherboard and setting fans needs it, so it is
   done by a separate helper (`Utylix.exe --fan-helper`, started from the button); the rest of Utylix stays a normal program.
   It uses the open-source LibreHardwareMonitor library. The processor and motherboard sensors need the free **PawnIO** driver

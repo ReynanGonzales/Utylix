@@ -21,7 +21,7 @@
 
             <Border x:Name="TempsCard" Style="{StaticResource Section}" Margin="0,12,0,0" Padding="16,12" Visibility="Collapsed">
                 <StackPanel>
-                    <TextBlock Text="Temperatures" FontWeight="SemiBold" />
+                    <TextBlock x:Name="TempsTitle" Text="Temperatures and memory" FontWeight="SemiBold" />
                     <WrapPanel x:Name="Temps" Margin="0,8,0,0" />
                 </StackPanel>
             </Border>
