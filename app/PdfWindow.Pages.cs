@@ -79,6 +79,7 @@ public sealed partial class PdfWindow
         Item("Delete", DeleteSelectedPages);
         menu.Items.Add(new Separator());
         Item("Add pages from a file…", InsertPagesFromFiles);
+        Item("Add a blank page after", AddBlankPage);
         Item("Take the page(s) out as a new PDF…", ExtractSelectedPages);
         _strip.ContextMenu = Themed(menu);
     }

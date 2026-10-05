@@ -51,6 +51,18 @@ public static class PdfPageTools
         }
     }
 
+    /// <summary>Puts an empty page at this place (0 = in front of the first page); its size is <paramref name="like"/> (a neighbouring page), points.</summary>
+    public static void InsertBlank(PdfFile dest, int at, (double Width, double Height) like)
+    {
+        lock (Pdfium.Sync)
+        {
+            IntPtr page = Pdfium.FPDFPage_New(dest.Handle, Math.Clamp(at, 0, dest.PageCount), like.Width, like.Height);
+            if (page == IntPtr.Zero) throw new IOException("The blank page couldn't be added.");
+            Pdfium.FPDF_ClosePage(page);
+        }
+        dest.Reload();
+    }
+
     /// <summary>Puts a picture on a new page at this place; the sheet is the size of <paramref name="like"/> (a neighbouring page), points.</summary>
     public static void InsertPicture(PdfFile dest, string path, int at, (double Width, double Height) like)
     {

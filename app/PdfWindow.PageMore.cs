@@ -30,6 +30,7 @@ public sealed partial class PdfWindow
         }
         Heading("PAGES");
         Item("Add pages from a PDF or pictures…", InsertPagesFromFiles, "PdfMenuInsert");
+        Item("Add a blank page after the chosen page", AddBlankPage, "PdfMenuBlank");
         Item("Take the chosen page(s) out as a new PDF…", ExtractSelectedPages, "PdfMenuExtract");
         Item("Split into several PDFs…", () => OpenPagesDialog(split: true), "PdfMenuSplit");
         Item("Save pages as pictures (PNG / JPG)…", () => OpenPagesDialog(split: false), "PdfMenuPictures");
@@ -38,6 +39,9 @@ public sealed partial class PdfWindow
         Item("Add a watermark…", () => AddPageMarks("mark"), "PdfMenuAddWatermark");
         Item("Border around the pages…", AddBorder, "PdfMenuBorder");
         Item("Text in columns…", AddColumns, "PdfMenuColumns");
+        Heading("PROTECT");
+        Item("Add a password or limits…", AddPassword, "PdfMenuPassword");
+        Item("Remove the password…", RemovePassword, "PdfMenuRemovePassword");
         Heading("CLEAN UP");
         Item("Remove a watermark…", RemoveWatermark, "PdfMenuWatermark");
         Item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");
@@ -84,6 +88,16 @@ public sealed partial class PdfWindow
         },
         () => Enumerable.Range(at, total).ToList(),
         () => (total == 1 ? "1 page" : total + " pages") + " added after page " + at);
+    }
+
+    /// <summary>One empty page after the chosen page (or the last of the chosen pages), as big as that page.</summary>
+    private void AddBlankPage()
+    {
+        if (_pdf == null || _path == null) return;
+        var sel = SelectedPages();
+        int after = sel[^1];
+        var like = _pdf.PageSize(Math.Clamp(after, 0, _pdf.PageCount - 1));
+        PageOp(p => PdfPageTools.InsertBlank(p, after + 1, (like.Width, like.Height)), new[] { after + 1 }, $"A blank page was added after page {after + 1}. You can write on it with Text, Sign and the other tools");
     }
 
     private void ExtractSelectedPages()

@@ -28,6 +28,7 @@ public sealed class PdfReduceWindow : Window
     private string? _ownerPassword;              // asked for when the PDF is protected against changes
     private bool _askedOwner;
     private readonly RadioButton _recommended, _smaller, _smallest, _toSize;
+    private RadioButton _unitKb = null!, _unitMb = null!;
     private readonly TextBox _limit = new() { Text = "2", Width = 58, Margin = new Thickness(8, 0, 6, 0), Padding = new Thickness(6, 3, 6, 3), VerticalContentAlignment = VerticalAlignment.Center };
     private readonly ProgressBar _bar = new() { Height = 6, Minimum = 0, Maximum = 1, Margin = new Thickness(0, 16, 0, 0), Visibility = Visibility.Collapsed };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0), MinHeight = 20 };
@@ -92,15 +93,23 @@ public sealed class PdfReduceWindow : Window
         System.Windows.Automation.AutomationProperties.SetAutomationId(_limit, "PdfReduceLimit");
         _limit.GotKeyboardFocus += (_, _) => { _toSize.IsChecked = true; _limit.SelectAll(); };
         line.Children.Add(_limit);
-        line.Children.Add(new TextBlock { Text = "MB", FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) });
-        foreach (var mb in new[] { "1", "2", "5", "10", "25" })
-        {
-            var chip = new Button { Content = mb + " MB", Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 5, 0), FontSize = 12 };
-            System.Windows.Automation.AutomationProperties.SetAutomationId(chip, "PdfReduceLimit" + mb);
-            chip.Click += (_, _) => { _limit.Text = mb; _toSize.IsChecked = true; };
-            line.Children.Add(chip);
-        }
+        // KB or MB: two small choices next to the box (typing "500 KB" works too)
+        _unitKb = new RadioButton { Content = "KB", GroupName = "reduceunit", Style = (Style)Application.Current.FindResource("ChipButton"), Margin = new Thickness(2, 0, 0, 0), MinWidth = 40 };
+        _unitMb = new RadioButton { Content = "MB", GroupName = "reduceunit", Style = (Style)Application.Current.FindResource("ChipButton"), Margin = new Thickness(0, 0, 12, 0), MinWidth = 40, IsChecked = true };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(_unitKb, "PdfReduceUnitKb");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(_unitMb, "PdfReduceUnitMb");
+        _unitKb.Checked += (_, _) => _toSize.IsChecked = true; _unitMb.Checked += (_, _) => _toSize.IsChecked = true;
+        line.Children.Add(_unitKb); line.Children.Add(_unitMb);
         title.Children.Insert(0, line);
+        var quick = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+        foreach (var (n, unit) in new[] { ("100", "KB"), ("200", "KB"), ("500", "KB"), ("1", "MB"), ("2", "MB"), ("5", "MB"), ("10", "MB"), ("25", "MB") })
+        {
+            var chip = new Button { Content = n + " " + unit, Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 5, 3), FontSize = 12 };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(chip, "PdfReduceLimit" + n + unit);
+            chip.Click += (_, _) => { _limit.Text = n; (unit == "KB" ? _unitKb : _unitMb).IsChecked = true; _toSize.IsChecked = true; };
+            quick.Children.Add(chip);
+        }
+        title.Children.Insert(1, quick);
         root.Children.Add(_choices);
         root.Children.Add(new TextBlock
         {
@@ -138,7 +147,7 @@ public sealed class PdfReduceWindow : Window
         bool toSize = _toSize.IsChecked == true;
         long target = 0;
         string limit = "";
-        if (toSize && !TryLimit(out target, out limit)) { _status.Text = "Type the size in MB, for example 2 or 1.5."; _limit.Focus(); return; }
+        if (toSize && !TryLimit(out target, out limit)) { _status.Text = "Type the size, for example 500 KB or 1.5 MB (choose KB or MB next to the box)."; _limit.Focus(); return; }
         _cts = new CancellationTokenSource();
         _go.IsEnabled = false; _choices.IsEnabled = false;
         _bar.Visibility = Visibility.Visible; _bar.Value = 0;
@@ -255,7 +264,7 @@ public sealed class PdfReduceWindow : Window
         bool toSize = _toSize.IsChecked == true;
         long target = 0;
         string limit = "";
-        if (toSize && !TryLimit(out target, out limit)) { _status.Text = "Type the size in MB, for example 2 or 1.5."; _limit.Focus(); return; }
+        if (toSize && !TryLimit(out target, out limit)) { _status.Text = "Type the size, for example 500 KB or 1.5 MB (choose KB or MB next to the box)."; _limit.Focus(); return; }
         var level = Level;
         var files = _batch!;
         _cts = new CancellationTokenSource();
@@ -350,10 +359,11 @@ public sealed class PdfReduceWindow : Window
     {
         bytes = 0; label = "";
         string s = _limit.Text.Trim().ToLowerInvariant().Replace(',', '.');
-        double unit = 1_000_000;
+        double unit = _unitKb?.IsChecked == true ? 1_000 : 1_000_000;                // (the unit chosen next to the box, unless the text says its own)
         if (s.EndsWith("kb")) { unit = 1_000; s = s[..^2]; }
-        else if (s.EndsWith("mb")) s = s[..^2];
-        else if (s.EndsWith('m')) s = s[..^1];
+        else if (s.EndsWith("mb")) { unit = 1_000_000; s = s[..^2]; }
+        else if (s.EndsWith('k')) { unit = 1_000; s = s[..^1]; }
+        else if (s.EndsWith('m')) { unit = 1_000_000; s = s[..^1]; }
         if (!double.TryParse(s.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double n) || n <= 0) return false;
         bytes = (long)(n * unit);
         label = n.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + (unit == 1_000 ? " KB" : " MB");

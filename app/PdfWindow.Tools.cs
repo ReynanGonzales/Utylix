@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using IdmClone.Engine;
 
 namespace IdmClone;
@@ -34,6 +35,70 @@ public sealed partial class PdfWindow
         string what = dialog.Line != null && dialog.Mark != null ? "Text and watermark" : dialog.Mark != null ? "Watermark" : "Text";
         PageOp(p => PdfMarkWriter.Apply(p, marks), new[] { Math.Clamp(_current, 0, pdf.PageCount - 1) },
                $"{what} added to {(pages == 1 ? "page " + (first + 1) : pages == pdf.PageCount ? "all pages" : $"pages {first + 1} to {last + 1}")}. Undo takes it away until you save");
+    }
+
+    // ---------- passwords ----------
+    /// <summary>A new copy with a password to open it and / or limits (no printing, copying, changing). The open PDF stays as it is.</summary>
+    private void AddPassword()
+    {
+        if (_pdf == null || _path == null) return;
+        if (!_pdf.CanEdit && !AskOwnerPassword()) return;                      // (a PDF that is locked against changes: its owner password first)
+        if (!CommitItems()) return;
+        var dialog = new PdfProtectDialog(this);
+        if (dialog.ShowDialog() != true) return;
+        MakeProtectedCopy(" (protected)", "Save the PDF with a password as", bytes => PdfSecurity.Protect(bytes, _pdf!.Password, dialog.OpenPassword, dialog.LimitPassword, dialog.Limits),
+                          dialog.OpenPassword.Length > 0 ? "now asks for its password to open" : "now has the limits you chose");
+    }
+
+    /// <summary>A new copy without any password or limit (it needs the owner password if the PDF limits changes).</summary>
+    private void RemovePassword()
+    {
+        if (_pdf == null || _path == null) return;
+        if (!_pdf.IsProtected) { Toast("This PDF has no password or limits"); return; }
+        if (!_pdf.CanEdit && !AskOwnerPassword()) return;
+        if (!CommitItems()) return;
+        var answer = UMessage.Ask(this, "Make a copy of this PDF without any password or limits?\n\nAnyone will be able to open, print, copy and change that copy. This PDF stays as it is.",
+            "Remove the password", MessageBoxImage.Question, MessageBoxResult.Yes, MessageBoxResult.Cancel, ("Choose where to save…", MessageBoxResult.Yes), ("Cancel", MessageBoxResult.Cancel));
+        if (answer != MessageBoxResult.Yes) return;
+        MakeProtectedCopy(" (no password)", "Save the PDF without its password as", bytes => PdfSecurity.Unprotect(bytes, _pdf!.Password ?? ""), "is now free of passwords and limits");
+    }
+
+    private void MakeProtectedCopy(string suffix, string title, Func<byte[], byte[]> change, string result)
+    {
+        if (_pdf == null || _path == null) return;
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = title, Filter = "PDF|*.pdf", FileName = Path.GetFileNameWithoutExtension(_path) + suffix + ".pdf", InitialDirectory = Path.GetDirectoryName(_path),
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        string target = dlg.FileName;
+        if (string.Equals(Path.GetFullPath(target), Path.GetFullPath(_path), StringComparison.OrdinalIgnoreCase))
+        {
+            UMessage.Show(this, "Choose a different name: the PDF you are looking at stays as it is, and the copy is a new file.", "Utylix Editor", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        try
+        {
+            Mouse.OverrideCursor = Cursors.Wait;
+            byte[] made = change(_pdf.SaveToBytes());
+            string temp = target + ".utylix-tmp";
+            File.WriteAllBytes(temp, made);
+            File.Move(temp, target, overwrite: true);
+        }
+        catch (PdfProtectedException e) when (e.Message == PdfSecurity.OwnerPasswordNeeded)
+        {
+            Mouse.OverrideCursor = null;
+            UMessage.Show(this, "This PDF only opened with its \"open\" password, which doesn't allow changing it. Close it and open it again with its owner (permissions) password.", "Utylix Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or OutOfMemoryException or ObjectDisposedException)
+        {
+            Mouse.OverrideCursor = null;
+            UMessage.Show(this, "Couldn't make the copy: " + e.Message, "Utylix Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        finally { Mouse.OverrideCursor = null; }
+        Toast($"Saved as {Path.GetFileName(target)}, which {result}");
     }
 
     // ---------- OCR ----------

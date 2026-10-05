@@ -322,4 +322,9 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
   `EditItem.TopLeftFor(corner, size, angle)` is the helper that keeps a turned corner fixed when a size changes. The rotate / resize handles work while Text / Date / Sign / Picture / Stamp tools are still on.
   Lines / arrows (endpoints already free), highlights, white-out and redact (axis-aligned by nature) are NOT rotatable on purpose. Tested: real window (text turned by drag, resized while turned, saved and rendered the same;
   pen drawing turned), engine harness (turned pictures 30 and 90 degrees, no mirroring). NOT clicked through: turned Columns / box / circle / signature in the window (same code paths).
+- **PDF: passwords, blank page, KB targets** (2026-10-05): `Engine/PdfSecurity.cs` (`Protect` = PDFsharp `SecuritySettings` user / owner password + permissions + `SetEncryptionToV5()` AES-256 on the bytes PDFium saved; `Unprotect` =
+  `SecurityHandler.SetEncryptionToNoneAndResetPasswords()`; PDFsharp refuses to MODIFY with only the user password -> `PdfProtectedException(OwnerPasswordNeeded)`), `PdfProtectDialog` (open password and / or limits + second password),
+  `AddPassword` / `RemovePassword` / `MakeProtectedCopy` in `PdfWindow.Tools.cs`: always a COPY (the target may not be the open file), Tools menu group PROTECT. Engine tested: open pw + owner pw + limits, limits only,
+  open-only, unprotect with owner / user / wrong, re-protect of a protected file. `PdfPageTools.InsertBlank` (FPDFPage_New + Reload) + `AddBlankPage` (Tools menu + side-strip right-click), same size as the chosen page.
+  Reduce window: `_unitKb` / `_unitMb` chips + quick sizes from 100 KB; `TryLimit` reads the unit from the text or the chips (min 20 KB).
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.
