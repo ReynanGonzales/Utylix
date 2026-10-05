@@ -260,6 +260,33 @@ public partial class FansPage : UserControl
     [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
 
     private TempTile? _memTile;
+    private string _ramSpec = "";                 // "DDR4 · 3600 MHz", read once from Windows (WMI) in the background
+    private bool _ramSpecAsked;
+
+    /// <summary>The kind and speed of the installed memory sticks, like "DDR4 · 3600 MHz" (empty when Windows doesn't say).</summary>
+    private static string ReadRamSpec()
+    {
+        try
+        {
+            var speeds = new List<uint>();
+            uint type = 0;
+            using var searcher = new System.Management.ManagementObjectSearcher("SELECT Speed, ConfiguredClockSpeed, SMBIOSMemoryType FROM Win32_PhysicalMemory");
+            foreach (System.Management.ManagementObject m in searcher.Get())
+            {
+                uint speed = m["ConfiguredClockSpeed"] is { } c ? Convert.ToUInt32(c, CultureInfo.InvariantCulture) : 0;     // (what the sticks really run at)
+                if (speed == 0 && m["Speed"] is { } rated) speed = Convert.ToUInt32(rated, CultureInfo.InvariantCulture);
+                if (speed > 0) speeds.Add(speed);
+                if (m["SMBIOSMemoryType"] is { } t) type = Convert.ToUInt32(t, CultureInfo.InvariantCulture);
+            }
+            string kind = type switch { 20 => "DDR", 21 => "DDR2", 24 => "DDR3", 26 => "DDR4", 34 => "DDR5", _ => "" };
+            string mhz = speeds.Count > 0 ? speeds.Max().ToString(CultureInfo.InvariantCulture) + " MHz" : "";
+            return string.Join(" · ", new[] { kind, mhz }.Where(x => x.Length > 0));
+        }
+        catch (Exception e) when (e is System.Management.ManagementException or InvalidCastException or FormatException or OverflowException or System.Runtime.InteropServices.COMException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return "";
+        }
+    }
 
     private static (Color Color, string Word) MemoryHeat(double percent) =>
         percent < 60 ? (Color.FromRgb(0x2E, 0xB8, 0x7A), "Plenty free")
@@ -275,8 +302,15 @@ public partial class FansPage : UserControl
         double total = status.TotalPhys / 1073741824.0, used = total - status.AvailPhys / 1073741824.0, percent = Math.Clamp(used / total * 100, 0, 100);
         _memTile ??= BuildTile("MEMORY", "RAM in use", "ram", "%");
         if (_memTile.Frame.Parent == null) Temps.Children.Add(_memTile.Frame);
-        _memTile.Name.Text = $"{used.ToString("0.0", CultureInfo.InvariantCulture)} of {total.ToString("0.0", CultureInfo.InvariantCulture)} GB in use";
-        UpdateTile("ram", _memTile, percent, MemoryHeat);
+        if (!_ramSpecAsked)
+        {
+            _ramSpecAsked = true;
+            _ = Task.Run(ReadRamSpec).ContinueWith(t => Dispatcher.BeginInvoke(() => { _ramSpec = t.Result; if (_memTile != null && _ramSpec.Length > 0) _memTile.Name.Text = _ramSpec; }), TaskContinuationOptions.OnlyOnRanToCompletion);
+        }
+        _memTile.Name.Text = _ramSpec.Length > 0 ? _ramSpec : "RAM in use";
+        string gigabytes = $"{used.ToString("0.0", CultureInfo.InvariantCulture)} / {total.ToString("0.0", CultureInfo.InvariantCulture)} GB";
+        _memTile.Frame.ToolTip = $"{gigabytes} in use ({MemoryHeat(percent).Word})";
+        UpdateTile("ram", _memTile, percent, p => (MemoryHeat(p).Color, gigabytes));        // (beside the number: how much, in GB)
     }
 
     /// <summary>How hot a reading is: the colour and the word that go with it (below 55 cool, 70 warm, 82 hot, then very hot).</summary>
