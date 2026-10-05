@@ -33,11 +33,6 @@ public sealed partial class PdfWindow
         Item("Take the chosen page(s) out as a new PDF…", ExtractSelectedPages, "PdfMenuExtract");
         Item("Split into several PDFs…", () => OpenPagesDialog(split: true), "PdfMenuSplit");
         Item("Save pages as pictures (PNG / JPG)…", () => OpenPagesDialog(split: false), "PdfMenuPictures");
-        Heading("ADD TO THE PAGES");
-        Item("Page numbers, header and footer…", () => AddPageMarks("line"), "PdfMenuMarks");
-        Item("Add a watermark…", () => AddPageMarks("mark"), "PdfMenuAddWatermark");
-        Item("Border around the pages…", AddBorder, "PdfMenuBorder");
-        Item("Text in columns…", AddColumns, "PdfMenuColumns");
         Heading("PROTECT");
         Item("Add a password or limits…", AddPassword, "PdfMenuPassword");
         Item("Remove the password…", RemovePassword, "PdfMenuRemovePassword");
