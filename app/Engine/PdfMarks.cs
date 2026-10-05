@@ -29,7 +29,8 @@ public readonly record struct PdfSegment(Point C1, Point C2, Point To, bool Curv
 public sealed record PdfPathMark(int Page, IReadOnlyList<PdfFigure> Figures, Color? Stroke, double Width, Color? Fill, bool Multiply) : PdfMark(Page);
 
 /// <summary>A picture in a box: JPEG bytes as they are, or pixels (BGRA, transparency kept).</summary>
-public sealed record PdfImageMark(int Page, Rect Box, byte[]? Jpeg, BitmapSource? Pixels, bool Watermark = false) : PdfMark(Page);
+/// <remarks>Angle (degrees, clockwise as seen) turns it around Pivot.</remarks>
+public sealed record PdfImageMark(int Page, Rect Box, byte[]? Jpeg, BitmapSource? Pixels, bool Watermark = false, double Angle = 0, Point? Pivot = null) : PdfMark(Page);
 
 /// <summary>
 /// A real PDF comment (other readers list it and can remove it): highlight / underline / strike-out over the given text boxes
@@ -236,8 +237,16 @@ public static class PdfMarkWriter
         if (m.Jpeg == null && m.Pixels == null) return;
         if (!PdfCombiner.SetPicture(obj, m.Jpeg, m.Pixels)) throw new IOException("The picture couldn't be added.");
         // the picture's square (0..1, upwards) onto its box
-        var bottomLeft = map.ToPage(new Point(m.Box.Left, m.Box.Bottom));
-        var right = map.Right * m.Box.Width; var up = map.Up * m.Box.Height;
+        var corner = new Point(m.Box.Left, m.Box.Bottom);
+        double turn = m.Angle * Math.PI / 180, cos = Math.Cos(turn), sin = Math.Sin(turn);
+        if (m.Angle != 0 && m.Pivot is Point pivot)
+        {
+            double dx = corner.X - pivot.X, dy = corner.Y - pivot.Y;                         // (turned clockwise around the pivot, like the text of a stamp)
+            corner = new Point(pivot.X + dx * cos - dy * sin, pivot.Y + dx * sin + dy * cos);
+        }
+        else { cos = 1; sin = 0; }
+        var bottomLeft = map.ToPage(corner);
+        var right = (map.Right * cos - map.Up * sin) * m.Box.Width; var up = (map.Right * sin + map.Up * cos) * m.Box.Height;
         Pdfium.FPDFImageObj_SetMatrix(obj, right.X, right.Y, up.X, up.Y, bottomLeft.X, bottomLeft.Y);
         if (m.Watermark) TagWatermark(doc, obj);
         Pdfium.FPDFPage_InsertObject(page, obj);

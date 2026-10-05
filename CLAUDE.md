@@ -316,4 +316,10 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
   `FontOverride / BoldOverride / SizeOverride / ColorOverride` (`Eff*` = what is shown), the bar's font / bold / size / colour controls act on `_runTyping` (`SetFont` / `SetColor` / `ChangeSize` check it first, `StyleRunBox`),
   `PdfReplaceTextMark` carries Family / Bold / Size / Color and `PdfTextRuns.Replace` then always writes NEW text objects (PDFium can't change a text object's size or colour; the font via `Substitute`). The font list popup must not
   close the open line (`CloseRunBox` waits while `_fontPopup.IsOpen`). Tested in the real window: TNR + bold + 16 + red on one line, Georgia (More fonts) on another, Save, rendered back correctly.
+- **PDF editor: turning added items** (2026-10-05): the `EditItem` rotate API (`CanRotate` / `Angle` / `SetAngle`, handle + drag in `RenderItems` / `OverlayDown` / `DragMode.Rotate`, resize that keeps the TURNED top-left corner) was
+  stamp-only; now `TextItem`, `ImageItem`, `InkItem`, `ColumnsItem` and `ShapeItem` (Rectangle / Ellipse / Check / Cross only) have `AngleDeg` too. Rotation is always around the middle of `Bounds` (before turning). Saved as:
+  text / columns = `PdfTextMark.Angle` + `Pivot`; pictures = `PdfImageMark.Angle` + `Pivot` (matrix from the turned bottom-left corner and turned right / up vectors); figures = `TurnFigures` (PdfWindow.Stamps.cs).
+  `EditItem.TopLeftFor(corner, size, angle)` is the helper that keeps a turned corner fixed when a size changes. The rotate / resize handles work while Text / Date / Sign / Picture / Stamp tools are still on.
+  Lines / arrows (endpoints already free), highlights, white-out and redact (axis-aligned by nature) are NOT rotatable on purpose. Tested: real window (text turned by drag, resized while turned, saved and rendered the same;
+  pen drawing turned), engine harness (turned pictures 30 and 90 degrees, no mirroring). NOT clicked through: turned Columns / box / circle / signature in the window (same code paths).
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.

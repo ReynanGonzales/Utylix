@@ -42,6 +42,14 @@ public sealed partial class PdfWindow
         public virtual void SetAngle(double degrees) { }
         public virtual bool Hit(Point p) => Inflate(Bounds, 3).Contains(p);
         protected static Rect Inflate(Rect r, double by) { r.Inflate(by, by); return r; }
+
+        /// <summary>The top-left to give a box of this size so that its TURNED top-left corner stays at <paramref name="corner"/> (turned around its middle).</summary>
+        protected static Point TopLeftFor(Point corner, Size size, double angle)
+        {
+            var half = new Vector(size.Width / 2, size.Height / 2);
+            var turned = Rot(new Point(half.X, half.Y), new Point(0, 0), angle) - new Point(0, 0);
+            return corner - half + turned;
+        }
     }
 
     private sealed class TextItem : EditItem
@@ -53,6 +61,13 @@ public sealed partial class PdfWindow
         public double FontSize = 12;
 
         public string? FontName;                       // a font chosen by name (any installed one); null = the kind above
+        public double AngleDeg;                        // turned clockwise around the middle of the text
+
+        public override bool CanRotate => true;
+        public override double Angle => AngleDeg;
+        public override void SetAngle(double degrees) => AngleDeg = degrees;
+        Point Centre { get { var b = Bounds; return new Point(b.X + b.Width / 2, b.Y + b.Height / 2); } }
+        public override bool Hit(Point p) => Inflate(Bounds, 3).Contains(AngleDeg == 0 ? p : Rot(p, Centre, -AngleDeg));
 
         public static FontFamily Family(PdfFontKind k, string? name = null) => new(name ?? k switch { PdfFontKind.Serif => "Times New Roman", PdfFontKind.Mono => "Courier New", _ => "Arial" });
 
@@ -72,20 +87,22 @@ public sealed partial class PdfWindow
         {
             var t = new TextBlock { Text = Text, FontFamily = Family(Font, FontName), FontSize = FontSize, FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, Foreground = new SolidColorBrush(Color) };
             Canvas.SetLeft(t, TopLeft.X); Canvas.SetTop(t, TopLeft.Y);
+            if (AngleDeg != 0) { var b = Bounds; t.RenderTransform = new RotateTransform(AngleDeg, b.Width / 2, b.Height / 2); }
             return t;
         }
         public override IEnumerable<PdfMark> Marks()
         {
             if (Text.Trim().Length == 0) yield break;
             var f = Family(Font, FontName);
-            yield return new PdfTextMark(Page, TopLeft, Text, Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName);
+            yield return new PdfTextMark(Page, TopLeft, Text, Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName, AngleDeg, AngleDeg != 0 ? Centre : null);
         }
         public override void MoveBy(Vector d) => TopLeft += d;
         public override void ResizeTo(Rect r)
         {
+            var corner = AngleDeg == 0 ? r.TopLeft : Rot(Bounds.TopLeft, Centre, AngleDeg);        // (a turned text keeps its turned top-left corner where it is)
             double h = Bounds.Height;
             if (h > 0) FontSize = Math.Clamp(FontSize * r.Height / h, 4, 200);
-            TopLeft = r.TopLeft;
+            TopLeft = AngleDeg == 0 ? r.TopLeft : TopLeftFor(corner, Bounds.Size, AngleDeg);
         }
         public override bool KeepAspect => true;
     }
@@ -97,6 +114,12 @@ public sealed partial class PdfWindow
         public ShapeKind Kind;
         public Point A, B;                       // corners, or the two ends of a line
         public double Width = 2;
+        public double AngleDeg;                  // box, circle, check and cross can be turned (clockwise, around the middle)
+
+        public override bool CanRotate => Kind is ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.Check or ShapeKind.Cross;
+        public override double Angle => AngleDeg;
+        public override void SetAngle(double degrees) => AngleDeg = degrees;
+        Point Centre => new(Box.X + Box.Width / 2, Box.Y + Box.Height / 2);
 
         bool IsLine => Kind is ShapeKind.Line or ShapeKind.Arrow;
         Rect Box => new(A, B);
@@ -109,7 +132,7 @@ public sealed partial class PdfWindow
 
         public override bool Hit(Point p)
         {
-            if (!IsLine) return Inflate(Box, 3).Contains(p);
+            if (!IsLine) return Inflate(Box, 3).Contains(AngleDeg == 0 ? p : Rot(p, Centre, -AngleDeg));
             // near the line
             Vector ab = B - A, ap = p - A;
             double t = ab.LengthSquared < 0.01 ? 0 : Math.Clamp((ap * ab) / ab.LengthSquared, 0, 1);
@@ -117,6 +140,12 @@ public sealed partial class PdfWindow
         }
 
         public List<PdfFigure> Figures()
+        {
+            var figures = FlatFigures();
+            return AngleDeg == 0 ? figures : TurnFigures(figures, Centre, AngleDeg);
+        }
+
+        List<PdfFigure> FlatFigures()
         {
             var r = Box;
             switch (Kind)
@@ -185,6 +214,7 @@ public sealed partial class PdfWindow
         public override void ResizeTo(Rect r)
         {
             var old = IsLine ? Box : Bounds;
+            if (AngleDeg != 0 && !IsLine) r = new Rect(TopLeftFor(Rot(old.TopLeft, new Point(old.X + old.Width / 2, old.Y + old.Height / 2), AngleDeg), r.Size, AngleDeg), r.Size);       // (a turned shape keeps its turned top-left corner)
             Point Map(Point p) => new(r.X + (old.Width < 0.01 ? 0 : (p.X - old.X) / old.Width * r.Width), r.Y + (old.Height < 0.01 ? 0 : (p.Y - old.Y) / old.Height * r.Height));
             A = Map(A); B = Map(B);
         }
@@ -195,6 +225,13 @@ public sealed partial class PdfWindow
         public List<List<Point>> Strokes = new();
         public double Width = 2;
         public bool Signature;
+        public double AngleDeg;                          // turned clockwise around the middle of the drawing
+
+        public override bool CanRotate => true;
+        public override double Angle => AngleDeg;
+        public override void SetAngle(double degrees) => AngleDeg = degrees;
+        Point Centre { get { var b = Bounds; return b.IsEmpty ? default : new Point(b.X + b.Width / 2, b.Y + b.Height / 2); } }
+        public override bool Hit(Point p) => Inflate(Bounds, 3).Contains(AngleDeg == 0 ? p : Rot(p, Centre, -AngleDeg));
         public override Rect Bounds
         {
             get
@@ -208,7 +245,11 @@ public sealed partial class PdfWindow
         }
         public override bool KeepAspect => Signature;
         public override EditItem Clone() { var c = (InkItem)MemberwiseClone(); c.Strokes = Strokes.Select(s => s.ToList()).ToList(); return c; }
-        public List<PdfFigure> Figures() => Strokes.Where(s => s.Count > 0).Select(Smooth).ToList();
+        public List<PdfFigure> Figures()
+        {
+            var figures = Strokes.Where(s => s.Count > 0).Select(Smooth).ToList();
+            return AngleDeg == 0 || figures.Count == 0 ? figures : TurnFigures(figures, Centre, AngleDeg);
+        }
 
         /// <summary>A hand-drawn stroke as soft curves through the middles of its points.</summary>
         static PdfFigure Smooth(List<Point> s)
@@ -237,6 +278,7 @@ public sealed partial class PdfWindow
         {
             var old = Bounds;
             if (old.Width < 0.5 || old.Height < 0.5) return;
+            if (AngleDeg != 0) r = new Rect(TopLeftFor(Rot(old.TopLeft, Centre, AngleDeg), r.Size, AngleDeg), r.Size);          // (a turned drawing keeps its turned top-left corner)
             double sx = r.Width / old.Width, sy = r.Height / old.Height;
             foreach (var s in Strokes) for (int i = 0; i < s.Count; i++) s[i] = new Point(r.X + (s[i].X - old.X) * sx, r.Y + (s[i].Y - old.Y) * sy);
             if (Signature) Width *= Math.Sqrt(sx * sy);
@@ -248,17 +290,26 @@ public sealed partial class PdfWindow
         public Rect Box;
         public byte[]? Jpeg;
         public BitmapSource Pixels = null!;
+        public double AngleDeg;                          // turned clockwise around the middle of the picture
         public override Rect Bounds => Box;
         public override bool KeepAspect => true;
+        public override bool CanRotate => true;
+        public override double Angle => AngleDeg;
+        public override void SetAngle(double degrees) => AngleDeg = degrees;
+        public override bool Hit(Point p) => Inflate(Box, 3).Contains(AngleDeg == 0 ? p : Rot(p, new Point(Box.X + Box.Width / 2, Box.Y + Box.Height / 2), -AngleDeg));
         public override EditItem Clone() => (ImageItem)MemberwiseClone();
         public override FrameworkElement Build()
         {
             var img = new Image { Source = Pixels, Width = Box.Width, Height = Box.Height, Stretch = Stretch.Fill };
             RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
             Canvas.SetLeft(img, Box.X); Canvas.SetTop(img, Box.Y);
+            if (AngleDeg != 0) img.RenderTransform = new RotateTransform(AngleDeg, Box.Width / 2, Box.Height / 2);
             return img;
         }
-        public override IEnumerable<PdfMark> Marks() { yield return new PdfImageMark(Page, Box, Jpeg, Jpeg == null ? Pixels : null); }
+        public override IEnumerable<PdfMark> Marks()
+        {
+            yield return new PdfImageMark(Page, Box, Jpeg, Jpeg == null ? Pixels : null, Angle: AngleDeg, Pivot: AngleDeg != 0 ? new Point(Box.X + Box.Width / 2, Box.Y + Box.Height / 2) : null);
+        }
         public override void MoveBy(Vector d) => Box.Offset(d);
         public override void ResizeTo(Rect r) => Box = r;
     }
@@ -955,8 +1006,8 @@ public sealed partial class PdfWindow
         CloseTextBox(commit: true);
         e.Handled = true;
         _dragPage = pv; _dragStart = p; _dragSnapshotTaken = false;
-        // the handles of the selected item (a stamp can be turned and resized while the Stamp tool is still on)
-        if (_tool is EditTool.Select or EditTool.Stamp && _selected != null)
+        // the handles of the selected item (it can be turned and resized while the tool that placed it is still on)
+        if (_tool is EditTool.Select or EditTool.Stamp or EditTool.Text or EditTool.Date or EditTool.Signature or EditTool.Image && _selected != null)
         {
             if (OnRotateHandle(pv, p))
             {
@@ -965,7 +1016,7 @@ public sealed partial class PdfWindow
                 pv.Overlay.CaptureMouse();
                 return;
             }
-            if (_tool == EditTool.Stamp && OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected.Bounds; pv.Overlay.CaptureMouse(); return; }
+            if (_tool != EditTool.Select && OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected.Bounds; pv.Overlay.CaptureMouse(); return; }
         }
         switch (_tool)
         {
@@ -1215,6 +1266,8 @@ public sealed partial class PdfWindow
         box.CaretBrush = new SolidColorBrush(item.Color.R + item.Color.G + item.Color.B > 600 ? Colors.Black : item.Color);
         // (a WPF text box draws its text 2 units in from its left edge)
         Canvas.SetLeft(box, item.TopLeft.X - 2); Canvas.SetTop(box, item.TopLeft.Y);
+        box.RenderTransformOrigin = new Point(0.5, 0.5);
+        box.RenderTransform = item.AngleDeg != 0 ? new RotateTransform(item.AngleDeg) : Transform.Identity;
     }
 
     private void CloseTextBox(bool commit)
@@ -1267,7 +1320,7 @@ public sealed partial class PdfWindow
             Add(ink, select: true);
         }
         else if (sig.Picture != null) Add(new ImageItem { Page = pv.Index, Box = box, Pixels = sig.Picture }, select: true);
-        Toast("Drag it into place; pull its corner to resize");
+        Toast("Drag it into place; pull its corner to resize, the round handle turns it");
     }
 
     private void AddPicture()

@@ -190,6 +190,11 @@ public sealed partial class PdfWindow
         PdfMark TurnedText(PdfMark m, Point centre) => AngleDeg != 0 && m is PdfTextMark t ? t with { Angle = AngleDeg, Pivot = centre } : m;
     }
 
+    /// <summary>Figures turned clockwise (as seen) around a centre: what a turned box, circle, drawing or stamp is written as.</summary>
+    private static List<PdfFigure> TurnFigures(IEnumerable<PdfFigure> figures, Point c, double deg) =>
+        figures.Select(f => new PdfFigure(Rot(f.Start, c, deg),
+            f.Segments.Select(s => new PdfSegment(s.Curve ? Rot(s.C1, c, deg) : default, s.Curve ? Rot(s.C2, c, deg) : default, Rot(s.To, c, deg), s.Curve)).ToList(), f.Closed)).ToList();
+
     /// <summary>A point turned clockwise (as seen on the page, y pointing down) by degrees around a centre.</summary>
     private static Point Rot(Point p, Point c, double degrees)
     {

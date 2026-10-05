@@ -16,6 +16,7 @@ public sealed partial class PdfWindow
     {
         public Point TopLeft;
         public ColumnsSpec Spec = new();
+        public double AngleDeg;                          // turned clockwise around the middle of the block
         private string _key = "";
         private (List<List<string>> Columns, double Height, double LineHeight) _flow;
 
@@ -27,6 +28,11 @@ public sealed partial class PdfWindow
         }
 
         public override Rect Bounds => new(TopLeft, new Size(Math.Max(20, Spec.Width), Math.Max(4, Flow().Height)));
+        public override bool CanRotate => true;
+        public override double Angle => AngleDeg;
+        public override void SetAngle(double degrees) => AngleDeg = degrees;
+        Point Centre { get { var b = Bounds; return new Point(b.X + b.Width / 2, b.Y + b.Height / 2); } }
+        public override bool Hit(Point p) => Inflate(Bounds, 3).Contains(AngleDeg == 0 ? p : Rot(p, Centre, -AngleDeg));
         public override EditItem Clone() { var c = (ColumnsItem)MemberwiseClone(); c.Spec = Spec.Clone(); return c; }
 
         public override FrameworkElement Build()
@@ -44,6 +50,7 @@ public sealed partial class PdfWindow
                 Canvas.SetLeft(t, TopLeft.X + c * (colWidth + Spec.Gap)); Canvas.SetTop(t, TopLeft.Y);
                 canvas.Children.Add(t);
             }
+            if (AngleDeg != 0) canvas.RenderTransform = new RotateTransform(AngleDeg, Centre.X, Centre.Y);
             return canvas;
         }
 
@@ -56,12 +63,17 @@ public sealed partial class PdfWindow
             {
                 string text = string.Join("\n", columns[c]);
                 if (text.Trim().Length == 0) continue;
-                yield return new PdfTextMark(Page, new Point(TopLeft.X + c * (colWidth + Spec.Gap), TopLeft.Y), text, Spec.Font, Spec.Bold, Spec.Size, Color, f.LineSpacing, f.Baseline, Spec.FontName);
+                yield return new PdfTextMark(Page, new Point(TopLeft.X + c * (colWidth + Spec.Gap), TopLeft.Y), text, Spec.Font, Spec.Bold, Spec.Size, Color, f.LineSpacing, f.Baseline, Spec.FontName, AngleDeg, AngleDeg != 0 ? Centre : null);
             }
         }
 
         public override void MoveBy(Vector d) => TopLeft += d;
-        public override void ResizeTo(Rect r) { Spec.Width = Math.Max(60, r.Width); TopLeft = r.TopLeft; }      // (only the width: the height follows the words)
+        public override void ResizeTo(Rect r)                                                                  // (only the width: the height follows the words)
+        {
+            var corner = AngleDeg == 0 ? r.TopLeft : Rot(Bounds.TopLeft, Centre, AngleDeg);
+            Spec.Width = Math.Max(60, r.Width);
+            TopLeft = AngleDeg == 0 ? r.TopLeft : TopLeftFor(corner, Bounds.Size, AngleDeg);
+        }
     }
 
     // ---------- text in columns ----------
