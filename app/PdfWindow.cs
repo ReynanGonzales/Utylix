@@ -89,8 +89,7 @@ public sealed partial class PdfWindow : Window
             var w = Windows.FirstOrDefault(x => string.Equals(x._path, file, StringComparison.OrdinalIgnoreCase))
                     ?? Windows.FirstOrDefault(x => x._path == null);
             if (w == null) { w = new PdfWindow(); w.Show(); }
-            if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
-            w.Activate();
+            WindowTheme.BringToFront(w);
             if (!string.Equals(w._path, file, StringComparison.OrdinalIgnoreCase)) _ = w.LoadAsync(file);
         }
     }
@@ -108,9 +107,7 @@ public sealed partial class PdfWindow : Window
     public static void OpenEmpty()
     {
         var w = Windows.FirstOrDefault() ?? new PdfWindow();
-        if (!w.IsVisible) w.Show();
-        if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
-        w.Activate();
+        WindowTheme.BringToFront(w);
     }
 
     // ---------- one page in the column ----------
@@ -236,12 +233,18 @@ public sealed partial class PdfWindow : Window
         System.Windows.Automation.AutomationProperties.SetAutomationId(pageSize, "PdfPageSize");
         pageSize.Click += (_, _) => PageSize();
         _needsDocument.Add(pageSize);
+        var moreTools = new Button { Content = BarLabel("Tools ▾"), Template = BarButtonTemplate(), Height = 30, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(8, 0, 0, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White, ToolTip = "More tools: page numbers, watermark (add / remove), border, text in columns, OCR, save as Word or Excel, split, extract ..." };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(moreTools, "PdfTools");
+        moreTools.Click += (_, _) => ShowPagesMenu(moreTools);
+        _needsDocument.Add(moreTools);
 
         var top = new DockPanel { Background = Bar, Height = 46, LastChildFill = true };
         DockPanel.SetDock(reduce, Dock.Right);
         top.Children.Add(reduce);
         DockPanel.SetDock(pageSize, Dock.Right);
         top.Children.Add(pageSize);
+        DockPanel.SetDock(moreTools, Dock.Right);
+        top.Children.Add(moreTools);
         var edit = EditButton();
         DockPanel.SetDock(edit, Dock.Right);
         top.Children.Add(edit);

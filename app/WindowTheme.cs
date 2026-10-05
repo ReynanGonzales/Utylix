@@ -17,6 +17,21 @@ public static class WindowTheme
     public static void DarkTitleBar(Window w) =>
         w.SourceInitialized += (_, _) => RefreshTitleBar(w);
 
+    /// <summary>
+    /// Brings a window to the front for real. A plain Activate() is refused by Windows when the request comes from a program that is not the one
+    /// the person is using (a second copy forwarding "open this PDF"): the window then opens behind everything. This attaches to the foreground
+    /// thread for a moment, which Windows allows, and nudges the window to the top.
+    /// </summary>
+    public static void BringToFront(Window w)
+    {
+        if (!w.IsVisible) w.Show();
+        if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
+        w.Activate();
+        IntPtr handle = new WindowInteropHelper(w).Handle;
+        if (handle != IntPtr.Zero) ScreenGrab.ForceForeground(handle);
+        bool top = w.Topmost; w.Topmost = true; w.Topmost = top;
+    }
+
     /// <summary>Sets the title bar of an open window to the app's current theme (after the theme was changed).</summary>
     public static void RefreshTitleBar(Window w)
     {

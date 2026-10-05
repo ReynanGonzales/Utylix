@@ -43,7 +43,7 @@ public sealed partial class PdfWindow
         _moveUp = Make("", "Segoe MDL2 Assets", 12, "Move the page(s) up (you can also drag them)", "PdfPagesUp", () => MoveSelectedPages(-1));
         _moveDown = Make("", "Segoe MDL2 Assets", 12, "Move the page(s) down (you can also drag them)", "PdfPagesDown", () => MoveSelectedPages(1));
         _deletePages = Make("", "Segoe MDL2 Assets", 13, "Delete the page(s) (Delete key). Undo brings them back until you save.", "PdfPagesDelete", DeleteSelectedPages);
-        _morePages = Make("", "Segoe MDL2 Assets", 14, "More: add pages from a file, take pages out, split, save as pictures, make searchable (OCR)", "PdfPagesMore", ShowPagesMenu);
+        _morePages = Make("", "Segoe MDL2 Assets", 14, "More: add pages from a file, take pages out, split, save as pictures, make searchable (OCR)", "PdfPagesMore", () => ShowPagesMenu());
         _pageTools = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 4, 4, 4) };
         foreach (var b in new[] { _turnLeft, _turnRight, _moveUp, _moveDown, _deletePages, _morePages }) _pageTools.Children.Add(b);
         return _pageTools;

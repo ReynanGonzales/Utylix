@@ -70,7 +70,7 @@ public partial class PlayerWindow : Window
         _lastOpen = DateTime.UtcNow;
         if (_main == null) { _main = new PlayerWindow(); _main.Show(); }
         if (_main.WindowState == WindowState.Minimized) _main.WindowState = WindowState.Normal;
-        _main.Activate();
+        WindowTheme.BringToFront(_main);
         var target = _main;                                                      // (a window that was just created starts its engine when it is shown: wait for that)
         target.Dispatcher.BeginInvoke(new Action(() => { if (join) target.Enqueue(list); else target.PlayFiles(list); }), DispatcherPriority.ApplicationIdle);
     }
@@ -81,7 +81,7 @@ public partial class PlayerWindow : Window
         if (!EnsureEngine()) return null;
         if (_main == null) { _main = new PlayerWindow(); _main.Show(); }
         if (_main.WindowState == WindowState.Minimized) _main.WindowState = WindowState.Normal;
-        _main.Activate();
+        WindowTheme.BringToFront(_main);
         return _main;
     }
 

@@ -118,7 +118,7 @@ public sealed partial class MusicWindow : Window
         _lastOpen = DateTime.UtcNow;
         if (_main == null) { _main = new MusicWindow(); _main.Show(); }
         if (_main.WindowState == WindowState.Minimized) _main.WindowState = WindowState.Normal;
-        _main.Activate();
+        WindowTheme.BringToFront(_main);
         var target = _main;
         target.Dispatcher.BeginInvoke(new Action(() => { if (!join) target.Clear(); target.AddAndPlay(songs, join, startWith); }), DispatcherPriority.ApplicationIdle);
     }
@@ -128,7 +128,7 @@ public sealed partial class MusicWindow : Window
         if (!PlayerWindow.EnsureEngine()) return;
         if (_main == null) { _main = new MusicWindow(); _main.Show(); _main.RestoreQueue(); }
         if (_main.WindowState == WindowState.Minimized) _main.WindowState = WindowState.Normal;
-        _main.Activate();
+        WindowTheme.BringToFront(_main);
     }
 
     public static void TogglePlayFromOutside() => _main?.Dispatcher.BeginInvoke(new Action(() => _main?.TogglePause()));

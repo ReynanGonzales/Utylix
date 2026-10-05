@@ -11,10 +11,16 @@ namespace IdmClone;
 /// <summary>The "…" menu of the page tools: adding pages from files, taking pages out, splitting, saving as pictures (and the bigger tools that work on pages).</summary>
 public sealed partial class PdfWindow
 {
-    private void ShowPagesMenu()
+    private void ShowPagesMenu(UIElement? under = null)
     {
         if (_pdf == null) return;
         var menu = new ContextMenu();
+        void Heading(string text) =>
+            menu.Items.Add(new MenuItem
+            {
+                Header = new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, 8, 0, 2), Opacity = 0.65 },
+                IsHitTestVisible = false, Focusable = false,
+            });
         void Item(string text, Action action, string id = "")
         {
             var m = new MenuItem { Header = text };
@@ -22,13 +28,23 @@ public sealed partial class PdfWindow
             m.Click += (_, _) => action();
             menu.Items.Add(m);
         }
+        Heading("PAGES");
         Item("Add pages from a PDF or pictures…", InsertPagesFromFiles, "PdfMenuInsert");
         Item("Take the chosen page(s) out as a new PDF…", ExtractSelectedPages, "PdfMenuExtract");
         Item("Split into several PDFs…", () => OpenPagesDialog(split: true), "PdfMenuSplit");
         Item("Save pages as pictures (PNG / JPG)…", () => OpenPagesDialog(split: false), "PdfMenuPictures");
-        AddMoreToolsToMenu(menu, Item);
+        Heading("ADD TO THE PAGES");
+        Item("Page numbers, header and footer…", AddPageMarks, "PdfMenuMarks");
+        Item("Add a watermark…", AddPageMarks, "PdfMenuAddWatermark");
+        Item("Border around the pages…", AddBorder, "PdfMenuBorder");
+        Item("Text in columns…", AddColumns, "PdfMenuColumns");
+        Heading("CLEAN UP");
+        Item("Remove a watermark…", RemoveWatermark, "PdfMenuWatermark");
+        Item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");
+        Heading("CONVERT");
+        Item("Save as Word or Excel…", ExportToOffice, "PdfMenuExport");
         Themed(menu);
-        menu.PlacementTarget = _morePages; menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; menu.IsOpen = true;
+        menu.PlacementTarget = under ?? _morePages; menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; menu.IsOpen = true;
     }
 
     private void OpenPagesDialog(bool split)

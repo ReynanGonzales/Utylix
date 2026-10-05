@@ -114,6 +114,7 @@ public partial class App : Application
         _mutex = new Mutex(true, explicitPort ? $"Local\\Utylix.SingleInstance.{port}" : "Local\\Utylix.SingleInstance", out bool first);
         if (!first)
         {
+            AllowSetForegroundWindow(-1);          // (this copy was just started by the person: the running copy may bring its window to the front for us)
             int live = ApiPort.Current(dataDir, explicitPort ? port : null);      // where the running copy listens
             if (convert != null) SendConvert(live, convert.Value.Files, convert.Value.Format);
             else if (archiveCmd != null) SendArchive(live, archiveCmd.Value.Op, archiveCmd.Value.Files);
@@ -796,6 +797,8 @@ public partial class App : Application
         }
         Shutdown();
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool AllowSetForegroundWindow(int processId);
 
     private static void AskRunningInstanceToShow(int port)
     {

@@ -91,7 +91,7 @@ public sealed class ViewerWindow : Window
         if (list.Count == 0) { AnyClosed?.Invoke(); return; }
         if (_main == null) { _main = new ViewerWindow(); _main.Show(); }
         if (_main.WindowState == WindowState.Minimized) _main.WindowState = WindowState.Normal;
-        _main.Activate();
+        WindowTheme.BringToFront(_main);
         _main.Load(list);
     }
 
