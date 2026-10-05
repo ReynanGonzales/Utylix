@@ -31,7 +31,7 @@ public sealed class DashboardPage : UserControl
         // ---- title ----
         var head = new Grid();
         head.Children.Add(new TextBlock { Text = "Dashboard", FontSize = 22, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-        head.Children.Add(new TextBlock { Text = "Utylix " + Engine.AppUpdater.CurrentText, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)R("MutedBrush") });
+        head.Children.Add(new TextBlock { Text = "Utylix " + Engine.AppUpdater.CurrentText, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, }.Live(TextBlock.ForegroundProperty, "MutedBrush"));
         AutomationProperties.SetAutomationId(head, "DashboardTitle");
         root.Children.Add(head);
 
@@ -44,7 +44,7 @@ public sealed class DashboardPage : UserControl
         void Tile(string glyph, string label, string id, Action action)
         {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
-            content.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 20, Foreground = (Brush)R("AccentBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) });
+            content.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 20, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) }.Live(TextBlock.ForegroundProperty, "AccentBrush"));
             content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
             var b = new Button { Content = content, Style = (Style)R("DialogButton"), MinWidth = 168, Height = 52, Margin = new Thickness(0, 0, 10, 10), HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(16, 0, 16, 0) };
             AutomationProperties.SetAutomationId(b, id);
@@ -114,7 +114,7 @@ public sealed class DashboardPage : UserControl
                 DlStatus.Downloading => d.Size > 0 ? (100 * d.Downloaded / Math.Max(1, d.Size)) + " %" : "downloading",
                 DlStatus.Completed => "finished", DlStatus.Paused => "paused", DlStatus.Error => "failed", DlStatus.Queued => "waiting", _ => "waiting",
             };
-            row.Children.Add(new TextBlock { Text = status, HorizontalAlignment = HorizontalAlignment.Right, Foreground = (Brush)Application.Current.FindResource("MutedBrush") });
+            row.Children.Add(new TextBlock { Text = status, HorizontalAlignment = HorizontalAlignment.Right }.Live(TextBlock.ForegroundProperty, "MutedBrush"));
             _recent.Children.Add(row);
         }
     }

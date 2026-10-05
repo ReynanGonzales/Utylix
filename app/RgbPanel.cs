@@ -81,11 +81,10 @@ internal sealed class RgbPanel : UserControl
     {
         _fans = fans;
         var R = (string key) => Application.Current.FindResource(key);
-        var muted = (Brush)R("MutedBrush");
-        _intro.Foreground = muted;
+        _intro.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");   // (by name: they follow a change of theme)
         _intro.Text = "Set the colour and effect of the lights on your RAM, like Armoury Crate does, without Armoury Crate. It needs the same administrator helper as the fan control (Windows asks once) and the free PawnIO driver. What you change shows at once; \"Save in the RAM\" keeps it inside the sticks, so it stays even when Utylix is closed.";
-        _status.Foreground = muted;
-        _saveNote.Foreground = muted;
+        _status.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        _saveNote.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         _saveNote.Text = "Saving writes into the RAM's own memory, which can only be written a limited number of times: use it when you are happy with the look, not for every try.";
 
         _find.Content = "Find my RAM lights";
@@ -134,7 +133,7 @@ internal sealed class RgbPanel : UserControl
         void Row(string label, Slider s, string id)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
-            row.Children.Add(new TextBlock { Text = label, Width = 52, VerticalAlignment = VerticalAlignment.Center, Foreground = muted });
+            row.Children.Add(new TextBlock { Text = label, Width = 52, VerticalAlignment = VerticalAlignment.Center }.Live(TextBlock.ForegroundProperty, "MutedBrush"));
             AutomationProperties.SetAutomationId(s, id);
             row.Children.Add(s);
             sliders.Children.Add(row);
@@ -142,7 +141,7 @@ internal sealed class RgbPanel : UserControl
         }
         Row("Red", _red, "RgbRed"); Row("Green", _green, "RgbGreen"); Row("Blue", _blue, "RgbBlue");
         mix.Children.Add(sliders);
-        _preview.BorderBrush = (Brush)R("LineBrush");
+        _preview.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
         _preview.VerticalAlignment = VerticalAlignment.Top; _preview.Margin = new Thickness(18, 4, 0, 0);
         Grid.SetColumn(_preview, 1);
         mix.Children.Add(_preview);

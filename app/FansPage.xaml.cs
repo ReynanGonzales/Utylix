@@ -169,7 +169,7 @@ public partial class FansPage : UserControl
             TempsCard.Visibility = SafetyCard.Visibility = Visibility.Visible;
             TempsTitle.Text = "Temperatures and memory";
             StatusText.Text = reply.Emergency ? "Too hot: every controlled fan is at 100 %" : "Fan control is on";
-            StatusText.Foreground = reply.Emergency ? new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)) : (Brush)FindResource("MutedBrush");
+            if (reply.Emergency) StatusText.Foreground = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)); else StatusText.Live(TextBlock.ForegroundProperty, "MutedBrush");
             string layout = string.Join("|", _sensors.Where(s => s.Type == "control").Select(s => s.Id)) + "#" + _settings.ShowUnused + "#" + string.Join(",", _sensors.Where(s => s.Type == "fan" && (s.Value ?? 0) > 0).Select(s => s.Id));
             if (layout != _layout) { _layout = layout; Rebuild(); }
             Refresh();
@@ -213,7 +213,7 @@ public partial class FansPage : UserControl
         }
         Relayout();
         if (_cards.Count == 0)
-            Cards.Children.Add(new TextBlock { Text = "No fan that can be set was found. Reading the temperatures still works.", Foreground = (Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 10, 0, 0) });
+            Cards.Children.Add(new TextBlock { Text = "No fan that can be set was found. Reading the temperatures still works.", Margin = new Thickness(0, 10, 0, 0) }.Live(TextBlock.ForegroundProperty, "MutedBrush"));
         UpdateMemory();                                                              // (Clear() above took the memory tile out: it goes back after the temperatures)
         _building = false;
     }
@@ -334,15 +334,14 @@ public partial class FansPage : UserControl
     /// <summary>The tile itself (also used for the memory): small heading, big number with its unit, the heat word, a gauge and the line of the last readings.</summary>
     private TempTile BuildTile(string kind, string name, string iconKind, string unit)
     {
-        var muted = (Brush)FindResource("MutedBrush");
         var tile = new TempTile();
         var stack = new StackPanel();
         var heading = new StackPanel { Margin = new Thickness(0, 0, 36, 0) };
-        heading.Children.Add(new TextBlock { Text = kind, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = muted });
-        tile.Name = new TextBlock { Text = name, FontSize = 11.5, Foreground = muted, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) };
+        heading.Children.Add(new TextBlock { Text = kind, FontSize = 10.5, FontWeight = FontWeights.SemiBold }.Live(TextBlock.ForegroundProperty, "MutedBrush"));
+        tile.Name = new TextBlock { Text = name, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) }.Live(TextBlock.ForegroundProperty, "MutedBrush");
         heading.Children.Add(tile.Name);
         tile.Icon = SensorIcon(iconKind);
-        tile.Icon.Stroke = muted;
+        tile.Icon.Live(System.Windows.Shapes.Shape.StrokeProperty, "MutedBrush");
         var top = new Grid();
         top.Children.Add(heading); top.Children.Add(tile.Icon);
         stack.Children.Add(top);
@@ -350,7 +349,7 @@ public partial class FansPage : UserControl
         var number = new StackPanel { Orientation = Orientation.Horizontal };
         tile.Value = new TextBlock { Text = "–", FontSize = 32, FontWeight = FontWeights.SemiBold, LineHeight = 38 };
         number.Children.Add(tile.Value);
-        number.Children.Add(new TextBlock { Text = unit, FontSize = 14, Foreground = muted, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(3, 0, 0, 6) });
+        number.Children.Add(new TextBlock { Text = unit, FontSize = 14, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(3, 0, 0, 6) }.Live(TextBlock.ForegroundProperty, "MutedBrush"));
         tile.Hint = new TextBlock { FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 0, 7) };
         var row = new Grid { Margin = new Thickness(0, 6, 0, 0) };
         row.Children.Add(number); row.Children.Add(tile.Hint);
@@ -358,7 +357,7 @@ public partial class FansPage : UserControl
 
         // the gauge: 0 to 100 degrees
         var gauge = new Grid { Height = 5, Margin = new Thickness(0, 6, 0, 0) };
-        gauge.Children.Add(new Border { CornerRadius = new CornerRadius(2.5), Background = (Brush)FindResource("LineBrush") });
+        gauge.Children.Add(new Border { CornerRadius = new CornerRadius(2.5) }.Live(Border.BackgroundProperty, "LineBrush"));
         var fill = new Grid();
         tile.Fill = new ColumnDefinition { Width = new GridLength(0.001, GridUnitType.Star) };
         tile.Rest = new ColumnDefinition { Width = new GridLength(100, GridUnitType.Star) };
@@ -377,8 +376,9 @@ public partial class FansPage : UserControl
         tile.Frame = new Border
         {
             Child = stack, Width = SparkWidth + 30, Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(0, 0, 10, 10),
-            Background = (Brush)FindResource("BgBrush"), BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
         };
+        tile.Frame.Live(Border.BackgroundProperty, "BgBrush").Live(Border.BorderBrushProperty, "LineBrush");
         return tile;
     }
 
@@ -416,8 +416,8 @@ public partial class FansPage : UserControl
         var canvas = new Canvas { Width = 36, Height = 36, RenderTransform = spin, ToolTip = "Turns as fast as the fan" };
         var blade = Geometry.Parse("M18,18 C14,8 20,1 27,3 C31,10 26,16 18,18 Z");
         for (int i = 0; i < 3; i++)
-            canvas.Children.Add(new System.Windows.Shapes.Path { Data = blade, Fill = (Brush)FindResource("AccentBrush"), RenderTransform = new RotateTransform(i * 120, 18, 18) });
-        var hub = new System.Windows.Shapes.Ellipse { Width = 9, Height = 9, Fill = (Brush)FindResource("CardBrush"), Stroke = (Brush)FindResource("AccentBrush"), StrokeThickness = 1.5 };
+            canvas.Children.Add(new System.Windows.Shapes.Path { Data = blade, RenderTransform = new RotateTransform(i * 120, 18, 18) }.Live(System.Windows.Shapes.Shape.FillProperty, "AccentBrush"));
+        var hub = new System.Windows.Shapes.Ellipse { Width = 9, Height = 9, StrokeThickness = 1.5 }.Live(System.Windows.Shapes.Shape.FillProperty, "CardBrush").Live(System.Windows.Shapes.Shape.StrokeProperty, "AccentBrush");
         Canvas.SetLeft(hub, 13.5); Canvas.SetTop(hub, 13.5);
         canvas.Children.Add(hub);
         return new Border { Width = 36, Height = 36, Child = canvas, Background = Brushes.Transparent };
@@ -474,13 +474,13 @@ public partial class FansPage : UserControl
         var right = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right };
         Grid.SetColumn(right, 2);
         var rpm = new TextBlock { FontSize = 15, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Right };
-        var now = new TextBlock { FontSize = 12, Foreground = (Brush)FindResource("MutedBrush"), HorizontalAlignment = HorizontalAlignment.Right };
+        var now = new TextBlock { FontSize = 12, HorizontalAlignment = HorizontalAlignment.Right }.Live(TextBlock.ForegroundProperty, "MutedBrush");
         AutomationProperties.SetAutomationId(rpm, "FanRpm" + index);
         AutomationProperties.SetAutomationId(now, "FanNow" + index);
         right.Children.Add(rpm); right.Children.Add(now);
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         titles.Children.Add(name);
-        titles.Children.Add(new TextBlock { Text = control.Hardware, FontSize = 12, Foreground = (Brush)FindResource("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis });
+        titles.Children.Add(new TextBlock { Text = control.Hardware, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis }.Live(TextBlock.ForegroundProperty, "MutedBrush"));
         Grid.SetColumn(titles, 1);
         head.Children.Add(icon); head.Children.Add(titles); head.Children.Add(right);
         root.Children.Add(head);
@@ -520,7 +520,7 @@ public partial class FansPage : UserControl
         var points = new TextBox { Style = (Style)FindResource("Field"), Margin = new Thickness(0, 8, 0, 0), MaxWidth = 520 };
         AutomationProperties.SetAutomationId(points, "FanPoints" + index);
         curvePanel.Children.Add(presetRow);
-        curvePanel.Children.Add(new TextBlock { Text = "Curve: temperature in °C : fan speed in %, separated by commas", FontSize = 12, Foreground = (Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 10, 0, 0) });
+        curvePanel.Children.Add(new TextBlock { Text = "Curve: temperature in °C : fan speed in %, separated by commas", FontSize = 12, Margin = new Thickness(0, 10, 0, 0) }.Live(TextBlock.ForegroundProperty, "MutedBrush"));
         curvePanel.Children.Add(points);
         root.Children.Add(curvePanel);
 
