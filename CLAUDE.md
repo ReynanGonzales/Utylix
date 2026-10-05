@@ -327,4 +327,7 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
   `AddPassword` / `RemovePassword` / `MakeProtectedCopy` in `PdfWindow.Tools.cs`: always a COPY (the target may not be the open file), Tools menu group PROTECT. Engine tested: open pw + owner pw + limits, limits only,
   open-only, unprotect with owner / user / wrong, re-protect of a protected file. `PdfPageTools.InsertBlank` (FPDFPage_New + Reload) + `AddBlankPage` (Tools menu + side-strip right-click), same size as the chosen page.
   Reduce window: `_unitKb` / `_unitMb` chips + quick sizes from 100 KB; `TryLimit` reads the unit from the text or the chips (min 20 KB).
+- **PDF: crop pages** (2026-10-05): `PdfPageTools.Crop` sets /CropBox with `FPDFPage_SetCropBox` (margins are as SHOWN, mapped through `PageMapping`; min 36 pt left), `ContentMargins` finds the non-paper bounding box of a 700 px render (channels > 235 = paper) for
+  "Trim the empty edges". `PdfCropDialog` (preview with shaded cut + dashed frame, pages chips like the border dialog), `CropPages` in `PdfWindow.Columns.cs` through `PageOp`. It HIDES, it does not erase: the dialog says so and points to Redact.
+  Tested in the real window (manual 20 mm top / 25 mm left, and trim; page shown cropped).
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.

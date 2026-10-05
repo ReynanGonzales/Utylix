@@ -117,6 +117,30 @@ public sealed partial class PdfWindow
                $"Border added to {(n == 1 ? "page " + (dialog.Pages[0] + 1) : n == pdf.PageCount ? "all pages" : n + " pages")}. Undo takes it away until you save");
     }
 
+    // ---------- cropping pages ----------
+    private void CropPages()
+    {
+        if (_pdf == null || _path == null) return;
+        var dialog = new PdfCropDialog(this, _pdf, _current);
+        if (dialog.ShowDialog() != true) return;
+        var pdf = _pdf;
+        var pages = dialog.Pages;
+        int done = 0;
+        string error = "";
+        PageOp(p =>
+        {
+            if (dialog.Trim)
+            {
+                // (every page is looked at: it is cut down to what is on it)
+                var cuts = new Dictionary<int, PdfPageTools.CropMargins?>();
+                foreach (int i in pages) cuts[i] = PdfPageTools.ContentMargins(p, i, dialog.Pad);
+                done = PdfPageTools.Crop(p, pages, i => cuts.TryGetValue(i, out var c) ? c : null);
+            }
+            else done = PdfPageTools.Crop(p, pages, _ => dialog.Margins);
+        }, () => new[] { Math.Clamp(_current, 0, pdf.PageCount - 1) },
+        () => done == 0 ? "Nothing to crop: the pages are empty" : $"{done} page{(done == 1 ? "" : "s")} cropped. What was cut off is hidden, not erased. Undo takes it back until you save{error}");
+    }
+
     // ---------- taking a watermark out ----------
     private void RemoveWatermark()
     {

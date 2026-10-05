@@ -31,6 +31,7 @@ public sealed partial class PdfWindow
         Heading("PAGES");
         Item("Add pages from a PDF or pictures…", InsertPagesFromFiles, "PdfMenuInsert");
         Item("Add a blank page after the chosen page", AddBlankPage, "PdfMenuBlank");
+        Item("Crop pages…", CropPages, "PdfMenuCrop");
         Item("Take the chosen page(s) out as a new PDF…", ExtractSelectedPages, "PdfMenuExtract");
         Item("Split into several PDFs…", () => OpenPagesDialog(split: true), "PdfMenuSplit");
         Item("Save pages as pictures (PNG / JPG)…", () => OpenPagesDialog(split: false), "PdfMenuPictures");

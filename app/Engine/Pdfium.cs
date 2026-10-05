@@ -114,6 +114,7 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern IntPtr FPDF_NewFormObjectFromXObject(IntPtr xobject);
     [DllImport(Dll)] public static extern int FPDFPage_GetMediaBox(IntPtr page, out float left, out float bottom, out float right, out float top);
     [DllImport(Dll)] public static extern int FPDFPage_GetCropBox(IntPtr page, out float left, out float bottom, out float right, out float top);
+    [DllImport(Dll)] public static extern void FPDFPage_SetCropBox(IntPtr page, float left, float bottom, float right, float top);
 
     // ---------- the text on a page ----------
     [DllImport(Dll)] public static extern IntPtr FPDFText_LoadPage(IntPtr page);

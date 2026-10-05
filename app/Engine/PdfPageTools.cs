@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Windows;
 using System.Windows.Media.Imaging;
 
 namespace IdmClone.Engine;
@@ -49,6 +50,66 @@ public static class PdfPageTools
             dest.Reload();                                        // (the new pages are written into the document while the other file is still open)
             return added;
         }
+    }
+
+    /// <summary>What to cut off a page, in points, as seen on the page (from its shown edges).</summary>
+    public readonly record struct CropMargins(double Left, double Top, double Right, double Bottom);
+
+    /// <summary>The smallest a cropped page may get (points).</summary>
+    public const double MinCrop = 36;
+
+    /// <summary>
+    /// Crops the pages: the PDF's /CropBox is set, so every reader shows only what is inside. What is cut off stays in the file (it is hidden, not
+    /// erased). <paramref name="margins"/> gives each page's cut (null = leave that page). Returns how many pages were cropped.
+    /// </summary>
+    public static int Crop(PdfFile pdf, IEnumerable<int> pages, Func<int, CropMargins?> margins)
+    {
+        int done = 0;
+        lock (Pdfium.Sync)
+        {
+            foreach (int i in pages.Distinct().Where(i => i >= 0 && i < pdf.PageCount))
+            {
+                var cut = margins(i);
+                if (cut is not CropMargins m) continue;
+                Pdfium.FPDF_GetPageSizeByIndexF(pdf.Handle, i, out var size);
+                double w = size.Width, h = size.Height;
+                if (w - m.Left - m.Right < MinCrop || h - m.Top - m.Bottom < MinCrop) throw new IOException($"Page {i + 1} would be left too small. Cut less.");
+                IntPtr page = Pdfium.FPDF_LoadPage(pdf.Handle, i);
+                if (page == IntPtr.Zero) throw new IOException("Page " + (i + 1) + " can't be read.");
+                try
+                {
+                    var map = new PageMapping(page, w, h);
+                    var a = map.ToPage(new Point(m.Left, m.Top)); var b = map.ToPage(new Point(w - m.Right, h - m.Bottom));
+                    Pdfium.FPDFPage_SetCropBox(page, (float)Math.Min(a.X, b.X), (float)Math.Min(a.Y, b.Y), (float)Math.Max(a.X, b.X), (float)Math.Max(a.Y, b.Y));
+                    done++;
+                }
+                finally { Pdfium.FPDF_ClosePage(page); }
+            }
+        }
+        pdf.Reload();
+        return done;
+    }
+
+    /// <summary>The empty edges of a page: what to cut so that only its content (plus <paramref name="pad"/> points around it) stays. Null for a page with nothing on it.</summary>
+    public static CropMargins? ContentMargins(PdfFile pdf, int index, double pad)
+    {
+        var size = pdf.PageSize(index);
+        int pw = 700, ph = Math.Max(1, (int)Math.Round(pw * size.Height / size.Width));
+        var picture = pdf.Render(index, pw, ph, 0, forScreen: false);
+        int stride = pw * 4;
+        var px = new byte[stride * ph];
+        picture.CopyPixels(px, stride, 0);
+        int left = pw, right = -1, top = ph, bottom = -1;
+        for (int y = 0; y < ph; y++)
+            for (int x = 0; x < pw; x++)
+            {
+                int o = y * stride + x * 4;
+                if (px[o] > 235 && px[o + 1] > 235 && px[o + 2] > 235) continue;           // (paper)
+                if (x < left) left = x; if (x > right) right = x; if (y < top) top = y; if (y > bottom) bottom = y;
+            }
+        if (right < 0) return null;
+        double kx = size.Width / pw, ky = size.Height / ph;
+        return new CropMargins(Math.Max(0, left * kx - pad), Math.Max(0, top * ky - pad), Math.Max(0, size.Width - (right + 1) * kx - pad), Math.Max(0, size.Height - (bottom + 1) * ky - pad));
     }
 
     /// <summary>Puts an empty page at this place (0 = in front of the first page); its size is <paramref name="like"/> (a neighbouring page), points.</summary>
