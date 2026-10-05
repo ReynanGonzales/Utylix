@@ -342,6 +342,9 @@
 
                         <CheckBox x:Name="ShotCopyBox" Margin="0,12,0,0" Content="Copy every capture to the clipboard" />
                         <CheckBox x:Name="ShotAutoSaveBox" Margin="0,12,0,0" Content="Save every capture as a file" />
+                        <CheckBox x:Name="ShotHideBox" Margin="0,12,0,0" Content="Hide Utylix's own windows while I take a snip" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="Off: Utylix stays on screen, so you can snip Utylix itself (the PDF editor, the player and the photo viewer always stay). On: Utylix gets out of the way, so it is never in the picture." />
                         <Grid Margin="0,12,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="200" />

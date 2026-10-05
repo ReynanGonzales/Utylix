@@ -58,6 +58,7 @@ public partial class SettingsWindow : Window
         ShotCtrlAltBox.IsChecked = c.ShotCtrlAltS;
         ShotCopyBox.IsChecked = c.ShotCopy;
         ShotAutoSaveBox.IsChecked = c.ShotAutoSave;
+        ShotHideBox.IsChecked = c.ShotHideWindows;
         ShotDirBox.Text = c.ShotDir;
         RecHotkeyBox.IsChecked = c.RecHotkey;
         RecDirBox.Text = c.RecDir;
@@ -484,6 +485,7 @@ public partial class SettingsWindow : Window
                 ShotCtrlAltS = ShotCtrlAltBox.IsChecked == true,
                 ShotCopy = ShotCopyBox.IsChecked == true,
                 ShotAutoSave = ShotAutoSaveBox.IsChecked == true,
+                ShotHideWindows = ShotHideBox.IsChecked == true,
                 Theme = _theme,
                 Accent = _accent,
                 TrayNotice = TrayNoticeBox.IsChecked == true,

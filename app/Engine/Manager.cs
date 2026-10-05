@@ -84,6 +84,8 @@ public sealed class Config
     [JsonPropertyName("shot_dir")] public string ShotDir { get; set; } = "";              // "" = Pictures\Screenshots
     [JsonPropertyName("open_win_f")] public bool OpenWinF { get; set; } = true;           // Win + F brings Utylix up
     [JsonPropertyName("shot_win_s")] public bool ShotWinS { get; set; } = true;           // Win + S starts a capture
+    /// <summary>Hide Utylix's own windows while a snip is taken (off: they stay on screen, so Utylix itself can be snipped).</summary>
+    [JsonPropertyName("shot_hide_windows")] public bool ShotHideWindows { get; set; }
     [JsonPropertyName("shot_ctrl_alt_s")] public bool ShotCtrlAltS { get; set; } = true;  // Ctrl + Alt + S starts a capture
 
     // ---- screen recorder ----
@@ -293,6 +295,7 @@ public sealed class Manager
                 ShotAutoSave = c.ShotAutoSave,
                 ShotDir = c.ShotDir?.Trim() ?? "",
                 ShotWinS = c.ShotWinS,
+                ShotHideWindows = c.ShotHideWindows,
                 OpenWinF = c.OpenWinF,
                 ShotCtrlAltS = c.ShotCtrlAltS,
                 RecDir = c.RecDir?.Trim() ?? "",

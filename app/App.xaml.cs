@@ -611,8 +611,11 @@ public partial class App : Application
     /// <summary>Hides every Utylix window that is showing (so a capture never contains Utylix); the returned action shows them again.</summary>
     public static Action HideForCapture()
     {
-        // the video player, the photo viewer and the PDF editor stay: what they show is exactly what a snip of the screen is for
-        var shown = Current.Windows.Cast<Window>().Where(w => w.IsVisible && w is not (CaptureOverlay or PlayerWindow or ViewerWindow or PdfWindow)).ToList();
+        // the video player, the photo viewer and the PDF editor always stay: what they show is exactly what a snip of the screen is for.
+        // The snip window itself (and notices) always get out of the way; the other Utylix windows only when Settings says so.
+        bool hideAll = ((App)Current)._manager?.Config.ShotHideWindows == true;
+        var shown = Current.Windows.Cast<Window>().Where(w => w.IsVisible && w is not (CaptureOverlay or PlayerWindow or ViewerWindow or PdfWindow)
+                                                              && (hideAll || w is SnipWindow or ToastWindow)).ToList();
         foreach (var w in shown) w.Hide();
         return () => { foreach (var w in shown) { try { w.Show(); } catch (InvalidOperationException) { /* closed meanwhile */ } } };
     }
@@ -841,13 +844,12 @@ public partial class App : Application
         catch (Exception) { windowsDark = false; }
         IsDarkTheme = theme == "dark" || (theme != "light" && windowsDark);
 
-        // The colour of each brush is changed in place, so everything that already holds the brush (not only what looks it up by name) follows at once.
-        void Set(string name, string hex)
-        {
-            var colour = (Color)ColorConverter.ConvertFromString(hex);
-            if (Resources[name] is SolidColorBrush brush && !brush.IsFrozen) brush.Color = colour;
-            else Resources[name] = new SolidColorBrush(colour);
-        }
+        // WPF freezes a brush kept in the resources, so its colour can't be changed: a new brush replaces it. What looks the brush up by name
+        // (DynamicResource) follows by itself; what took the brush itself when it was built (code like `Background = (Brush)R("BgBrush")`) is found
+        // and given the new brush below.
+        var old = new Dictionary<object, string>(ReferenceEqualityComparer.Instance);
+        foreach (string n in BrushNames) if (Resources[n] is SolidColorBrush b) old[b] = n;
+        void Set(string name, string hex) => Resources[name] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
 
         var pick = Array.Find(Accents, a => a.Key == accent);
         if (pick.Key == null) pick = Accents[0];
@@ -865,6 +867,32 @@ public partial class App : Application
             Set("OkBrush", "#16A34A"); Set("ErrBrush", "#DC2626"); Set("TrackBrush", "#E5E7EB");
             Set("ConnBrush", "#0D9488");
         }
+        if (old.Count > 0) foreach (Window w in Current.Windows) RemapBrushes(w, old);
+    }
+
+    private static readonly string[] BrushNames = { "BgBrush", "CardBrush", "TextBrush", "MutedBrush", "LineBrush", "AccentBrush", "OkBrush", "ErrBrush", "TrackBrush", "ConnBrush" };
+
+    /// <summary>Gives every element of the window that holds one of the old palette brushes (itself, by reference) the new brush of the same name.</summary>
+    private void RemapBrushes(DependencyObject root, Dictionary<object, string> old)
+    {
+        var seen = new HashSet<DependencyObject>();
+        void Visit(DependencyObject d)
+        {
+            if (!seen.Add(d)) return;
+            var changes = new List<(DependencyProperty Property, string Name)>();
+            var values = d.GetLocalValueEnumerator();
+            while (values.MoveNext())
+                if (values.Current.Value is SolidColorBrush brush && old.TryGetValue(brush, out var name)) changes.Add((values.Current.Property, name));
+            foreach (var (property, name) in changes)
+            {
+                try { d.SetValue(property, Resources[name]); }
+                catch (Exception e) when (e is InvalidOperationException or ArgumentException) { /* read-only or another type: leave it */ }
+            }
+            if (d is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D)
+                for (int i = 0, n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(d); i < n; i++) Visit(System.Windows.Media.VisualTreeHelper.GetChild(d, i));
+            foreach (var child in LogicalTreeHelper.GetChildren(d).OfType<DependencyObject>()) Visit(child);
+        }
+        Visit(root);
     }
 
     // ---------- start with Windows ----------
