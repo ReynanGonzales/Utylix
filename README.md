@@ -55,7 +55,7 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
 
 Click the **Utylix logo** at the top left to open the **dashboard** (click it again to go back to the tool you were in): quick
 actions (take a snip, record the screen, video player, convert files, downloads, brightness, browser extension, check for
-updates), what the downloads are doing, and under *This PC* the fans.
+updates), what the downloads are doing, and the fans and temperatures.
 
 The fan part shows the temperatures (processor, graphics card, one board reading) and, two to a row, every fan that spins with
 a little fan icon that turns as fast as the real one, and lets you set each fan: **Automatic** (the PC decides, as always), **Fixed speed** (a slider), or **Curve** (the fan speed follows
