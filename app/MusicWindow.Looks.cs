@@ -58,7 +58,7 @@ public sealed partial class MusicWindow
 
     private IEnumerable<FrameworkElement> SharedControls() => new FrameworkElement[]
     {
-        _coverHost, _nowTitle, _nowArtist, _seek, _timeNow, _timeLen, _vol, _volIcon, _soundBtn, _shuffleBtn, _prevBtn, _play, _nextBtn, _repeatBtn, _heartBtn, _moreBtn,
+        _coverHost, _nowTitle, _nowArtist, _seek, _timeNow, _timeLen, _vol, _volIcon, _soundBtn, _shuffleBtn, _prevBtn, _play, _nextBtn, _repeatBtn, _heartBtn, _moreBtn, _closeBtn,
     }.Concat(_wave == null ? Array.Empty<FrameworkElement>() : new FrameworkElement[] { _wave });
 
     // ---------- dressing the shared controls ----------
@@ -264,11 +264,11 @@ public sealed partial class MusicWindow
         _volIcon.Foreground = muted;
         foreach (var b in new[] { _shuffleBtn, _prevBtn, _nextBtn, _repeatBtn, _heartBtn }) Dress(b, 44, 18, Brushes.White, false);
         Dress(_play, 44, 26, Brushes.White, false);
-        Dress(_moreBtn, 36, 16, muted, false);
+        Dress(_moreBtn, 36, 16, muted, false); Dress(_closeBtn, 36, 14, muted, false);
 
         var transport = Row(_shuffleBtn, _prevBtn, _play, _nextBtn, _repeatBtn); transport.Margin = new Thickness(0, 10, 0, 0);
         var volRow = Row(_volIcon, _vol, _soundBtn); volRow.Margin = new Thickness(0, 12, 0, 0);
-        var extras = Row(_heartBtn, _moreBtn); extras.Margin = new Thickness(0, 4, 0, 0);
+        var extras = _floating != null ? Row(_heartBtn, _moreBtn, _closeBtn) : Row(_heartBtn, _moreBtn); extras.Margin = new Thickness(0, 4, 0, 0);
         var left = new StackPanel { Margin = new Thickness(26, 16, 26, 16), VerticalAlignment = VerticalAlignment.Center };
         left.Children.Add(_coverHost);
         left.Children.Add(new Border { Margin = new Thickness(0, 14, 0, 0), Child = _nowTitle });
@@ -287,7 +287,7 @@ public sealed partial class MusicWindow
         DressText(_nowArtist, 11.5, FontWeights.Normal, white, TextAlignment.Left);
         DressSeek("#7C7D87", "White", 9, 3, white); _seek.Margin = new Thickness(0, 10, 0, 0);
         DressTimes(grey, 11);
-        Dress(_heartBtn, 38, 19, white, false); Dress(_moreBtn, 34, 15, white, false);
+        Dress(_heartBtn, 38, 19, white, false); Dress(_moreBtn, 34, 15, white, false); Dress(_closeBtn, 34, 13, white, false);
         Dress(_prevBtn, 36, 14, white, false); Dress(_play, 40, 22, white, false); Dress(_nextBtn, 36, 14, white, false);
         Dress(_shuffleBtn, 36, 14, white, false); Dress(_repeatBtn, 36, 14, white, false);
 
@@ -295,8 +295,9 @@ public sealed partial class MusicWindow
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(_heartBtn, 1); Grid.SetColumn(_moreBtn, 2);
-        titleRow.Children.Add(_nowTitle); titleRow.Children.Add(_heartBtn); titleRow.Children.Add(_moreBtn);
+        var wideMore = MoreCluster();
+        Grid.SetColumn(_heartBtn, 1); Grid.SetColumn(wideMore, 2);
+        titleRow.Children.Add(_nowTitle); titleRow.Children.Add(_heartBtn); titleRow.Children.Add(wideMore);
 
         var bottom = new Grid { Margin = new Thickness(0, 0, 0, 0) };
         var transport = Row(_prevBtn, _play, _nextBtn);
@@ -323,7 +324,7 @@ public sealed partial class MusicWindow
         DressText(_nowArtist, 10.5, FontWeights.Normal, grey, TextAlignment.Left);
         DressSeek("#4A4B52", "White", 11, 3, white);
         DressTimes(grey, 10);
-        Dress(_moreBtn, 34, 16, white, false); Dress(_heartBtn, 34, 16, white, false);
+        Dress(_moreBtn, 34, 16, white, false); Dress(_closeBtn, 34, 14, white, false); Dress(_heartBtn, 34, 16, white, false);
         Dress(_shuffleBtn, 40, 15, _fgBrush, false); Dress(_prevBtn, 40, 17, white, false);
         Dress(_play, 58, 24, white, false, fill: Brushes.White, glyphOnFill: Hex("#111111"));
         Dress(_nextBtn, 40, 17, white, false); Dress(_repeatBtn, 40, 15, _fgBrush, false);
@@ -335,8 +336,9 @@ public sealed partial class MusicWindow
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(titles, 1); Grid.SetColumn(_heartBtn, 2); Grid.SetColumn(_moreBtn, 3);
-        head.Children.Add(_coverHost); head.Children.Add(titles); head.Children.Add(_heartBtn); head.Children.Add(_moreBtn);
+        var more = MoreCluster();
+        Grid.SetColumn(titles, 1); Grid.SetColumn(_heartBtn, 2); Grid.SetColumn(more, 3);
+        head.Children.Add(_coverHost); head.Children.Add(titles); head.Children.Add(_heartBtn); head.Children.Add(more);
         _coverHost.HorizontalAlignment = HorizontalAlignment.Left;
 
         var stack = new StackPanel();
@@ -359,7 +361,7 @@ public sealed partial class MusicWindow
         DressText(_nowArtist, 10.5, FontWeights.Normal, soft, TextAlignment.Left);
         DressSeek("#66FFFFFF", "White", 9, 3, white);
         DressTimes(soft, 10);
-        Dress(_heartBtn, 34, 16, white, false); Dress(_moreBtn, 34, 16, white, false);
+        Dress(_heartBtn, 34, 16, white, false); Dress(_moreBtn, 34, 16, white, false); Dress(_closeBtn, 34, 14, white, false);
         Dress(_prevBtn, 52, 28, Hex("#BFFFFFFF"), false); Dress(_play, 58, 32, white, false); Dress(_nextBtn, 52, 28, Hex("#BFFFFFFF"), false);
         Dress(_shuffleBtn, 34, 14, soft, false); Dress(_repeatBtn, 34, 14, soft, false);
         _vol.Template = SliderTemplate("#66FFFFFF", "White", 9, 3); _vol.Foreground = white; _vol.Width = double.NaN; _vol.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -372,8 +374,9 @@ public sealed partial class MusicWindow
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(titles, 1); Grid.SetColumn(_heartBtn, 2); Grid.SetColumn(_moreBtn, 3);
-        head.Children.Add(_coverHost); head.Children.Add(titles); head.Children.Add(_heartBtn); head.Children.Add(_moreBtn);
+        var more = MoreCluster();
+        Grid.SetColumn(titles, 1); Grid.SetColumn(_heartBtn, 2); Grid.SetColumn(more, 3);
+        head.Children.Add(_coverHost); head.Children.Add(titles); head.Children.Add(_heartBtn); head.Children.Add(more);
         _coverHost.HorizontalAlignment = HorizontalAlignment.Left;
 
         var stack = new StackPanel();
@@ -405,7 +408,7 @@ public sealed partial class MusicWindow
         DressText(_nowArtist, 10.5, FontWeights.SemiBold, ink, TextAlignment.Center);
         DressSeek("#B4B4B4", "#161616", 8, 3, ink);
         DressTimes(grey, 10);
-        Dress(_moreBtn, 34, 16, ink, true); Dress(_heartBtn, 34, 16, ink, true);
+        Dress(_moreBtn, 34, 16, ink, true); Dress(_closeBtn, 34, 14, ink, true); Dress(_heartBtn, 34, 16, ink, true);
         Dress(_prevBtn, 52, 26, ink, true); Dress(_play, 58, 30, ink, true); Dress(_nextBtn, 52, 26, ink, true);
         Dress(_shuffleBtn, 34, 14, ink, true); Dress(_repeatBtn, 34, 14, ink, true);
 
@@ -414,7 +417,7 @@ public sealed partial class MusicWindow
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_heartBtn, 2);
-        top.Children.Add(_moreBtn); top.Children.Add(_heartBtn);
+        top.Children.Add(MoreCluster()); top.Children.Add(_heartBtn);
         _coverHost.HorizontalAlignment = HorizontalAlignment.Center;
         _coverHost.Margin = new Thickness(0, -6, 0, 0);
         var stack = new StackPanel();
@@ -439,7 +442,7 @@ public sealed partial class MusicWindow
         DressText(_nowTitle, 17, FontWeights.Bold, ink, TextAlignment.Left);
         DressText(_nowArtist, 10, FontWeights.Normal, grey, TextAlignment.Left);
         DressTimes(grey, 10);
-        Dress(_moreBtn, 34, 16, ink, true); Dress(_heartBtn, 34, 16, ink, true);
+        Dress(_moreBtn, 34, 16, ink, true); Dress(_closeBtn, 34, 14, ink, true); Dress(_heartBtn, 34, 16, ink, true);
         Dress(_prevBtn, 46, 22, ink, true); Dress(_play, 54, 28, ink, true); Dress(_nextBtn, 46, 22, ink, true);
         Dress(_shuffleBtn, 34, 14, ink, true); Dress(_repeatBtn, 34, 14, ink, true);
 
@@ -453,8 +456,9 @@ public sealed partial class MusicWindow
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(titles, 1); Grid.SetColumn(_heartBtn, 2); Grid.SetColumn(_moreBtn, 3);
-        head.Children.Add(_coverHost); head.Children.Add(titles); head.Children.Add(_heartBtn); head.Children.Add(_moreBtn);
+        var more = MoreCluster();
+        Grid.SetColumn(titles, 1); Grid.SetColumn(_heartBtn, 2); Grid.SetColumn(more, 3);
+        head.Children.Add(_coverHost); head.Children.Add(titles); head.Children.Add(_heartBtn); head.Children.Add(more);
         _coverHost.HorizontalAlignment = HorizontalAlignment.Left;
 
         var stack = new StackPanel();
@@ -465,6 +469,9 @@ public sealed partial class MusicWindow
         card.BorderBrush = ink; card.BorderThickness = new Thickness(1.5);
         return card;
     }
+
+    /// <summary>The "..." button; in the small player (no title bar to close it with) the x sits right next to it.</summary>
+    private FrameworkElement MoreCluster() => _floating != null ? Row(_moreBtn, _closeBtn) : _moreBtn;
 
     private Border Card(UIElement content, Brush background, double radius, Thickness padding) => new()
     {

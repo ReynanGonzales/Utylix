@@ -17,7 +17,6 @@ namespace IdmClone;
 internal sealed class MusicCardWindow : Window
 {
     private readonly Grid _host = new();
-    private readonly Button _close;
     private readonly Action _openFull, _closeAll;
     private bool _reallyClosing;
 
@@ -31,19 +30,7 @@ internal sealed class MusicCardWindow : Window
         try { Icon = BitmapFrame.Create(new Uri("pack://application:,,,/music.ico")); } catch (Exception e) when (e is System.IO.IOException or UriFormatException) { }
         WindowTheme.OwnTaskbarButton(this, "Utylix.Music");
 
-        // a small round x in the corner, there when the pointer is over the window
-        _close = new Button
-        {
-            Content = new TextBlock { Text = "\uE711", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 10, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
-            Width = 22, Height = 22, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 2, 0), Opacity = 0, Cursor = Cursors.Hand,
-            Background = new SolidColorBrush(Color.FromArgb(200, 20, 22, 30)), Focusable = false, ToolTip = "Close the player",
-            Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><Border Background='{TemplateBinding Background}' CornerRadius='11'><ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center'/></Border></ControlTemplate>"),
-        };
-        System.Windows.Automation.AutomationProperties.SetAutomationId(_close, "MusicCardClose");
-        _close.Click += (_, _) => _closeAll();
         Content = _host;
-        MouseEnter += (_, _) => _close.Opacity = 0.95;
-        MouseLeave += (_, _) => _close.Opacity = 0;
 
         PreviewKeyDown += onKey;
         Drop += (_, e) => onDrop(e);
@@ -57,8 +44,6 @@ internal sealed class MusicCardWindow : Window
         _host.Children.Clear();
         card.Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 3, Opacity = 0.5, Color = Colors.Black };
         _host.Children.Add(card);
-        _host.Children.Add(_close);
-        Panel.SetZIndex(_close, 10);
     }
 
     public void CloseForReal() { _reallyClosing = true; Close(); }

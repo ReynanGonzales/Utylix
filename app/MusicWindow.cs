@@ -236,7 +236,7 @@ public sealed partial class MusicWindow : Window
     private readonly TextBlock _timeLen = new() { Foreground = new SolidColorBrush(Color.FromRgb(0xA7, 0xAE, 0xBF)), FontSize = 12, HorizontalAlignment = HorizontalAlignment.Right };
     private readonly Slider _vol = new() { Minimum = 0, Maximum = 100, Width = 110, VerticalAlignment = VerticalAlignment.Center, IsMoveToPointEnabled = true };
     private readonly ListBox _playlist = new();
-    private Button _play = null!, _shuffleBtn = null!, _repeatBtn = null!, _displayBtn = null!, _prevBtn = null!, _nextBtn = null!, _heartBtn = null!, _moreBtn = null!, _soundBtn = null!;
+    private Button _play = null!, _shuffleBtn = null!, _repeatBtn = null!, _displayBtn = null!, _prevBtn = null!, _nextBtn = null!, _heartBtn = null!, _moreBtn = null!, _closeBtn = null!, _soundBtn = null!;
     private Border _coverHost = null!;
     private TextBlock _coverFallback = null!, _coverWords = null!, _volIcon = null!;
     private Border _right = null!;
@@ -316,6 +316,7 @@ public sealed partial class MusicWindow : Window
         _repeatBtn = T("\uE8EE", "Repeat (R)", () => { _repeat = (Repeat)(((int)_repeat + 1) % 3); RefreshModes(); }, "MusicRepeat");
         _heartBtn = T("\uE006", "Favourite (F): the heart marks songs you love", ToggleFavourite, "MusicHeart");
         _moreBtn = T("\uE10C", "More: song info, look, sound, playlist ...", () => ShowMoreMenu(), "MusicMore");
+        _closeBtn = T("\uE711", "Close the player", () => Close(), "MusicClose");
         _volIcon = new TextBlock { Text = "\uE767", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 16, Foreground = new SolidColorBrush(Color.FromRgb(0xA7, 0xAE, 0xBF)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
         _soundBtn = new Button { Content = "Sound…", Style = (Style)FindResource("SmallButton"), Margin = new Thickness(16, 0, 0, 0), ToolTip = "Equalizer, speed, even out the volume, sleep timer" };
         System.Windows.Automation.AutomationProperties.SetAutomationId(_soundBtn, "MusicSound");
