@@ -189,7 +189,7 @@ public sealed class ViewerWindow : Window
         var tools = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
         Button Tool(string glyph, string tip, Action action, string id)
         {
-            var b = new Button { Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 17 }, ToolTip = tip, Template = ToolTemplate(), Margin = new Thickness(2, 0, 2, 0), Foreground = Brushes.White, Focusable = false };
+            var b = new Button { Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 17, Foreground = Brushes.White }, ToolTip = tip, Template = ToolTemplate(), Margin = new Thickness(2, 0, 2, 0), Foreground = Brushes.White, Focusable = false };
             System.Windows.Automation.AutomationProperties.SetAutomationId(b, id);
             System.Windows.Automation.AutomationProperties.SetName(b, tip);
             b.Click += (_, _) => action();
@@ -290,7 +290,7 @@ public sealed class ViewerWindow : Window
     {
         var b = new Button
         {
-            Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 22 }, ToolTip = tip, Foreground = Brushes.White, HorizontalAlignment = side,
+            Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 22, Foreground = Brushes.White }, ToolTip = tip, Foreground = Brushes.White, HorizontalAlignment = side,
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 10, 0), Opacity = 0, Focusable = false,
             Template = (ControlTemplate)XamlReader.Parse(
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'>" +

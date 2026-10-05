@@ -613,7 +613,7 @@ public sealed partial class PdfWindow
 
     private Button SmallBar(string glyph, string tip, Action action)
     {
-        var b = new Button { Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 13 }, ToolTip = tip, Template = ToolTemplate(), Foreground = Brushes.White, Focusable = false };
+        var b = new Button { Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 13, Foreground = Brushes.White }, ToolTip = tip, Template = ToolTemplate(), Foreground = Brushes.White, Focusable = false };
         System.Windows.Automation.AutomationProperties.SetName(b, tip);
         b.Click += (_, _) => action();
         return b;
