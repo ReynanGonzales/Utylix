@@ -461,6 +461,19 @@ public sealed partial class MusicWindow
         return item;
     }
 
+    /// <summary>Just the looks, as a menu under the "Look…" button.</summary>
+    private void ShowLookMenu(UIElement? under = null)
+    {
+        var menu = NewMenu();
+        foreach (var l in LookList)
+        {
+            var key = l.Key;
+            menu.Items.Add(Item(l.Name + "   -   " + l.Blurb, () => { ApplyLook(key); Save(); }, checkedOn: key == _look, check: true));
+        }
+        menu.PlacementTarget = under ?? _right; menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
     private void ShowMoreMenu()
     {
         var menu = NewMenu();

@@ -318,18 +318,18 @@ public sealed partial class MusicWindow : Window
         _soundBtn.Click += (_, _) => ShowSound();
 
         // ---- right: the playlist ----
-        var head = new DockPanel { Margin = new Thickness(16, 14, 16, 8) };
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
-        DockPanel.SetDock(buttons, Dock.Right);
-        Button Small(string text, Action a, string id) { var b = new Button { Content = text, Style = (Style)FindResource("SmallButton"), Margin = new Thickness(6, 0, 0, 0) }; System.Windows.Automation.AutomationProperties.SetAutomationId(b, id); b.Click += (_, _) => a(); buttons.Children.Add(b); return b; }
+        var head = new StackPanel { Margin = new Thickness(16, 14, 16, 4) };
+        var buttons = new WrapPanel { Margin = new Thickness(-6, 8, 0, 0) };          // (the buttons wrap onto a second line in a narrow window)
+        Button Small(string text, Action a, string id) { var b = new Button { Content = text, Style = (Style)FindResource("SmallButton"), Margin = new Thickness(6, 0, 0, 6) }; System.Windows.Automation.AutomationProperties.SetAutomationId(b, id); b.Click += (_, _) => a(); buttons.Children.Add(b); return b; }
         _displayBtn = Small(DisplayLabel(), CycleDisplay, "MusicDisplay");
         Small("Add songs…", () => Browse(add: true), "MusicAdd");
         Small("Add folder…", AddFolder, "MusicFolder");
         Small("Clear", Clear, "MusicClear");
         Small("Small player", ToggleCompact, "MusicCompact");
+        Button? lookBtn = null; lookBtn = Small("Look…", () => ShowLookMenu(lookBtn), "MusicLook"); lookBtn.ToolTip = "Change how the player looks (key L cycles through the looks)";
         Small("\u2665", PlayFavourites, "MusicFavourites").ToolTip = "Play only my favourites (the songs with a heart)";
-        head.Children.Add(buttons);
         head.Children.Add(new TextBlock { Text = "Playlist", Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        head.Children.Add(buttons);
 
         _playlist.ItemsSource = _list;
         _playlist.Background = Brushes.Transparent; _playlist.BorderThickness = new Thickness(0);

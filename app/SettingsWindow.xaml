@@ -142,6 +142,9 @@
                         <CheckBox x:Name="PlayMenuBox" Margin="0,14,0,0" Content="Show &quot;Play with Utylix&quot; when I right-click a video or music file in Windows Explorer" />
                         <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                    Text="Utylix is also added to the &quot;Open with&quot; list of video and music files, so you can choose it there and tick &quot;Always&quot; to make it the default player. Only for your Windows account; turning it off removes it again." />
+<Button Content="Choose Utylix Music for music files in Windows…" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Margin="24,4,0,0" Click="DefaultApps_Click" />
+<TextBlock Margin="24,2,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+           Text="Music files show the Utylix Music logo once Utylix Music is the default for that type: in Windows' list pick the file type (.mp3 ...), then &quot;Utylix Music&quot;. Windows keeps that choice to itself, so Utylix can't change it for you." />
                         <CheckBox x:Name="ArchiveMenuBox" Margin="0,14,0,0" Content="Show archive commands when I right-click files in Windows Explorer" />
                         <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                    Text="On ZIP, RAR, 7z … files: Extract here, Extract to folder, Open with Utylix. On any file or folder: Add to archive…, Add to ZIP. Utylix is also listed under &quot;Open with&quot; for archives, so you can make it the default. Only for your Windows account; turning it off removes it again." />
