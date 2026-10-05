@@ -32,6 +32,9 @@ public partial class FansPage : UserControl
     private readonly FanSettings _settings = FanSettings.Load();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly Dictionary<string, Card> _cards = new();
+    private readonly Dictionary<string, TempTile> _tempTiles = new();
+    private readonly Dictionary<string, Queue<double>> _history = new();       // (the last 90 readings of each temperature, one a second)
+    private const int HistoryLength = 90;
     private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private List<FanSensor> _sensors = new();
     private string _layout = "";
@@ -188,12 +191,12 @@ public partial class FansPage : UserControl
     {
         _building = true;
         Temps.Children.Clear(); Cards.Children.Clear(); _cards.Clear();
+        _tempTiles.Clear();
         foreach (var t in ShownTemps())
         {
-            var chip = new Border { Background = (Brush)FindResource("BgBrush"), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 8, 8) };
-            var text = new TextBlock { Text = Label(t) + "   " + (t.Value?.ToString("0", CultureInfo.InvariantCulture) ?? "–") + " °C", Tag = t.Id };
-            chip.Child = text;
-            Temps.Children.Add(chip);
+            var tile = BuildTempTile(t);
+            _tempTiles[t.Id] = tile;
+            Temps.Children.Add(tile.Frame);
         }
         int index = 0;
         foreach (var control in _sensors.Where(s => s.Type == "control"))
@@ -207,6 +210,99 @@ public partial class FansPage : UserControl
         if (_cards.Count == 0)
             Cards.Children.Add(new TextBlock { Text = "No fan that can be set was found. Reading the temperatures still works.", Foreground = (Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 10, 0, 0) });
         _building = false;
+    }
+
+    // ---------- the temperature tiles ----------
+    private sealed class TempTile
+    {
+        public Border Frame = null!, Bar = null!;
+        public TextBlock Value = null!, Hint = null!;
+        public ColumnDefinition Fill = null!, Rest = null!;
+        public System.Windows.Shapes.Polyline Line = null!;
+    }
+
+    private const double SparkWidth = 180, SparkHeight = 28;
+
+    /// <summary>How hot a reading is: the colour and the word that go with it (below 55 cool, 70 warm, 82 hot, then very hot).</summary>
+    private static (Color Color, string Word) Heat(double c) =>
+        c < 55 ? (Color.FromRgb(0x2E, 0xB8, 0x7A), "Cool")
+        : c < 70 ? (Color.FromRgb(0xE0, 0xA3, 0x2B), "Warm")
+        : c < 82 ? (Color.FromRgb(0xE8, 0x74, 0x2F), "Hot")
+        : (Color.FromRgb(0xE5, 0x48, 0x4D), "Very hot");
+
+    /// <summary>One temperature as a tile: what it is, the big number in the colour of its heat, a gauge and the last minute and a half as a small line.</summary>
+    private TempTile BuildTempTile(FanSensor t)
+    {
+        var muted = (Brush)FindResource("MutedBrush");
+        string kind = t.Kind switch { "cpu" => "PROCESSOR", "gpu" => "GRAPHICS CARD", "board" => "MOTHERBOARD", _ => (t.Hardware ?? "").ToUpperInvariant() };
+        string name = t.Name.Replace("Temperature ", "").Trim();
+        if (name.StartsWith('#')) name = "Sensor " + name;
+        var tile = new TempTile();
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock { Text = kind, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = muted });
+        stack.Children.Add(new TextBlock { Text = name, FontSize = 11.5, Foreground = muted, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) });
+
+        var number = new StackPanel { Orientation = Orientation.Horizontal };
+        tile.Value = new TextBlock { Text = "–", FontSize = 32, FontWeight = FontWeights.SemiBold, LineHeight = 38 };
+        number.Children.Add(tile.Value);
+        number.Children.Add(new TextBlock { Text = "°C", FontSize = 14, Foreground = muted, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(3, 0, 0, 6) });
+        tile.Hint = new TextBlock { FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 0, 7) };
+        var row = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+        row.Children.Add(number); row.Children.Add(tile.Hint);
+        stack.Children.Add(row);
+
+        // the gauge: 0 to 100 degrees
+        var gauge = new Grid { Height = 5, Margin = new Thickness(0, 6, 0, 0) };
+        gauge.Children.Add(new Border { CornerRadius = new CornerRadius(2.5), Background = (Brush)FindResource("LineBrush") });
+        var fill = new Grid();
+        tile.Fill = new ColumnDefinition { Width = new GridLength(0.001, GridUnitType.Star) };
+        tile.Rest = new ColumnDefinition { Width = new GridLength(100, GridUnitType.Star) };
+        fill.ColumnDefinitions.Add(tile.Fill); fill.ColumnDefinitions.Add(tile.Rest);
+        tile.Bar = new Border { CornerRadius = new CornerRadius(2.5) };
+        fill.Children.Add(tile.Bar);
+        gauge.Children.Add(fill);
+        stack.Children.Add(gauge);
+
+        // the last readings
+        tile.Line = new System.Windows.Shapes.Polyline { StrokeThickness = 1.6, StrokeLineJoin = PenLineJoin.Round, Opacity = 0.95 };
+        var spark = new Canvas { Width = SparkWidth, Height = SparkHeight, Margin = new Thickness(0, 10, 0, 0), ClipToBounds = true, ToolTip = "The last minute and a half" };
+        spark.Children.Add(tile.Line);
+        stack.Children.Add(spark);
+
+        tile.Frame = new Border
+        {
+            Child = stack, Width = SparkWidth + 30, Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(0, 0, 10, 10),
+            Background = (Brush)FindResource("BgBrush"), BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
+        };
+        UpdateTile(t.Id, tile, t);
+        return tile;
+    }
+
+    private void UpdateTile(string id, TempTile tile, FanSensor t)
+    {
+        if (t.Value is not double v) { tile.Value.Text = "–"; tile.Hint.Text = ""; return; }
+        var (color, word) = Heat(v);
+        var brush = new SolidColorBrush(color);
+        tile.Value.Text = v.ToString("0", CultureInfo.InvariantCulture);
+        tile.Value.Foreground = brush; tile.Bar.Background = brush; tile.Line.Stroke = brush;
+        tile.Hint.Text = word; tile.Hint.Foreground = brush;
+        double share = Math.Clamp(v, 1, 100);
+        tile.Fill.Width = new GridLength(share, GridUnitType.Star); tile.Rest.Width = new GridLength(100 - share + 0.001, GridUnitType.Star);
+
+        if (!_history.TryGetValue(id, out var history)) _history[id] = history = new Queue<double>();
+        history.Enqueue(v);
+        while (history.Count > HistoryLength) history.Dequeue();
+        if (history.Count < 2) { tile.Line.Points = new PointCollection(); return; }
+        double lo = Math.Min(history.Min(), v - 4), hi = Math.Max(history.Max(), lo + 14);         // (a flat line stays flat: the scale is never narrower than 14 degrees)
+        double step = SparkWidth / (HistoryLength - 1);
+        var points = new PointCollection();
+        int i = 0, n = history.Count;
+        foreach (double h in history)
+        {
+            points.Add(new Point(SparkWidth - (n - 1 - i) * step, SparkHeight - 2 - (h - lo) / (hi - lo) * (SparkHeight - 4)));
+            i++;
+        }
+        tile.Line.Points = points;
     }
 
     /// <summary>A little fan (three blades) that the card turns at the speed of the real one.</summary>
@@ -385,9 +481,8 @@ public partial class FansPage : UserControl
     /// <summary>Updates the numbers on the screen without rebuilding it.</summary>
     private void Refresh()
     {
-        foreach (var chip in Temps.Children.OfType<Border>())
-            if (chip.Child is TextBlock tb && tb.Tag is string id && _sensors.FirstOrDefault(s => s.Id == id) is { } t)
-                tb.Text = Label(t) + "   " + (t.Value?.ToString("0", CultureInfo.InvariantCulture) ?? "–") + " °C";
+        foreach (var (id, tile) in _tempTiles)
+            if (_sensors.FirstOrDefault(s => s.Id == id) is { } t) UpdateTile(id, tile, t);
         foreach (var (id, card) in _cards)
         {
             var control = _sensors.FirstOrDefault(s => s.Id == id);
