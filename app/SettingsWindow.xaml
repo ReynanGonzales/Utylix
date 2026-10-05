@@ -263,12 +263,12 @@
                 </StackPanel>
                 <StackPanel x:Name="PageVideo" Visibility="Collapsed">
                 <TextBlock Text="Video sites" FontSize="21" FontWeight="SemiBold" Margin="2,0,0,4" />
-                <TextBlock Text="Streaming sites send video in pieces. These two free open-source helpers find the video and join the pieces." Foreground="{DynamicResource MutedBrush}" Margin="2,2,0,10" TextWrapping="Wrap" />
+                <TextBlock Text="Streaming sites send video in pieces: yt-dlp and ffmpeg (free, open source) find the video and join the pieces. PawnIO is the free driver that Fans and Lighting need; it is installed here too, with Windows' own installer (winget), and Windows asks for permission." Foreground="{DynamicResource MutedBrush}" Margin="2,2,0,10" TextWrapping="Wrap" />
                 <Border Style="{StaticResource Section}">
                     <StackPanel>
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="290" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
@@ -276,12 +276,12 @@
                                 <TextBlock Text="yt-dlp" FontWeight="SemiBold" />
                                 <TextBlock Text="finds the video (needed)" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
                             </StackPanel>
-                            <TextBlock x:Name="YtStatus" Grid.Column="1" VerticalAlignment="Center" Text="Checking…" />
+                            <TextBlock x:Name="YtStatus" Grid.Column="1" VerticalAlignment="Center" Text="Checking…" TextWrapping="Wrap" Margin="0,0,10,0" />
                             <Button x:Name="YtBtn" Grid.Column="2" Content="Install" Style="{StaticResource DialogButton}" Click="YtBtn_Click" />
                         </Grid>
                         <Grid Margin="0,14,0,0">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="290" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
@@ -289,8 +289,21 @@
                                 <TextBlock Text="ffmpeg" FontWeight="SemiBold" />
                                 <TextBlock Text="joins video + audio for HD (about 100 MB)" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
                             </StackPanel>
-                            <TextBlock x:Name="FfStatus" Grid.Column="1" VerticalAlignment="Center" Text="Checking…" />
+                            <TextBlock x:Name="FfStatus" Grid.Column="1" VerticalAlignment="Center" Text="Checking…" TextWrapping="Wrap" Margin="0,0,10,0" />
                             <Button x:Name="FfBtn" Grid.Column="2" Content="Install" Style="{StaticResource DialogButton}" Click="FfBtn_Click" />
+                        </Grid>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="290" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="PawnIO" FontWeight="SemiBold" />
+                                <TextBlock Text="driver for fan control and RAM lighting" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+                            </StackPanel>
+                            <TextBlock x:Name="PawnStatus" Grid.Column="1" VerticalAlignment="Center" Text="Checking…" TextWrapping="Wrap" Margin="0,0,10,0" />
+                            <Button x:Name="PawnBtn" Grid.Column="2" Content="Install" Style="{StaticResource DialogButton}" Click="PawnBtn_Click" />
                         </Grid>
                         <TextBlock x:Name="ToolMessage" Margin="0,14,0,0" TextWrapping="Wrap" />
                         <CheckBox x:Name="AutoUpdateBox" Margin="0,14,0,0" Content="Check for a newer yt-dlp now and then (it asks before installing)" />

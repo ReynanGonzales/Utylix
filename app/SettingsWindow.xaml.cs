@@ -256,15 +256,19 @@ public partial class SettingsWindow : Window
         string? version = await Tools.YtDlpVersionAsync();
         YtStatus.Text = version != null ? $"Installed (version {version})" : Tools.HasYtDlp ? "Installed (won't start)" : "Not installed";
         YtBtn.Content = Tools.HasYtDlp ? "Update" : "Install";
-        FfStatus.Text = Tools.HasFfmpeg ? "Installed" : "Not installed (videos are limited to about 720p)";
+        FfStatus.Text = Tools.HasFfmpeg ? "Installed" : "Not installed (video limited to ~720p)";
         FfBtn.Content = Tools.HasFfmpeg ? "Update" : "Install";
+        bool pawn = PawnIoSetup.Installed;
+        PawnStatus.Text = pawn ? "Installed" : "Not installed (fan control and RAM lighting need it)";
+        PawnBtn.Content = pawn ? "Installed" : "Install";
+        PawnBtn.IsEnabled = !pawn && !_busy;
     }
 
     private async System.Threading.Tasks.Task RunToolInstall(Func<Action<string>, System.Threading.CancellationToken, System.Threading.Tasks.Task> install)
     {
         if (_busy) return;
         _busy = true;
-        YtBtn.IsEnabled = FfBtn.IsEnabled = false;
+        YtBtn.IsEnabled = FfBtn.IsEnabled = PawnBtn.IsEnabled = false;
         ToolMessage.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         try
         {
@@ -280,12 +284,13 @@ public partial class SettingsWindow : Window
         {
             _busy = false;
             YtBtn.IsEnabled = FfBtn.IsEnabled = true;
-            RefreshTools();
+            RefreshTools();                                   // (also sets PawnBtn: off once PawnIO is there)
         }
     }
 
     private void YtBtn_Click(object sender, RoutedEventArgs e) => _ = RunToolInstall(Tools.InstallYtDlpAsync);
     private void FfBtn_Click(object sender, RoutedEventArgs e) => _ = RunToolInstall(Tools.InstallFfmpegAsync);
+    private void PawnBtn_Click(object sender, RoutedEventArgs e) => _ = RunToolInstall(PawnIoSetup.InstallAsync);
 
     private void BuildCategoryRows(Config c)
     {

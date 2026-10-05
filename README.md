@@ -72,7 +72,7 @@ point is `temperature in °C : speed in %`). Double-click a fan's name to call i
 - **Start fan control** asks Windows for administrator permission: reading the motherboard and setting fans needs it, so it is
   done by a separate helper (`Utylix.exe --fan-helper`, started from the button); the rest of Utylix stays a normal program.
   It uses the open-source LibreHardwareMonitor library. The processor and motherboard sensors need the free **PawnIO** driver
-  (`winget install namazso.PawnIO`); the page says so if it is missing.
+  (`winget install namazso.PawnIO`), which can be installed with one button in Settings > Video sites, next to yt-dlp and ffmpeg (or with a checkbox in the installer); the page says so if it is missing.
 - **Safety:** every fan stays under the PC's own control until you change it. A fan never goes below the lowest speed you set
   (25 % by default); if the processor or the graphics card reaches its limit (85 °C by default) every controlled fan goes to
   100 %; a curve with no temperature reading hands the fan back. When you press **Stop**, close Utylix, or Utylix crashes, every
