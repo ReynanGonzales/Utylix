@@ -215,6 +215,9 @@
 <TextBlock Text="PDF editor" FontSize="16" FontWeight="SemiBold" Margin="2,14,0,2" />
 <TextBlock Text="Inside a PDF window. While editing, Alt + a letter picks a tool, so a letter you type is never taken for a tool." Foreground="{DynamicResource MutedBrush}" Margin="2,0,0,8" TextWrapping="Wrap" />
 <Border Style="{StaticResource Section}"><StackPanel x:Name="PdfKeysPanel" /></Border>
+<TextBlock Text="Music player" FontSize="16" FontWeight="SemiBold" Margin="2,14,0,2" />
+<TextBlock Text="Inside the music player window. The media keys of your keyboard work too, whatever program is in front." Foreground="{DynamicResource MutedBrush}" Margin="2,0,0,8" TextWrapping="Wrap" />
+<Border Style="{StaticResource Section}"><StackPanel x:Name="MusicKeysPanel" /></Border>
                 </StackPanel>
                 <StackPanel x:Name="PageDownloads" Visibility="Collapsed">
                 <TextBlock Text="Downloads" FontSize="21" FontWeight="SemiBold" Margin="2,0,0,4" />

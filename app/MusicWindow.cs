@@ -34,6 +34,10 @@ public sealed class Track : INotifyPropertyChanged
     public string Artist { get => _artist; set { _artist = value; Changed(nameof(Artist)); Changed(nameof(Line2)); Changed(nameof(Primary)); Changed(nameof(Secondary)); } }
     public string Album { get => _album; set { _album = value; Changed(nameof(Album)); } }
     public long Length { get => _length; set { _length = value; Changed(nameof(LengthText)); } }
+    private bool _favourite;
+    /// <summary>A song marked with the heart (kept in music.json by its path).</summary>
+    public bool IsFavourite { get => _favourite; set { _favourite = value; Changed(nameof(IsFavourite)); Changed(nameof(HeartMark)); } }
+    public string HeartMark => _favourite ? "\uEB51" : "";
     public string LengthText => _length <= 0 ? "" : TimeSpan.FromMilliseconds(_length).ToString(_length >= 3600000 ? @"h\:mm\:ss" : @"m\:ss");
     /// <summary>What the lists and the player show: 0 = song and artist, 1 = artist only, 2 = song only.</summary>
     public static int DisplayMode;
@@ -53,7 +57,7 @@ public sealed class Track : INotifyPropertyChanged
 /// The Utylix music player: a playlist with cover art, shuffle and repeat, the keyboard's media keys, and a small mode. libvlc plays;
 /// like the video player it is only ever called from one separate thread.
 /// </summary>
-public sealed class MusicWindow : Window
+public sealed partial class MusicWindow : Window
 {
     private enum Repeat { Off, All, One }
 
@@ -73,6 +77,9 @@ public sealed class MusicWindow : Window
         public SoundSettings Sound { get; set; } = new();
         public List<string> Queue { get; set; } = new();          // the playlist as it was left (shown again when the player is opened empty)
         public int LastIndex { get; set; } = -1;
+        public string Look { get; set; } = "classic";              // how the player looks (see MusicWindow.Looks.cs)
+        public List<string> Favourites { get; set; } = new();       // songs marked with the heart
+        public bool ShowList { get; set; } = true;                 // the wide look: the playlist under the card
     }
 
     // ---------- one music window ----------
@@ -225,7 +232,9 @@ public sealed class MusicWindow : Window
     private readonly TextBlock _timeLen = new() { Foreground = new SolidColorBrush(Color.FromRgb(0xA7, 0xAE, 0xBF)), FontSize = 12, HorizontalAlignment = HorizontalAlignment.Right };
     private readonly Slider _vol = new() { Minimum = 0, Maximum = 100, Width = 110, VerticalAlignment = VerticalAlignment.Center, IsMoveToPointEnabled = true };
     private readonly ListBox _playlist = new();
-    private Button _play = null!, _shuffleBtn = null!, _repeatBtn = null!, _displayBtn = null!;
+    private Button _play = null!, _shuffleBtn = null!, _repeatBtn = null!, _displayBtn = null!, _prevBtn = null!, _nextBtn = null!, _heartBtn = null!, _moreBtn = null!, _soundBtn = null!;
+    private Border _coverHost = null!;
+    private TextBlock _coverFallback = null!, _coverWords = null!, _volIcon = null!;
     private Border _right = null!;
     private Grid _root = null!;
     private int _coverToken;
@@ -240,6 +249,7 @@ public sealed class MusicWindow : Window
                 saved.Sound ??= new SoundSettings();
                 if (saved.Sound.Bands == null || saved.Sound.Bands.Length != 10) saved.Sound.Bands = new double[10];
                 saved.Queue ??= new List<string>();
+                saved.Favourites ??= new List<string>();
                 return saved;
             }
         }
@@ -279,46 +289,33 @@ public sealed class MusicWindow : Window
         _seek.Template = SliderTemplate(); _vol.Template = SliderTemplate();
         _seek.Foreground = _vol.Foreground = new SolidColorBrush(Color.FromRgb(0x5B, 0x8D, 0xEF));
 
-        // ---- left: the song that plays ----
-        var coverBox = new Border { Width = 240, Height = 240, CornerRadius = new CornerRadius(10), Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1F, 0x2B)), ClipToBounds = true, HorizontalAlignment = HorizontalAlignment.Center };
-        var fallback = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 96, Foreground = new SolidColorBrush(Color.FromRgb(0x3A, 0x44, 0x5E)), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        coverBox.Child = new Grid { Children = { fallback, _cover } };
+        // ---- the controls every look is made of (each look lays them out and dresses them its own way) ----
+        _coverHost = new Border { ClipToBounds = true, HorizontalAlignment = HorizontalAlignment.Center };
+        _coverFallback = new TextBlock { Text = "\uE8D6", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 96, Foreground = new SolidColorBrush(Color.FromRgb(0x3A, 0x44, 0x5E)), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        _coverWords = new TextBlock { Text = "MUSIC\nPLAYER", FontSize = 17, Foreground = new SolidColorBrush(Color.FromRgb(0x6A, 0x6C, 0x75)), TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+        _coverHost.Child = new Grid { Children = { _coverFallback, _coverWords, _cover } };
         System.Windows.Automation.AutomationProperties.SetAutomationId(_nowTitle, "MusicTitle");
         System.Windows.Automation.AutomationProperties.SetAutomationId(_timeNow, "MusicTime");
 
-        var times = new Grid { Margin = new Thickness(0, 2, 0, 0) };
-        times.Children.Add(_timeNow); times.Children.Add(_timeLen);
-
-        var transport = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 0) };
-        Button T(string glyph, string tip, Action a, string id, int size = 18)
+        Button T(string glyph, string tip, Action a, string id)
         {
-            var b = new Button { Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = size }, ToolTip = tip, Template = ButtonTemplate(), Foreground = Brushes.White, Margin = new Thickness(3, 0, 3, 0), Focusable = false };
+            var b = new Button { Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets") }, ToolTip = tip, Template = ButtonTemplate(false), Foreground = Brushes.White, Margin = new Thickness(3, 0, 3, 0), Focusable = false };
             System.Windows.Automation.AutomationProperties.SetAutomationId(b, id);
             System.Windows.Automation.AutomationProperties.SetName(b, tip);
             b.Click += (_, _) => a();
-            transport.Children.Add(b);
             return b;
         }
-        _shuffleBtn = T("", "Shuffle (S)", () => { _shuffle = !_shuffle; RebuildOrder(keepCurrent: true); RefreshModes(); }, "MusicShuffle");
-        T("", "Previous (P)", () => Previous(), "MusicPrev");
-        _play = T("", "Play / pause (Space)", TogglePause, "MusicPlay", 26);
-        T("", "Next (N)", () => Next(manual: true), "MusicNext");
-        _repeatBtn = T("", "Repeat (R)", () => { _repeat = (Repeat)(((int)_repeat + 1) % 3); RefreshModes(); }, "MusicRepeat");
-
-        var volRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
-        volRow.Children.Add(new TextBlock { Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 16, Foreground = new SolidColorBrush(Color.FromRgb(0xA7, 0xAE, 0xBF)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
-        volRow.Children.Add(_vol);
-        var soundBtn = new Button { Content = "Sound…", Style = (Style)FindResource("SmallButton"), Margin = new Thickness(16, 0, 0, 0), ToolTip = "Equalizer, speed, even out the volume, sleep timer" };
-        System.Windows.Automation.AutomationProperties.SetAutomationId(soundBtn, "MusicSound");
-        soundBtn.Click += (_, _) => ShowSound();
-        volRow.Children.Add(soundBtn);
-
-        var left = new StackPanel { Margin = new Thickness(26, 16, 26, 16), VerticalAlignment = VerticalAlignment.Center };
-        left.Children.Add(coverBox);
-        left.Children.Add(new Border { Margin = new Thickness(0, 14, 0, 0), Child = _nowTitle });
-        left.Children.Add(_nowArtist);
-        left.Children.Add(_seek); left.Children.Add(times); left.Children.Add(transport); left.Children.Add(volRow);
-        var leftScroll = new ScrollViewer { Content = left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Width = 340 };
+        _shuffleBtn = T("\uE8B1", "Shuffle (S)", () => { _shuffle = !_shuffle; RebuildOrder(keepCurrent: true); RefreshModes(); }, "MusicShuffle");
+        _prevBtn = T("\uE892", "Previous (P)", () => Previous(), "MusicPrev");
+        _play = T("\uE768", "Play / pause (Space)", TogglePause, "MusicPlay");
+        _nextBtn = T("\uE893", "Next (N)", () => Next(manual: true), "MusicNext");
+        _repeatBtn = T("\uE8EE", "Repeat (R)", () => { _repeat = (Repeat)(((int)_repeat + 1) % 3); RefreshModes(); }, "MusicRepeat");
+        _heartBtn = T("\uE006", "Favourite (F): the heart marks songs you love", ToggleFavourite, "MusicHeart");
+        _moreBtn = T("\uE10C", "More: song info, look, sound, playlist ...", () => ShowMoreMenu(), "MusicMore");
+        _volIcon = new TextBlock { Text = "\uE767", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 16, Foreground = new SolidColorBrush(Color.FromRgb(0xA7, 0xAE, 0xBF)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+        _soundBtn = new Button { Content = "Sound…", Style = (Style)FindResource("SmallButton"), Margin = new Thickness(16, 0, 0, 0), ToolTip = "Equalizer, speed, even out the volume, sleep timer" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(_soundBtn, "MusicSound");
+        _soundBtn.Click += (_, _) => ShowSound();
 
         // ---- right: the playlist ----
         var head = new DockPanel { Margin = new Thickness(16, 14, 16, 8) };
@@ -330,26 +327,31 @@ public sealed class MusicWindow : Window
         Small("Add folder…", AddFolder, "MusicFolder");
         Small("Clear", Clear, "MusicClear");
         Small("Small player", ToggleCompact, "MusicCompact");
+        Small("\u2665", PlayFavourites, "MusicFavourites").ToolTip = "Play only my favourites (the songs with a heart)";
         head.Children.Add(buttons);
         head.Children.Add(new TextBlock { Text = "Playlist", Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
 
         _playlist.ItemsSource = _list;
         _playlist.Background = Brushes.Transparent; _playlist.BorderThickness = new Thickness(0);
         _playlist.ItemTemplate = (DataTemplate)XamlReader.Parse(
-            "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><Grid Margin='6,5'><Grid.ColumnDefinitions><ColumnDefinition Width='22'/><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>" +
+            "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><Grid Margin='6,5'><Grid.ColumnDefinitions><ColumnDefinition Width='22'/><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/><ColumnDefinition Width='20'/></Grid.ColumnDefinitions>" +
             "<TextBlock Text='{Binding Marker}' FontFamily='Segoe MDL2 Assets' Foreground='#5B8DEF' VerticalAlignment='Center' FontSize='12'/>" +
             "<StackPanel Grid.Column='1'><TextBlock Text='{Binding Primary}' Foreground='White' FontWeight='{Binding Weight}' TextTrimming='CharacterEllipsis'/><TextBlock Text='{Binding Secondary}' Foreground='#8B93A5' FontSize='12' TextTrimming='CharacterEllipsis'><TextBlock.Style><Style TargetType='TextBlock'><Style.Triggers><DataTrigger Binding='{Binding Secondary}' Value=''><Setter Property='Visibility' Value='Collapsed'/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></StackPanel>" +
-            "<TextBlock Grid.Column='2' Text='{Binding LengthText}' Foreground='#8B93A5' FontSize='12' VerticalAlignment='Center' Margin='12,0,4,0'/></Grid></DataTemplate>");
+            "<TextBlock Grid.Column='2' Text='{Binding LengthText}' Foreground='#8B93A5' FontSize='12' VerticalAlignment='Center' Margin='12,0,4,0'/>" +
+            "<TextBlock Grid.Column='3' Text='{Binding HeartMark}' FontFamily='Segoe MDL2 Assets' Foreground='#E8506A' FontSize='12' VerticalAlignment='Center' Margin='4,0,2,0'/></Grid></DataTemplate>");
         _playlist.ItemContainerStyle = (Style)XamlReader.Parse(
             "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListBoxItem'><Setter Property='Template'><Setter.Value>" +
             "<ControlTemplate TargetType='ListBoxItem'><Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Background='Transparent' CornerRadius='6' Margin='8,1'><ContentPresenter/></Border>" +
             "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='Background' Value='#1F2533'/></Trigger>" +
             "<Trigger Property='IsSelected' Value='True'><Setter TargetName='bd' Property='Background' Value='#262E42'/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>");
+        _playlist.SelectionMode = SelectionMode.Extended;
         _playlist.MouseDoubleClick += (_, _) => { if (_playlist.SelectedIndex >= 0) PlayTrack(_playlist.SelectedIndex); };
+        _playlist.ContextMenuOpening += (_, e) => { if (_playlist.SelectedItems.Count == 0) e.Handled = true; else _playlist.ContextMenu = PlaylistMenu(); };
         _playlist.PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Delete && _playlist.SelectedIndex >= 0) { RemoveAt(_playlist.SelectedIndex); e.Handled = true; }
             else if (e.Key == Key.Enter && _playlist.SelectedIndex >= 0) { PlayTrack(_playlist.SelectedIndex); e.Handled = true; }
+            else if (e.Key == Key.F2 && _playlist.SelectedItems.Count > 0) { EditInfo(_playlist.SelectedItems.Cast<Track>().ToList()); e.Handled = true; }
         };
         var emptyHint = new TextBlock { Text = "Drop songs or a folder here,\nor press Add songs…", Foreground = new SolidColorBrush(Color.FromRgb(0x8B, 0x93, 0xA5)), FontSize = 14, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
         _list.CollectionChanged += (_, _) => emptyHint.Visibility = _list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -375,11 +377,10 @@ public sealed class MusicWindow : Window
         _right = new Border { Child = listArea, Background = new SolidColorBrush(Color.FromRgb(0x15, 0x18, 0x21)) };
 
         _root = new Grid();
-        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(leftScroll, 0); Grid.SetColumn(_right, 1);
-        _root.Children.Add(leftScroll); _root.Children.Add(_right);
         Content = _root;
+        ApplyLook(_saved.Look);
+        System.ComponentModel.DependencyPropertyDescriptor.FromProperty(Image.SourceProperty, typeof(Image)).AddValueChanged(_cover, (_, _) => UpdateCoverVisibility());
+        UpdateCoverVisibility();
 
         // ---- input ----
         _seek.AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((_, _) => _seeking = true), true);
@@ -473,7 +474,7 @@ public sealed class MusicWindow : Window
     private void RestoreQueue()
     {
         if (_list.Count > 0 || _saved.Queue.Count == 0) return;
-        foreach (string path in _saved.Queue) if (File.Exists(path)) _list.Add(new Track { Path = path });
+        foreach (string path in _saved.Queue) if (File.Exists(path)) _list.Add(NewTrack(path));
         if (_list.Count == 0) return;
         RebuildOrder(keepCurrent: false);
         if (_saved.LastIndex >= 0 && _saved.LastIndex < _list.Count) { _playlist.SelectedIndex = _saved.LastIndex; _playlist.ScrollIntoView(_list[_saved.LastIndex]); _pos = Math.Max(0, _order.IndexOf(_saved.LastIndex)); }
@@ -499,26 +500,27 @@ public sealed class MusicWindow : Window
     }
 
     // ---------- templates ----------
-    private static ControlTemplate ButtonTemplate() => (ControlTemplate)XamlReader.Parse(
+    /// <summary>A round flat button; its size comes from Width / Height. light: for the light looks (a dark hover instead of a white one).</summary>
+    private static ControlTemplate ButtonTemplate(bool light) => (ControlTemplate)XamlReader.Parse(
         "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'>" +
-        "<Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Background='Transparent' CornerRadius='22' Width='44' Height='44'><ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' /></Border>" +
-        "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='Background' Value='#26FFFFFF' /></Trigger>" +
-        "<Trigger Property='IsPressed' Value='True'><Setter TargetName='bd' Property='Background' Value='#44FFFFFF' /></Trigger></ControlTemplate.Triggers></ControlTemplate>");
+        "<Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Background='Transparent' CornerRadius='100' MinWidth='{TemplateBinding Width}' MinHeight='{TemplateBinding Height}'><ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' /></Border>" +
+        "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='Background' Value='" + (light ? "#22000000" : "#26FFFFFF") + "' /></Trigger>" +
+        "<Trigger Property='IsPressed' Value='True'><Setter TargetName='bd' Property='Background' Value='" + (light ? "#44000000" : "#44FFFFFF") + "' /></Trigger></ControlTemplate.Triggers></ControlTemplate>");
 
-    private static ControlTemplate SliderTemplate() => (ControlTemplate)XamlReader.Parse(
+    private static ControlTemplate SliderTemplate(string track = "#2D3446", string thumb = "White", int thumbSize = 14, int thickness = 4) => (ControlTemplate)XamlReader.Parse(
         "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Slider'>" +
-        "<Grid Height='22' Background='Transparent'><Border Height='4' CornerRadius='2' Background='#2D3446' VerticalAlignment='Center'/>" +
+        "<Grid Height='22' Background='Transparent'><Border Height='" + thickness + "' CornerRadius='2' Background='" + track + "' VerticalAlignment='Center'/>" +
         "<Track x:Name='PART_Track' VerticalAlignment='Center'>" +
-        "<Track.DecreaseRepeatButton><RepeatButton Command='Slider.DecreaseLarge' Focusable='False'><RepeatButton.Template><ControlTemplate TargetType='RepeatButton'><Border Height='4' CornerRadius='2' Background='{Binding Foreground, RelativeSource={RelativeSource AncestorType=Slider}}'/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>" +
+        "<Track.DecreaseRepeatButton><RepeatButton Command='Slider.DecreaseLarge' Focusable='False'><RepeatButton.Template><ControlTemplate TargetType='RepeatButton'><Border Height='" + thickness + "' CornerRadius='2' Background='{Binding Foreground, RelativeSource={RelativeSource AncestorType=Slider}}'/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>" +
         "<Track.IncreaseRepeatButton><RepeatButton Command='Slider.IncreaseLarge' Focusable='False'><RepeatButton.Template><ControlTemplate TargetType='RepeatButton'><Border Height='22' Background='Transparent'/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>" +
-        "<Track.Thumb><Thumb Width='14' Height='14' Focusable='False'><Thumb.Template><ControlTemplate TargetType='Thumb'><Ellipse Fill='White' Width='14' Height='14'/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>" +
+        "<Track.Thumb><Thumb Width='" + thumbSize + "' Height='" + thumbSize + "' Focusable='False'><Thumb.Template><ControlTemplate TargetType='Thumb'><Ellipse Fill='" + thumb + "' Width='" + thumbSize + "' Height='" + thumbSize + "'/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>" +
         "</Track></Grid></ControlTemplate>");
 
     // ---------- the playlist ----------
     private void AddAndPlay(List<string> songs, bool enqueue, string? startWith = null)
     {
         int first = _list.Count;
-        foreach (var s in songs) _list.Add(new Track { Path = s });
+        foreach (var s in songs) _list.Add(NewTrack(s));
         if (startWith != null) { int at = songs.FindIndex(x => string.Equals(x, startWith, StringComparison.OrdinalIgnoreCase)); if (at > 0) first += at; }
         RebuildOrder(keepCurrent: true);
         if (!enqueue || _pos < 0 || !_snap.Playing && _snap.State is VLCState.Stopped or VLCState.Ended or VLCState.NothingSpecial)
@@ -551,6 +553,8 @@ public sealed class MusicWindow : Window
         _playlist.SelectedIndex = listIndex; _playlist.ScrollIntoView(track);
         UpdateNow(track);
         _cover.Source = null;
+        UpdateHeart();
+        if (_wave != null) _ = LoadWaveAsync(track);
         _ = LoadCoverAsync(track);
         string path = track.Path;
         bool even = _sound.Normalize;
@@ -634,7 +638,7 @@ public sealed class MusicWindow : Window
         bool wasCurrent = _list[i].IsCurrent;
         _list.RemoveAt(i);
         RebuildOrder(keepCurrent: false);
-        if (wasCurrent) { Post(mp => mp.Stop()); _nowTitle.Text = ""; _nowArtist.Text = ""; _cover.Source = null; }
+        if (wasCurrent) { Post(mp => mp.Stop()); _nowTitle.Text = ""; _nowArtist.Text = ""; _cover.Source = null; UpdateHeart(); }
         else { int cur = _list.ToList().FindIndex(t => t.IsCurrent); _pos = cur >= 0 ? _order.IndexOf(cur) : -1; }
     }
 
@@ -649,9 +653,9 @@ public sealed class MusicWindow : Window
     private void ToggleCompact()
     {
         _compact = !_compact;
-        _right.Visibility = _compact ? Visibility.Collapsed : Visibility.Visible;
-        if (_compact) { MinWidth = 340; Width = 380; SizeToContent = SizeToContent.Height; }
-        else { SizeToContent = SizeToContent.Manual; MinWidth = 380; Width = Math.Clamp(_saved.Width, 640, SystemParameters.WorkArea.Width); Height = Math.Clamp(_saved.Height, 420, SystemParameters.WorkArea.Height); }
+        _right.Visibility = _compact || (_vertical && !_saved.ShowList) ? Visibility.Collapsed : Visibility.Visible;
+        if (!_compact) { SizeToContent = SizeToContent.Manual; Width = Math.Clamp(_saved.Width, 640, SystemParameters.WorkArea.Width); Height = Math.Clamp(_saved.Height, 420, SystemParameters.WorkArea.Height); }
+        FitWindowToLook();
     }
 
     private void OnError()
@@ -735,6 +739,7 @@ public sealed class MusicWindow : Window
     private void UpdateUi()
     {
         var s = _snap;
+        if (_wave != null) _wave.Progress = s.Length > 0 ? (double)s.Time / s.Length : 0;
         ((TextBlock)_play.Content).Text = s.Playing ? "" : "";
         if (_seeking) return;
         _seek.Maximum = Math.Max(1, s.Length); _seek.Value = Math.Min(s.Time, _seek.Maximum);
@@ -747,8 +752,8 @@ public sealed class MusicWindow : Window
 
     private void RefreshModes()
     {
-        _shuffleBtn.Foreground = _shuffle ? new SolidColorBrush(Color.FromRgb(0x5B, 0x8D, 0xEF)) : Brushes.White;
-        _repeatBtn.Foreground = _repeat == Repeat.Off ? Brushes.White : new SolidColorBrush(Color.FromRgb(0x5B, 0x8D, 0xEF));
+        _shuffleBtn.Foreground = _shuffle ? _accentBrush : _fgBrush;
+        _repeatBtn.Foreground = _repeat == Repeat.Off ? _fgBrush : _accentBrush;
         ((TextBlock)_repeatBtn.Content).Text = _repeat == Repeat.One ? "" : "";
         _repeatBtn.ToolTip = _repeat switch { Repeat.Off => "Repeat: off (R)", Repeat.All => "Repeat: all songs (R)", _ => "Repeat: this song (R)" };
     }
@@ -770,6 +775,9 @@ public sealed class MusicWindow : Window
             case Key.Up: _vol.Value = Math.Min(100, _vol.Value + 5); break;
             case Key.Down: _vol.Value = Math.Max(0, _vol.Value - 5); break;
             case Key.O when (Keyboard.Modifiers & ModifierKeys.Control) != 0: Browse(add: true); break;
+            case Key.F: ToggleFavourite(); break;
+            case Key.F2: { var picked = _playlist.SelectedItems.Cast<Track>().ToList(); var cur = CurrentTrack; if (picked.Count == 0 && cur != null) picked.Add(cur); if (picked.Count > 0) EditInfo(picked); break; }
+            case Key.L: { int at = Array.FindIndex(LookList, l => l.Key == _look); ApplyLook(LookList[(at + 1) % LookList.Length].Key); Save(); break; }
             case Key.MediaPlayPause: TogglePause(); break;
             case Key.MediaNextTrack: Next(manual: true); break;
             case Key.MediaPreviousTrack: Previous(); break;

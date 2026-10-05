@@ -295,4 +295,12 @@ updater path) and `Utylix.exe` (what 1.4.0 and older look for) to the release. T
   `CaptureOverlay`: a drag that starts on the snip mode bar (moves > 5 px) starts the selection (`BarPressed` / `BarMoved`); a plain click still switches the mode.
   STILL TO DO: the owner wants "a unique Utylix Editor font" - he said to do it LAST; needs his OK to download an open-licence font (or a choice of style), then bundle + embed it
   through `Engine/PdfFonts.cs` and list it in `PdfWindow.Fonts.cs`.
+- **Music player upgrade** (2026-10-05): `MusicWindow` is now `partial`: `MusicWindow.Looks.cs` (six looks built from the SAME shared controls: `ApplyLook` detaches them, builds a card,
+  re-fits the window; `L` cycles; the heart = `Track.IsFavourite` + `Saved.Favourites` in music.json; ⋮ menu `ShowMoreMenu`, playlist right-click `PlaylistMenu`), `MusicWindow.Tags.cs` +
+  `MusicTagWindow.cs` (TagLibSharp 2.3.0; multi-song editing writes only changed fields; `ReleasePlayingAsync` stops the playing file because Windows locks it), `MusicWave.cs` (`WaveSeek` control
+  + `WavePeaks` via NAudio MediaFoundationReader, cached per path). Light-theme lesson: transport glyph TextBlocks must get their Foreground set explicitly (`SetFg`), the app-wide implicit
+  TextBlock style would paint them with TextBrush. New icon (`branding/music.*`, `app/music.*`): the Utylix dark rounded square with white + blue beamed notes, made by a throw-away WPF
+  program (scratchpad `icon`). ShellMenu: music files have their own ProgId `Utylix.MusicFile` (music icon); the shared `Utylix.MediaFile` is only for video (removed from audio "Open with"
+  unless it is the person's current UserChoice). The owner's own logo idea (pink "M" note in a black circle, a Magnific watermark, no file on disk) is NOT used; he can send the file and a
+  circular alpha mask would make the corners see-through. Installer: page 4 has a PawnIO checkbox (`Engine/PawnIoSetup.cs`, installs through winget, default off).
 - Known: a few times the PDF page jumped down by itself after switching on Edit / saving - not reproducible yet.

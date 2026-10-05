@@ -77,6 +77,7 @@ public partial class SettingsWindow : Window
         BuildAccentChips();
         _themeLoading = false;
         BuildPdfKeys();
+        BuildMusicKeys();
         ShowPage(PageFor(tool));
     }
 
@@ -160,6 +161,27 @@ public partial class SettingsWindow : Window
         base.OnClosing(e);
         // Cancel (or the X): the saved theme comes back; Save already stored the new one
         if (DialogResult != true) App.ReapplyTheme();
+    }
+
+    private void BuildMusicKeys()
+    {
+        foreach (var (keys, what) in new[] { ("Space", "Play / pause"), ("N  /  P", "Next / previous song"), ("Left  /  Right", "Back / forward 5 seconds"), ("Up  /  Down", "Volume"),
+                                             ("S", "Shuffle on / off"), ("R", "Repeat: off, all songs, this song"), ("F", "Mark the playing song with the heart (favourite)"),
+                                             ("F2", "Edit the info of the chosen songs (title, artist, album, cover ...)"), ("L", "Next look (classic, wide card, dark, frosted, light, waveform)"),
+                                             ("Ctrl + O", "Add songs"), ("Delete", "Remove the chosen songs from the playlist"), ("Esc", "Close the player") })
+        {
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(210) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var chip = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(8, 2, 8, 2), HorizontalAlignment = HorizontalAlignment.Left, BorderThickness = new Thickness(1) };
+            chip.SetResourceReference(Border.BackgroundProperty, "BgBrush");
+            chip.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
+            chip.Child = new TextBlock { Text = keys, FontFamily = new System.Windows.Media.FontFamily("Consolas"), FontSize = 12.5 };
+            var text = new TextBlock { Text = what, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(text, 1);
+            row.Children.Add(chip); row.Children.Add(text);
+            MusicKeysPanel.Children.Add(row);
+        }
     }
 
     // ---------- the PDF editor's keys, for reference ----------

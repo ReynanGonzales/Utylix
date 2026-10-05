@@ -288,6 +288,13 @@ Utylix Editor reads, fills in, edits, signs, prints and shrinks PDFs with PDFium
 
 ## Music player
 
+- **Six looks** (press **L**, or the ⋮ button > Look): *Classic* (big cover, playlist beside it), *Wide card* (one slim card with the playlist dropping under it), *Dark card*, *Frosted card*,
+  *Light card* and *Waveform card* (draws the song's loudness as bars; click or drag to jump). The heart marks **favourites** (key **F**; the ♥ button plays only your favourites).
+- **Song info editor** (**F2**, right-click a song > *Edit song info…*, or ⋮ menu): title, artist, album artist, album, year, track and disc numbers, genre, composer, comment, lyrics and the cover
+  picture, written into the file itself (MP3, FLAC, M4A, OGG, WAV ...). Choose several songs to set the same album, artist or cover on all of them (only what you change is written). A song that
+  is playing is stopped for a moment and carries on where it was. Uses the open-source TagLib# library.
+- **Explorer logo**: music files show the Utylix Music logo once Utylix Music is the default for that type (Windows' *Default apps*; Utylix never takes over a choice you made, e.g. VLC).
+
 Songs open in their own player (videos still open in the Video Player): a playlist with cover art (from the file, or a `cover.jpg` / `folder.jpg` next to it), shuffle, repeat (off / all / one), and the keyboard's media keys (play-pause, next, previous) while it is open. Open one song from Explorer and the rest of its folder follows it. "Add folder…" adds a folder and its folders; "Show: …" switches the list and the player between song + artist, artist only and song only; "Small player" hides the list. The tray menu has "Music: play / pause" and "Music: next song".
 
 **Sound…** (under the volume): a 10-band **equalizer** with a preamp and presets (Flat, Bass boost, Treble boost, Vocal, Rock, Pop, Jazz, Classical, Dance; move a slider and the preset becomes your own), **speed** (0.75× to 2×), **even out the volume** (loud and quiet songs sound about the same, from the next song on), and a **sleep timer** (pause after 15 / 30 / 60 minutes, or stop when this song ends). Your choices are remembered. Above the playlist, **Find a song…** jumps to the first match by title, artist, album or file name (Enter: the next one). When the player is opened empty (tray menu > Music player), the playlist you left is back (not playing yet).

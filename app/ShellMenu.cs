@@ -100,7 +100,7 @@ public static class ShellMenu
     }
 
     // ---------- video player ----------
-    private const string PlayVerb = "Utylix.Play", PlayProgId = "Utylix.MediaFile";
+    private const string PlayVerb = "Utylix.Play", PlayProgId = "Utylix.MediaFile", MusicProgId = "Utylix.MusicFile";
 
     /// <summary>"Play with Utylix" on video and music files, and Utylix in their "Open with" list (so it can be made the default).</summary>
     public static void RegisterPlayer(string dataDir, bool enabled)
@@ -109,6 +109,7 @@ public static class ShellMenu
         {
             string exe = Environment.ProcessPath!;
             string icon = enabled ? OwnIcon(dataDir, "player", IconOf(exe)) : "";
+            string musicIcon = enabled ? OwnIcon(dataDir, "music", icon) : "";
             if (enabled)
             {
                 // Only what is different is written: Windows watches these keys, and re-writing the same values at every start
@@ -122,15 +123,31 @@ public static class ShellMenu
             }
             else Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + PlayProgId, throwOnMissingSubKey: false);
 
+            // music files get their own entry, with the music player's logo: when Utylix Music is the default for .mp3, Explorer shows that logo on the file
+            if (enabled)
+            {
+                using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + MusicProgId);
+                SetIfDifferent(progId, "", "Music (played with Utylix Music)");
+                using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", musicIcon);
+                AppIdentity(progId, "Utylix Music", musicIcon, "Plays music");
+                using var cmd = progId.CreateSubKey(@"shell\open\command");
+                SetIfDifferent(cmd, "", $"\"{exe}\" --play \"%1\"");
+            }
+            else Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + MusicProgId, throwOnMissingSubKey: false);
+
+            var videoExt = new HashSet<string>(PlayerMedia.VideoExtensions);
             foreach (string ext in PlayerMedia.VideoExtensions.Concat(PlayerMedia.AudioExtensions).Distinct())
             {
+                bool audio = !videoExt.Contains(ext);
+                string progForExt = audio ? MusicProgId : PlayProgId;
+                string iconForExt = audio ? musicIcon : icon;
                 string verbKey = $@"Software\Classes\SystemFileAssociations\.{ext}\shell\{PlayVerb}";
                 string wantCommand = $"\"{exe}\" --play \"%1\"";
                 if (enabled)
                 {
                     using (var existing = Registry.CurrentUser.OpenSubKey(verbKey))
                     {
-                        bool same = existing != null && existing.GetValue("MUIVerb") as string == "Play with Utylix" && existing.GetValue("Icon") as string == icon;
+                        bool same = existing != null && existing.GetValue("MUIVerb") as string == "Play with Utylix" && existing.GetValue("Icon") as string == iconForExt;
                         if (same) { using var c = existing!.OpenSubKey("command"); same = c?.GetValue("") as string == wantCommand; }
                         if (!same)
                         {
@@ -138,19 +155,26 @@ public static class ShellMenu
                             Registry.CurrentUser.DeleteSubKeyTree(verbKey, throwOnMissingSubKey: false);
                             using var verb = Registry.CurrentUser.CreateSubKey(verbKey);
                             verb.SetValue("MUIVerb", "Play with Utylix");
-                            verb.SetValue("Icon", icon);
+                            verb.SetValue("Icon", iconForExt);
                             using var command = verb.CreateSubKey("command");
                             command.SetValue("", wantCommand);
                         }
                     }
                     using var owp = Registry.CurrentUser.CreateSubKey($@"Software\Classes\.{ext}\OpenWithProgids");
-                    if (!owp.GetValueNames().Contains(PlayProgId)) owp.SetValue(PlayProgId, new byte[0], RegistryValueKind.None);
+                    if (!owp.GetValueNames().Contains(progForExt)) owp.SetValue(progForExt, new byte[0], RegistryValueKind.None);
+                    if (audio)
+                    {
+                        // the old shared entry would list Utylix twice: it goes, unless it is what the person chose for this type
+                        using var choice = Registry.CurrentUser.OpenSubKey($@"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.{ext}\UserChoice");
+                        if (choice?.GetValue("ProgId") as string != PlayProgId) owp.DeleteValue(PlayProgId, throwOnMissingValue: false);
+                    }
                 }
                 else
                 {
                     Registry.CurrentUser.DeleteSubKeyTree(verbKey, throwOnMissingSubKey: false);
                     using var owp = Registry.CurrentUser.OpenSubKey($@"Software\Classes\.{ext}\OpenWithProgids", writable: true);
                     owp?.DeleteValue(PlayProgId, throwOnMissingValue: false);
+                    owp?.DeleteValue(MusicProgId, throwOnMissingValue: false);
                 }
             }
         }
