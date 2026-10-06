@@ -24,6 +24,7 @@ public sealed partial class PdfWindow
     private sealed class TextMarkupItem : EditItem
     {
         public int Subtype;                       // Pdfium.AnnotHighlight / AnnotUnderline / AnnotStrikeOut
+        public string Comment = "";               // the comment written on these words (shown by other readers, and here when the pointer is on them)
         public List<Rect> Rects = new();
         public override Rect Bounds { get { var r = Rect.Empty; foreach (var b in Rects) r.Union(b); return r; } }
         public override bool Hit(Point p) => Rects.Any(r => Inflate(r, 1).Contains(p));
@@ -41,7 +42,7 @@ public sealed partial class PdfWindow
             }
             return canvas;
         }
-        public override IEnumerable<PdfMark> Marks() { yield return new PdfAnnotMark(Page, Subtype, Rects, Color, null); }
+        public override IEnumerable<PdfMark> Marks() { yield return new PdfAnnotMark(Page, Subtype, Rects, Color, Comment.Trim().Length > 0 ? Comment.Trim() : null); }
         public override void MoveBy(Vector d) { }                   // (it belongs to its words)
         public override void ResizeTo(Rect r) { }
     }
@@ -70,34 +71,54 @@ public sealed partial class PdfWindow
     }
 
     /// <summary>Writes or changes a sticky note's text (a small window); an empty note is removed.</summary>
-    private void OpenNote(NoteItem note, bool isNew)
+    /// <summary>A small window to write a comment: OK (or Ctrl+Enter), Cancel, and "Delete note" when it already exists. Result: null = cancelled, true = OK, false = delete it.</summary>
+    private (bool? Result, string Text) AskNote(string title, string label, string initial, bool allowDelete)
     {
-        var box = new TextBox { Text = note.Text, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 130, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top };
+        var box = new TextBox { Text = initial, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 130, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(box, "PdfNoteText");
         var dlg = new Window
         {
-            Title = isNew ? "New note" : "Note", Width = 380, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, Owner = this,
+            Title = title, Width = 380, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, Owner = this,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = (Brush)Application.Current.FindResource("BgBrush"), FontFamily = new FontFamily("Segoe UI"), FontSize = 13.5,
         };
         WindowTheme.DarkTitleBar(dlg);
         var ok = new Button { Content = "OK", Style = (Style)Application.Current.FindResource("DialogPrimary"), IsDefault = false, Margin = new Thickness(0, 0, 8, 0) };
         var cancel = new Button { Content = "Cancel", Style = (Style)Application.Current.FindResource("DialogButton"), IsCancel = true };
-        var remove = new Button { Content = "Delete note", Style = (Style)Application.Current.FindResource("DialogButton"), Visibility = isNew ? Visibility.Collapsed : Visibility.Visible };
+        var remove = new Button { Content = "Delete note", Style = (Style)Application.Current.FindResource("DialogButton"), Visibility = allowDelete ? Visibility.Visible : Visibility.Collapsed };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(ok, "PdfNoteOk");
         bool? result = null;
         ok.Click += (_, _) => { result = true; dlg.Close(); };
         remove.Click += (_, _) => { result = false; dlg.Close(); };
+        box.PreviewKeyDown += (_, e) => { if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { result = true; dlg.Close(); e.Handled = true; } };
         var buttons = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
         var right = new StackPanel { Orientation = Orientation.Horizontal };
         right.Children.Add(ok); right.Children.Add(cancel);
         DockPanel.SetDock(right, Dock.Right);
         buttons.Children.Add(right); buttons.Children.Add(remove);
         var root = new StackPanel { Margin = new Thickness(18) };
-        root.Children.Add(new TextBlock { Text = "Your note (other PDF readers show it as a comment):", Margin = new Thickness(0, 0, 0, 8), Opacity = 0.8 });
+        root.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 8), Opacity = 0.8, TextWrapping = TextWrapping.Wrap });
         root.Children.Add(box); root.Children.Add(buttons);
         dlg.Content = root;
         dlg.Loaded += (_, _) => { box.Focus(); box.CaretIndex = box.Text.Length; };
         dlg.ShowDialog();
+        return (result, box.Text.Trim());
+    }
+
+    /// <summary>A comment that is already in the PDF (a sticky note, or the comment on highlighted text): read it, change it, or delete it. Saved with the next Save; Undo takes it back.</summary>
+    private void OpenSavedNote(int page, PdfNote note)
+    {
+        if (_pdf == null) return;
+        var (result, text) = AskNote(note.Subtype == Pdfium.AnnotText ? "Note" : "Comment", "This comment is in the PDF (other readers show it too). Change it, or delete it:", note.Text, allowDelete: true);
         if (result == null) return;
-        string text = box.Text.Trim();
+        string? newText = result == false || text.Length == 0 ? null : text;
+        if (newText == note.Text) return;
+        PageOp(p => p.SetNote(page, note.Index, newText), new[] { page }, newText == null ? "Comment deleted. Save puts that in the file" : "Comment changed. Save puts that in the file");
+    }
+
+    private void OpenNote(NoteItem note, bool isNew)
+    {
+        var (result, text) = AskNote(isNew ? "New note" : "Note", "Your note (other PDF readers show it as a comment):", note.Text, allowDelete: !isNew);
+        if (result == null) return;
         if (result == false || text.Length == 0)
         {
             if (!isNew) { Snapshot(); _items.Remove(note); if (_selected == note) _selected = null; RenderItems(note.Page); UpdateEditButtons(); }
@@ -141,6 +162,8 @@ public sealed partial class PdfWindow
         var t = Text(pv.Index);
         // a link (not while marking text)
         if (markup == null && !_editing && t != null && t.Links.LastOrDefault(l => l.Box.Contains(p)) is { } link) { Follow(link); e.Handled = true; return; }
+        // a sticky note already in the PDF: click it to read it (and change or delete it)
+        if (markup == null && !_editing && t != null && t.Notes.LastOrDefault(n => n.Subtype == Pdfium.AnnotText && n.Box.Contains(p)) is { } sticky) { e.Handled = true; OpenSavedNote(pv.Index, sticky); return; }
         int oldPage = _selPage;
         _selPage = -1;
         if (oldPage >= 0) DrawTextLayer(oldPage);
@@ -199,7 +222,30 @@ public sealed partial class PdfWindow
             else if (text.IndexAt(p, 1) >= 0) cursor = Cursors.IBeam;
         }
         pv.Overlay.Cursor = cursor;
-        if (tip != _hoverTip) { _hoverTip = tip; pv.Overlay.ToolTip = tip == null ? null : new ToolTip { Content = new TextBlock { Text = tip, TextWrapping = TextWrapping.Wrap, MaxWidth = 360 } }; }
+        if (tip != _hoverTip) { _hoverTip = tip; ShowHoverTip(pv, tip); }
+    }
+
+    // The text of a comment / the target of a link, in a small card by the pointer (own popup: the stock tooltip did not reliably show on this layer)
+    private System.Windows.Controls.Primitives.Popup? _tipPopup;
+    private TextBlock? _tipText;
+
+    private void ShowHoverTip(PageView pv, string? tip)
+    {
+        if (tip == null) { if (_tipPopup != null) _tipPopup.IsOpen = false; return; }
+        if (_tipPopup == null)
+        {
+            _tipText = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxWidth = 360, Foreground = Brushes.White, FontSize = 13 };
+            var card = new Border
+            {
+                Child = _tipText, Background = new SolidColorBrush(Color.FromRgb(0x1B, 0x1F, 0x29)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x52)), BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 8, 8),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.4 },
+            };
+            _tipPopup = new System.Windows.Controls.Primitives.Popup { Child = card, AllowsTransparency = true, Placement = System.Windows.Controls.Primitives.PlacementMode.Mouse, IsHitTestVisible = false, StaysOpen = true };
+        }
+        _tipText!.Text = tip;
+        _tipPopup.PlacementTarget = pv.Overlay;
+        _tipPopup.IsOpen = false; _tipPopup.IsOpen = true;                 // (closed and opened again so it jumps to the pointer)
     }
 
     private void TextUp(PageView pv, MouseButtonEventArgs e)
@@ -279,6 +325,21 @@ public sealed partial class PdfWindow
         ClearTextSelection();
     }
 
+    /// <summary>Highlights the selected words and writes a comment on them (other PDF readers show it; here it shows when the pointer is on the words).</summary>
+    private void CommentSelection()
+    {
+        if (!HasSelection || Text(_selPage) is not { } t) return;
+        var (s, e) = SelectionRange;
+        int page = _selPage;
+        var rects = t.LineBoxes(s, e);
+        if (rects.Count == 0) return;
+        var (result, text) = AskNote("Comment", "Write your comment on the selected words (they are highlighted; other PDF readers show the comment too):", "", allowDelete: false);
+        if (result != true || text.Length == 0) return;
+        if (!_editing) { EnterEditing(); if (!_editing) return; }
+        Add(new TextMarkupItem { Page = page, Subtype = Pdfium.AnnotHighlight, Rects = rects, Color = _toolColors[EditTool.Highlight], Comment = text });
+        ClearTextSelection();
+    }
+
     /// <summary>Black boxes (redacted for good when saving) over the selected words.</summary>
     private void RedactSelection()
     {
@@ -342,11 +403,13 @@ public sealed partial class PdfWindow
         Item("Underline", "", sel, () => MarkSelection(Pdfium.AnnotUnderline));
         Item("Strike out", "", sel, () => MarkSelection(Pdfium.AnnotStrikeOut));
         Item("Redact (black out for good)", "", sel, RedactSelection);
-        Item("Add a note here", "", true, () =>
+        Item("Add a comment on the selected words…", "", sel, CommentSelection);
+        Item("Add a note (comment) here…", "", true, () =>
         {
             if (!_editing) { EnterEditing(); if (!_editing) return; }
             OpenNote(new NoteItem { Page = pv.Index, At = new Point(p.X - 9, p.Y - 9), Color = _toolColors[EditTool.Note] }, isNew: true);
         });
+        if (Text(pv.Index)?.Notes.LastOrDefault(n => n.Box.Contains(p)) is { } hereNote) Item("Read or change the comment here…", "", true, () => OpenSavedNote(pv.Index, hereNote));
         menu.Items.Add(new Separator());
         Item("Search…", "Ctrl+F", true, OpenSearch);
         Themed(menu);

@@ -170,6 +170,8 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern int FPDFAnnot_AppendAttachmentPoints(IntPtr annot, ref QuadF quad);
     [DllImport(Dll)] public static extern int FPDFAnnot_SetStringValue(IntPtr annot, [MarshalAs(UnmanagedType.LPStr)] string key, [MarshalAs(UnmanagedType.LPWStr)] string value);
     [DllImport(Dll)] public static extern uint FPDFAnnot_GetStringValue(IntPtr annot, [MarshalAs(UnmanagedType.LPStr)] string key, byte[]? buffer, uint length);
+    /// <summary>The look of a comment: a PDF content stream (in page coordinates, inside the annotation's rectangle). mode 0 = normal.</summary>
+    [DllImport(Dll)] public static extern int FPDFAnnot_SetAP(IntPtr annot, int mode, [MarshalAs(UnmanagedType.LPWStr)] string value);
 
     public const int AnnotText = 1, AnnotHighlight = 9, AnnotUnderline = 10, AnnotStrikeOut = 12, AnnotPopup = 16;
 

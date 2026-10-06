@@ -223,6 +223,18 @@ public static class PdfMarkWriter
             var rect = new Pdfium.RectF { Left = (float)l, Bottom = (float)b, Right = (float)r, Top = (float)t };
             Pdfium.FPDFAnnot_SetRect(annot, ref rect);
             Pdfium.FPDFAnnot_SetColor(annot, 0, a.Color.R, a.Color.G, a.Color.B, 255);
+            if (a.Subtype == Pdfium.AnnotText)
+            {
+                // the sticky note looks the way it did while being placed (PDFium's own picture is always the same yellow): a little coloured square with lines of text
+                string F(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                double w = r - l, h = t - b;
+                double dark = (a.Color.R * 0.299 + a.Color.G * 0.587 + a.Color.B * 0.114) > 150 ? 0.2 : 1;
+                string lines = "";
+                for (int k = 0; k < 3; k++) lines += $"{F(l + w * 0.22)} {F(b + h * (0.32 + 0.18 * k))} m {F(l + w * 0.78)} {F(b + h * (0.32 + 0.18 * k))} l S\n";
+                string ap = $"q {F(a.Color.R / 255.0)} {F(a.Color.G / 255.0)} {F(a.Color.B / 255.0)} rg 0.35 0.35 0.35 RG 0.8 w {F(l + 0.4)} {F(b + 0.4)} {F(w - 0.8)} {F(h - 0.8)} re B\n" +
+                            $"{F(dark < 1 ? 0.2 : 1)} {F(dark < 1 ? 0.2 : 1)} {F(dark < 1 ? 0.2 : 1)} RG 0.9 w\n{lines}Q\n";
+                Pdfium.FPDFAnnot_SetAP(annot, 0, ap);
+            }
             if (!string.IsNullOrEmpty(a.Contents)) Pdfium.FPDFAnnot_SetStringValue(annot, "Contents", a.Contents);
             Pdfium.FPDFAnnot_SetStringValue(annot, "M", "D:" + DateTime.Now.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture));
         }

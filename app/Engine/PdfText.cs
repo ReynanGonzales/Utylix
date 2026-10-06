@@ -49,7 +49,8 @@ internal readonly struct PageMapping
 public sealed record PdfLink(Rect Box, int Page, string? Uri);
 
 /// <summary>A sticky note (or other comment with text) already in the PDF.</summary>
-public sealed record PdfNote(Rect Box, string Text);
+/// <remarks>Index = its place in the page's list of annotations (to change or remove it), Subtype 1 = a sticky note, 9 / 10 / 12 = a comment on highlighted / underlined / struck-out text.</remarks>
+public sealed record PdfNote(Rect Box, string Text, int Index = -1, int Subtype = 0);
 
 /// <summary>An entry of the PDF's table of contents.</summary>
 public sealed record PdfBookmark(string Title, int Page, IReadOnlyList<PdfBookmark> Children);
@@ -260,7 +261,7 @@ internal static class PdfTextReader
                     if (sub is Pdfium.AnnotPopup or 2 /* link */ or 20 /* widget */) continue;
                     string text = Utf16(a, "Contents");
                     if (text.Trim().Length == 0 || Pdfium.FPDFAnnot_GetRect(a, out var ar) == 0) continue;
-                    notes.Add(new PdfNote(map.ToShown(ar.Left, ar.Bottom, ar.Right, ar.Top), text.Trim()));
+                    notes.Add(new PdfNote(map.ToShown(ar.Left, ar.Bottom, ar.Right, ar.Top), text.Trim(), i, sub));
                 }
                 finally { Pdfium.FPDFPage_CloseAnnot(a); }
             }

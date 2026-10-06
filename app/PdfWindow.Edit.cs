@@ -1097,6 +1097,8 @@ public sealed partial class PdfWindow
         pv.Overlay.MouseMove += (_, e) => { if (!_editing || _textDrag) TextMove(pv, e); else OverlayMove(pv, e); };
         pv.Overlay.MouseLeftButtonUp += (_, e) => { if (!_editing || _textDrag) TextUp(pv, e); else OverlayUp(pv, e); };
         pv.Overlay.MouseRightButtonUp += (_, e) => PageMenu(pv, e);
+        pv.Overlay.MouseLeave += (_, _) => { _hoverTip = null; ShowHoverTip(pv, null); };
+        pv.Overlay.PreviewMouseLeftButtonDown += (_, _) => { _hoverTip = null; ShowHoverTip(pv, null); };
         if (_editing) pv.Overlay.Cursor = CursorFor(_tool);
     }
 
