@@ -1226,6 +1226,7 @@ public sealed partial class PdfWindow
                 break;
             }
             case EditTool.Select:
+                if ((Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Control)) != 0 && ExtendChoice(pv, p)) { _dragPage = null; return; }       // (Shift / Ctrl + click: add to what is chosen)
                 if (_group.Count > 0 && _group.Any(g => g.Page == pv.Index && g.Hit(p))) { _drag = DragMode.GroupMove; _groupLast = p; break; }      // (several chosen: they all follow the mouse)
                 if (OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
                 var item = ItemAt(pv.Index, p);

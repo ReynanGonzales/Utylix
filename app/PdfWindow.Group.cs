@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows;
 using IdmClone.Engine;
 
 namespace IdmClone;
@@ -40,6 +41,42 @@ public sealed partial class PdfWindow
         _group.AddRange(mates);
         foreach (int page in mates.Select(i => i.Page).Distinct().ToList()) RenderItems(page);
         UpdateEditButtons(); UpdateProperties();
+    }
+
+    /// <summary>
+    /// Shift + click (or Ctrl + click) with Select adds the thing under the pointer to what is chosen, or takes it out again if it is chosen already (a grouped thing brings its whole group).
+    /// True when the click was used. Works for things added now, and for things already drawn on the page (they have to be on the same page).
+    /// </summary>
+    private bool ExtendChoice(PageView pv, Point p)
+    {
+        if (_selected is LinkPick) return false;
+        var item = ItemAt(pv.Index, p);
+        if (item != null)
+        {
+            if (_selected is PageObjectItem) { Toast("Things already in the PDF and things you added can't be chosen together"); return true; }
+            var chosen = ChosenItems().Where(i => _items.Contains(i)).ToList();
+            var mates = WithGroupMates(new[] { item });
+            if (chosen.Contains(item)) chosen.RemoveAll(mates.Contains);
+            else foreach (var m in mates) if (!chosen.Contains(m)) chosen.Add(m);
+            var pages = chosen.Concat(mates).Select(i => i.Page).Distinct().ToList();
+            Select(null);
+            if (chosen.Count == 1) Select(chosen[0]);
+            else if (chosen.Count > 1) _group.AddRange(chosen);
+            foreach (int page in pages) RenderItems(page);
+            UpdateEditButtons(); UpdateProperties();
+            return true;
+        }
+        if (_pdf == null || _group.Count > 0) return false;
+        var objects = PageObjects(pv.Index);
+        var hit = objects.LastOrDefault(o => !IsBackdrop(o, pv.Index) && o.Box.Width + o.Box.Height > 1 && Grow(o.Box, 2).Contains(p));
+        if (hit == null) return false;                                          // (nothing there: the click works as it always did)
+        List<int> indices = _selected is PageObjectItem po && po.Page == pv.Index ? po.Indices.ToList() : new List<int>();
+        if (!indices.Remove(hit.Index)) indices.Add(hit.Index);
+        if (indices.Count == 0) { Select(null); return true; }
+        var box = Rect.Empty;
+        foreach (var o in objects.Where(o => indices.Contains(o.Index))) box.Union(o.Box);
+        Select(new PageObjectItem { Page = pv.Index, Indices = indices, Box = box, Original = box });
+        return true;
     }
 
     private void GroupChosen()
