@@ -38,6 +38,8 @@ public sealed partial class PdfWindow
         Item("Remove the password…", RemovePassword, "PdfMenuRemovePassword");
         Item("Sign with a certificate…", SignWithCertificate, "PdfMenuSign");
         Item("Check the signatures…", CheckSignatures, "PdfMenuCheckSign");
+        Heading("FORMS");
+        Item("Make the fields permanent (flatten)…", FlattenForms, "PdfMenuFlatten");
         Heading("CLEAN UP");
         Item("Remove a watermark…", RemoveWatermark, "PdfMenuWatermark");
         Item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");
@@ -99,6 +101,17 @@ public sealed partial class PdfWindow
         },
         () => Enumerable.Range(at, total).ToList(),
         () => (total == 1 ? "1 page" : total + " pages") + " added after page " + at);
+    }
+
+    /// <summary>The form fields become part of the page (what is typed and ticked stays, nothing can be changed any more). One undo step.</summary>
+    private void FlattenForms()
+    {
+        if (_pdf == null || _path == null) return;
+        if (!_pdf.HasForm) { Toast("This PDF has no form fields"); return; }
+        var answer = UMessage.Ask(this, "Make every field of this form part of the page?\n\nWhat is typed or ticked stays exactly as it looks, but nobody can fill in or change the fields afterwards. Comments stay comments.\n\nUndo takes it back until you save. To keep a fillable copy, use Save as… first.",
+                                  "Make the fields permanent", MessageBoxImage.Question, MessageBoxResult.Cancel, MessageBoxResult.Cancel, ("Make them permanent", MessageBoxResult.Yes), ("Cancel", MessageBoxResult.Cancel));
+        if (answer != MessageBoxResult.Yes) return;
+        PageOp(p => p.FlattenForms(), new[] { Math.Clamp(_current, 0, _pdf.PageCount - 1) }, "The fields are part of the page now. Undo takes it back until you save", keepView: true);
     }
 
     /// <summary>Compare the open PDF (as saved on disk) with another one: what is different, page by page.</summary>

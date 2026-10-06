@@ -22,7 +22,7 @@ namespace IdmClone;
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField }
+    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField, DropField }
 
     // ---------- what can be on a page ----------
     private abstract class EditItem
@@ -349,7 +349,7 @@ public sealed partial class PdfWindow
     private EditItem? _selected;
     private readonly Dictionary<EditTool, Color> _toolColors = new()
     {
-        [EditTool.TextField] = Colors.Black, [EditTool.CheckField] = Colors.Black, [EditTool.Table] = Colors.Black, [EditTool.RadioField] = Colors.Black, [EditTool.SignField] = Colors.Black,
+        [EditTool.TextField] = Colors.Black, [EditTool.CheckField] = Colors.Black, [EditTool.Table] = Colors.Black, [EditTool.RadioField] = Colors.Black, [EditTool.SignField] = Colors.Black, [EditTool.DropField] = Colors.Black,
         [EditTool.Text] = Colors.Black, [EditTool.Stamp] = Color.FromRgb(0x2E, 0x7D, 0x32), [EditTool.Date] = Colors.Black, [EditTool.Signature] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Check] = Colors.Black, [EditTool.Cross] = Colors.Black,
         [EditTool.Highlight] = Color.FromRgb(0xFF, 0xE0, 0x30), [EditTool.Underline] = Color.FromRgb(0x1E, 0x63, 0xE9), [EditTool.Strike] = Color.FromRgb(0xD3, 0x2F, 0x2F),
         [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White, [EditTool.Redact] = Colors.Black,
@@ -441,7 +441,7 @@ public sealed partial class PdfWindow
         (EditTool.Select, Key.V, "V"), (EditTool.EditText, Key.E, "E"), (EditTool.Text, Key.T, "T"), (EditTool.Signature, Key.G, "G"), (EditTool.Image, Key.I, "I"),
         (EditTool.Check, Key.C, "C"), (EditTool.Cross, Key.X, "X"), (EditTool.Stamp, Key.M, "M"), (EditTool.Date, Key.D, "D"), (EditTool.Highlight, Key.H, "H"),
         (EditTool.Underline, Key.U, "U"), (EditTool.Strike, Key.K, "K"), (EditTool.Note, Key.N, "N"), (EditTool.Pen, Key.P, "P"), (EditTool.Shapes, Key.S, "S"),
-        (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"), (EditTool.TextField, Key.F, "F"), (EditTool.CheckField, Key.B, "B"), (EditTool.Table, Key.L, "L"), (EditTool.RadioField, Key.O, "O"), (EditTool.SignField, Key.Q, "Q"),
+        (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"), (EditTool.TextField, Key.F, "F"), (EditTool.CheckField, Key.B, "B"), (EditTool.Table, Key.L, "L"), (EditTool.RadioField, Key.O, "O"), (EditTool.SignField, Key.Q, "Q"), (EditTool.DropField, Key.Y, "Y"),
     };
 
     // the tabs of the tool bar (see BuildEditBar)
@@ -461,7 +461,7 @@ public sealed partial class PdfWindow
     {
         EditTool.Text or EditTool.EditText or EditTool.Date or EditTool.Image or EditTool.Signature or EditTool.Stamp => "Add",
         EditTool.Highlight or EditTool.Underline or EditTool.Strike or EditTool.Note or EditTool.Pen or EditTool.Shapes or EditTool.Table or EditTool.Check or EditTool.Cross => "Mark up",
-        EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField => "Forms",
+        EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField => "Forms",
         EditTool.WhiteOut or EditTool.Redact => "Page",
         _ => null,                                                          // (Select is on every tab)
     };
@@ -526,6 +526,9 @@ public sealed partial class PdfWindow
         ToolButton(EditTool.RadioField, "", "Option", "A fillable round button (a real form field): click for each choice. Buttons placed one after the other are one group, where only one can be chosen; choose the tool again to start another group",
                    icon: new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(9), Width = 17, Height = 17, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
                                       Child = new Border { Background = Brushes.White, CornerRadius = new CornerRadius(4), Width = 7, Height = 7, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
+        ToolButton(EditTool.DropField, "", "Dropdown", "A fillable drop-down list (a real form field): drag its size, then type the choices. People pick one from the list, here or in any PDF reader",
+                   icon: new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(2), Width = 26, Height = 16, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
+                                      Child = new TextBlock { Text = "▾", FontSize = 11, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, -1, 4, 0) } });
         ToolButton(EditTool.SignField, "", "Sign box", "A box for a signature (a real form field): drag its size on the page. Click it later to sign here, or sign it with a certificate (Tools menu)",
                    icon: new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(2), Width = 26, Height = 16, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
                                       Child = new TextBlock { Text = "✕", FontSize = 9, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(4, 0, 0, 0) } });
@@ -573,7 +576,7 @@ public sealed partial class PdfWindow
         UIElement[] A(params string[] list) => list.Select(id => (UIElement)actions[id]).ToArray();
         Tab("Add", "Put something on the page: text, the date, columns, pictures, your signature, stamps", T(EditTool.Text, EditTool.EditText, EditTool.Date).Concat(A("PdfActionColumns")).ToArray(), T(EditTool.Image, EditTool.Signature, EditTool.Stamp));
         Tab("Mark up", "Comment and draw: highlight, underline, notes, pen, shapes, tables, check marks", T(EditTool.Highlight, EditTool.Underline, EditTool.Strike, EditTool.Note), T(EditTool.Pen, EditTool.Shapes, EditTool.Table, EditTool.Check, EditTool.Cross));
-        Tab("Forms", "Fields people can fill in: text box, check box, option buttons, signature box", T(EditTool.TextField, EditTool.CheckField, EditTool.RadioField, EditTool.SignField));
+        Tab("Forms", "Fields people can fill in: text box, check box, option buttons, signature box", T(EditTool.TextField, EditTool.CheckField, EditTool.RadioField, EditTool.DropField, EditTool.SignField));
         Tab("Page", "Hide or remove things, a frame, a watermark, page numbers", T(EditTool.WhiteOut, EditTool.Redact), A("PdfActionBorder", "PdfActionWatermark", "PdfActionPageNumbers"));
         Tab("Convert", "Make a Word or Excel file or pictures from this PDF", A("PdfActionToWord", "PdfActionToExcel", "PdfActionToPictures"));
         tools.Children.Add(_toolButtons[EditTool.Select]);
@@ -844,7 +847,7 @@ public sealed partial class PdfWindow
     {
         var item = _selected;
         var typingRun = _runTyping;                                // Edit text with a line open: the font, size and colour are that line's
-        bool textField = item is FieldItem { Kind: PdfNewFieldKind.Text } || (item == null && _tool == EditTool.TextField);
+        bool textField = item is FieldItem { Kind: PdfNewFieldKind.Text or PdfNewFieldKind.Dropdown } || (item == null && _tool is EditTool.TextField or EditTool.DropField);
         bool text = item is TextItem || (item == null && _tool is EditTool.Text or EditTool.Date) || typingRun != null || textField;
         bool line = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.Line or ShapeKind.Arrow } || item is InkItem { Signature: false } || item is TableItem
                     || (item == null && _tool is EditTool.Pen or EditTool.Shapes or EditTool.Table);
@@ -864,7 +867,7 @@ public sealed partial class PdfWindow
                 _boldButton.IsChecked = typingRun.EffBold;
             }
             else if (item is TextItem ti) { ShowFont(ti.Font, ti.FontName); _boldButton.IsChecked = ti.Bold; }
-            else if (item is FieldItem fi && fi.Kind == PdfNewFieldKind.Text) { ShowFont(fi.Font, null); _boldButton.IsChecked = fi.Bold; }
+            else if (item is FieldItem fi && fi.Kind is PdfNewFieldKind.Text or PdfNewFieldKind.Dropdown) { ShowFont(fi.Font, null); _boldButton.IsChecked = fi.Bold; }
             else if (textField) { ShowFont(_font, null); _boldButton.IsChecked = _bold; }
             else if (text) { ShowFont(_font, _fontName); _boldButton.IsChecked = _bold; }
         }
@@ -874,7 +877,7 @@ public sealed partial class PdfWindow
                        : run ? "Click a line of text to change it, or drag it to move it. Shift+Enter makes a new line; Enter or a click beside it finishes; Save puts it into the PDF." : "";
         _toolHint.Visibility = run ? Visibility.Visible : Visibility.Collapsed;
         bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
-        bool fieldTool = item is FieldItem || (item == null && _tool is EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField);
+        bool fieldTool = item is FieldItem || (item == null && _tool is EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField);
         _colorRow.Visibility = item is ImageItem or PageObjectItem || (run && typingRun == null) || redact ? Visibility.Collapsed : Visibility.Visible;
         if (item is PageObjectItem) { _toolHint.Text = "Already in the PDF: drag it to move it, the corner to resize it, Delete to remove it. Undo takes it back."; _toolHint.Visibility = Visibility.Visible; }
         if (fieldTool)
@@ -900,8 +903,8 @@ public sealed partial class PdfWindow
             if (_tool != EditTool.Select) _toolColors[_tool] = c;             // (the next one made with this tool has the colour just chosen, not an older one)
         }
         else _toolColors[_tool] = c;
-        if (_tool is EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField || _selected is FieldItem)
-            _toolColors[EditTool.TextField] = _toolColors[EditTool.CheckField] = _toolColors[EditTool.RadioField] = _toolColors[EditTool.SignField] = c;     // (all the fields share their colour)
+        if (_tool is EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField || _selected is FieldItem)
+            _toolColors[EditTool.TextField] = _toolColors[EditTool.CheckField] = _toolColors[EditTool.RadioField] = _toolColors[EditTool.SignField] = _toolColors[EditTool.DropField] = c;     // (all the fields share their colour)
         MarkColor();
     }
 
@@ -916,12 +919,12 @@ public sealed partial class PdfWindow
         switch (_selected)
         {
             case TextItem t: Snapshot(); t.FontSize = Next(TextSizes, t.FontSize, step); _textSize = t.FontSize; RenderItems(t.Page); break;
-            case FieldItem { Kind: PdfNewFieldKind.Text } fld: Snapshot(); fld.FontSize = Next(TextSizes, fld.FontSize, step); _textSize = fld.FontSize; RenderItems(fld.Page); break;
+            case FieldItem { Kind: PdfNewFieldKind.Text or PdfNewFieldKind.Dropdown } fld: Snapshot(); fld.FontSize = Next(TextSizes, fld.FontSize, step); _textSize = fld.FontSize; RenderItems(fld.Page); break;
             case ShapeItem s: Snapshot(); s.Width = Next(LineWidths, s.Width, step); _lineWidth = s.Width; RenderItems(s.Page); break;
             case InkItem i: Snapshot(); i.Width = Next(LineWidths, i.Width, step); _lineWidth = i.Width; RenderItems(i.Page); break;
             case TableItem tb: Snapshot(); tb.Width = Next(LineWidths, tb.Width, step); _lineWidth = tb.Width; RenderItems(tb.Page); break;
             default:
-                if (_tool is EditTool.Text or EditTool.Date or EditTool.TextField) _textSize = Next(TextSizes, _textSize, step); else _lineWidth = Next(LineWidths, _lineWidth, step);
+                if (_tool is EditTool.Text or EditTool.Date or EditTool.TextField or EditTool.DropField) _textSize = Next(TextSizes, _textSize, step); else _lineWidth = Next(LineWidths, _lineWidth, step);
                 break;
         }
         if (_typing != null && _textBox != null) { _typing.FontSize = _textSize; _textBox.FontSize = _textSize; }
@@ -942,7 +945,7 @@ public sealed partial class PdfWindow
         if (kind is PdfFontKind k) { _font = k; _fontName = null; if (_fontLabel != null) _fontLabel.Text = "More fonts"; }
         if (name != null) _fontName = name;
         if (bold is bool b) _bold = b;
-        if (_selected is FieldItem { Kind: PdfNewFieldKind.Text } field)             // a text box of a form: Sans / Serif / Mono and bold (the standard PDF fonts)
+        if (_selected is FieldItem { Kind: PdfNewFieldKind.Text or PdfNewFieldKind.Dropdown } field)             // a text box or list of a form: Sans / Serif / Mono and bold (the standard PDF fonts)
         {
             Snapshot();
             if (kind is PdfFontKind fk) field.Font = fk;
@@ -1211,6 +1214,7 @@ public sealed partial class PdfWindow
                 if (item is NoteItem n && e.ClickCount == 2) { OpenNote(n, isNew: false); return; }
                 if (item is ColumnsItem columns && e.ClickCount == 2) { EditColumns(columns); return; }
                 if (item is TableItem tableHere && e.ClickCount == 2) { EditTable(tableHere); return; }
+                if (item is FieldItem fieldHere && e.ClickCount == 2) { EditFieldOptions(fieldHere); return; }
                 if (item != null) { _drag = DragMode.Move; _dragBox = item.Bounds; }
                 break;
             case EditTool.Text:
@@ -1230,7 +1234,7 @@ public sealed partial class PdfWindow
                 _drawing = new TableItem { Page = pv.Index, Box = new Rect(p, p), Rows = _tableRows, Cols = _tableCols, Color = _toolColors[EditTool.Table], Width = _lineWidth };
                 _drag = DragMode.Draw;
                 break;
-            case EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField:
+            case EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField:
                 if (ItemAt(pv.Index, p) is FieldItem placed) { Select(placed); _drag = DragMode.Move; _dragBox = placed.Bounds; break; }       // (a click on a field already there moves it)
                 if (OwnFieldAt(pv.Index, p) is { } saved) { _dragPage = null; LiftOwnField(pv.Index, saved); return; }                        // (a saved one: picked up again)
                 StartField(pv, p);
@@ -1623,6 +1627,7 @@ public sealed partial class PdfWindow
             case Key.Enter when _selected is TextItem t: EditText(t, isNew: false); return true;
             case Key.Enter when _selected is ColumnsItem columns: EditColumns(columns); return true;
             case Key.Enter when _selected is TableItem tableSel: EditTable(tableSel); return true;
+            case Key.Enter when _selected is FieldItem fieldSel: EditFieldOptions(fieldSel); return true;
             case Key.Left or Key.Right or Key.Up or Key.Down when _selected != null:
             {
                 double step = shift ? 10 : 1;

@@ -12,7 +12,7 @@ namespace IdmClone.Engine;
 public sealed record PdfPageObject(int Index, int Kind, Rect Box);
 
 /// <summary>A text box / check box made by Utylix and saved in a PDF (found again so it can be moved, resized, copied or deleted).</summary>
-public sealed record PdfOwnField(int AnnotIndex, PdfNewFieldKind Kind, Rect Box, string Name, double FontSize, PdfFontKind Font, bool Bold, Color Color, string Value = "");
+public sealed record PdfOwnField(int AnnotIndex, PdfNewFieldKind Kind, Rect Box, string Name, double FontSize, PdfFontKind Font, bool Bold, Color Color, string Value = "", PdfFieldExtra? Extra = null);
 
 /// <summary>Changing what is already drawn on a page of the open document: pick it up, move it, resize it, delete it. (Save writes it.)</summary>
 public sealed partial class PdfFile
@@ -236,13 +236,62 @@ public sealed partial class PdfFile
         return Encoding.Unicode.GetString(buf, 0, (int)len - 2);
     }
 
+    /// <summary>
+    /// Makes every form field part of the page for good (what is typed or ticked stays as it looks, nothing can be filled in or changed any more) and tidies the form.
+    /// Comments (highlights, notes ...) stay comments. A change of the open document: Save writes it, Undo takes it back.
+    /// </summary>
+    public void FlattenForms()
+    {
+        lock (Pdfium.Sync)
+        {
+            ThrowIfClosed();
+            for (int i = 0; i < PageCount; i++)
+            {
+                IntPtr page = LoadPageOrThrow(i);
+                try
+                {
+                    // (the flattening takes every comment with an appearance, so the ones that are not form fields are hidden for a moment)
+                    var kept = new List<int>();
+                    int count = Pdfium.FPDFPage_GetAnnotCount(page);
+                    for (int a = 0; a < count; a++)
+                    {
+                        IntPtr annot = Pdfium.FPDFPage_GetAnnot(page, a);
+                        if (annot == IntPtr.Zero) continue;
+                        try
+                        {
+                            if (Pdfium.FPDFAnnot_GetSubtype(annot) == Pdfium.AnnotWidget) continue;
+                            int flags = Pdfium.FPDFAnnot_GetFlags(annot);
+                            kept.Add(flags);
+                            Pdfium.FPDFAnnot_SetFlags(annot, flags | 2);
+                        }
+                        finally { Pdfium.FPDFPage_CloseAnnot(annot); }
+                    }
+                    Pdfium.FPDFPage_Flatten(page, 0);
+                    int left = Pdfium.FPDFPage_GetAnnotCount(page);
+                    if (left == kept.Count)                                                   // (what is left is exactly the hidden ones, in the same order: show them again as they were)
+                        for (int a = 0; a < left; a++)
+                        {
+                            IntPtr annot = Pdfium.FPDFPage_GetAnnot(page, a);
+                            if (annot == IntPtr.Zero) continue;
+                            try { Pdfium.FPDFAnnot_SetFlags(annot, kept[a]); } finally { Pdfium.FPDFPage_CloseAnnot(annot); }
+                        }
+                    Pdfium.FPDFPage_GenerateContent(page);
+                }
+                finally { Pdfium.FPDF_ClosePage(page); }
+            }
+            _texts.Clear(); _runs.Clear();
+        }
+        byte[] bytes = SaveToBytes();
+        Restore(PdfFormFields.Add(this, bytes, Array.Empty<PdfFieldMark>()));              // (the form's list loses the fields that are gone)
+    }
+
     /// <summary>The text boxes and check boxes of this page that Utylix made (marked in the file, or named like the ones it makes), with what is needed to make them editable again.</summary>
     public List<PdfOwnField> GetOwnFields(int pageIndex)
     {
         var result = new List<PdfOwnField>();
         List<PdfField> fields;
         try { fields = GetFields(pageIndex); } catch (IOException) { return result; }
-        var candidates = fields.Where(f => f.Kind is PdfFieldKind.Text or PdfFieldKind.CheckBox or PdfFieldKind.Radio or PdfFieldKind.Signature && !f.ReadOnly && !f.Password
+        var candidates = fields.Where(f => f.Kind is PdfFieldKind.Text or PdfFieldKind.CheckBox or PdfFieldKind.Radio or PdfFieldKind.Signature or PdfFieldKind.Combo && !f.ReadOnly && !f.Password
                                            && (f.Kind != PdfFieldKind.Signature || f.Value.Length == 0)).ToList();      // (a signature box that is signed already stays as it is)
         if (candidates.Count == 0) return result;
         lock (Pdfium.Sync)
@@ -273,8 +322,10 @@ public sealed partial class PdfFile
                             uint len = Pdfium.FPDFAnnot_GetFormFieldExportValue(_form, annot, null, 0);
                             if (len > 2 && len < 4096) { var buf = new byte[len]; Pdfium.FPDFAnnot_GetFormFieldExportValue(_form, annot, buf, len); value = Encoding.Unicode.GetString(buf, 0, (int)len - 2); }
                         }
-                        var newKind = f.Kind switch { PdfFieldKind.Text => PdfNewFieldKind.Text, PdfFieldKind.Radio => PdfNewFieldKind.Radio, PdfFieldKind.Signature => PdfNewFieldKind.Signature, _ => PdfNewFieldKind.CheckBox };
-                        result.Add(new PdfOwnField(f.AnnotIndex, newKind, f.Box, f.Name, f.FontSize > 0 ? f.FontSize : 12, kind, bold, color, value));
+                        var newKind = f.Kind switch { PdfFieldKind.Text => PdfNewFieldKind.Text, PdfFieldKind.Radio => PdfNewFieldKind.Radio, PdfFieldKind.Signature => PdfNewFieldKind.Signature, PdfFieldKind.Combo => PdfNewFieldKind.Dropdown, _ => PdfNewFieldKind.CheckBox };
+                        int maxLength = Pdfium.FPDFAnnot_GetNumberValue(annot, "MaxLen", out float ml) != 0 ? (int)ml : 0;
+                        var extra = new PdfFieldExtra(f.Required, f.Multiline, maxLength, newKind is PdfNewFieldKind.Text or PdfNewFieldKind.Dropdown ? f.Value : "", f.Options.Count > 0 ? f.Options.ToList() : null, f.Checked);
+                        result.Add(new PdfOwnField(f.AnnotIndex, newKind, f.Box, f.Name, f.FontSize > 0 ? f.FontSize : 12, kind, bold, color, value, extra));
                     }
                     finally { Pdfium.FPDFPage_CloseAnnot(annot); }
                 }

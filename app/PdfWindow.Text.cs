@@ -405,6 +405,11 @@ public sealed partial class PdfWindow
         }
         else Item("Copy", "Ctrl+C", sel, CopySelection);
         if (_editing && HasCopy) Item("Paste here", "Ctrl+V", true, () => PasteItems(p, pv.Index));
+        if (_editing && _selected is FieldItem optionsFor)
+        {
+            menu.Items.Add(new Separator());
+            Item("Field options…", "Enter", true, () => EditFieldOptions(optionsFor));
+        }
         if (_editing && CanArrange)
         {
             menu.Items.Add(new Separator());

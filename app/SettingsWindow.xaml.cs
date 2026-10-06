@@ -212,7 +212,8 @@ public partial class SettingsWindow : Window
         Tools("Tools while editing (hold Alt) - everywhere", ("V", "Select, move, resize"));
         Tools("Tab Add", ("T", "Text"), ("E", "Edit text already in the PDF"), ("D", "Date"), ("I", "Picture"), ("G", "Sign"), ("M", "Stamp"));
         Tools("Tab Mark up", ("H", "Highlight"), ("U", "Underline"), ("K", "Strike"), ("N", "Note"), ("P", "Pen"), ("S", "Shapes"), ("L", "Table"), ("C", "Check mark"), ("X", "Cross"));
-        Tools("Tab Forms", ("F", "Fillable text box"), ("B", "Fillable check box"), ("O", "Fillable round option"), ("Q", "Signature box"));
+        Tools("Tab Forms", ("F", "Fillable text box"), ("B", "Fillable check box"), ("O", "Fillable round option"), ("Y", "Drop-down list"), ("Q", "Signature box"));
+        Row("Enter / double-click a field", "Field options (name, must be filled in, several lines, choices ...)");
         Tools("Tab Page", ("W", "White-out"), ("R", "Redact"));
         Heading("Choosing and arranging");
         Row("Ctrl + Z", "Undo (also after saving)");

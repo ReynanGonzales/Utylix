@@ -25,11 +25,18 @@ public sealed partial class PdfWindow
         public double FontSize = 12;
         public PdfFontKind Font;
         public bool Bold;
+        // what the "Field options" window sets
+        public bool Required, Multiline, Ticked;
+        public int MaxLength;
+        public string DefaultText = "";
+        public List<string> Choices = new();
+
+        public PdfFieldExtra Extra => new(Required, Multiline, MaxLength, DefaultText, Choices.Count > 0 ? Choices.ToList() : null, Ticked);
+        public override EditItem Clone() { var c = (FieldItem)MemberwiseClone(); c.Choices = Choices.ToList(); return c; }
 
         public bool Square => Kind is PdfNewFieldKind.CheckBox or PdfNewFieldKind.Radio;
         public override Rect Bounds => Box;
         public override bool KeepAspect => Square;
-        public override EditItem Clone() => (FieldItem)MemberwiseClone();
         public override void MoveBy(Vector d) => Box.Offset(d);
         public override void ResizeTo(Rect r) => Box = r;
 
@@ -61,7 +68,17 @@ public sealed partial class PdfWindow
                 default:
                     var box = new Border { Width = Box.Width, Height = Box.Height, Background = Brushes.Transparent, BorderBrush = edge, BorderThickness = new Thickness(1), SnapsToDevicePixels = true };
                     if (Kind == PdfNewFieldKind.Text)
-                        box.Child = new TextBlock { Text = Name, FontFamily = TextItem.Family(Font), FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, FontSize = Math.Min(FontSize, Math.Max(5, Box.Height * 0.7)), Foreground = new SolidColorBrush(Color.FromArgb(150, 0x60, 0x60, 0x60)), Margin = new Thickness(3, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, IsHitTestVisible = false };
+                        box.Child = new TextBlock { Text = DefaultText.Length > 0 ? DefaultText : Name, FontFamily = TextItem.Family(Font), FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, FontSize = Math.Min(FontSize, Math.Max(5, Box.Height * 0.7)), Foreground = new SolidColorBrush(Color.FromArgb(DefaultText.Length > 0 ? (byte)255 : (byte)150, 0x60, 0x60, 0x60)), Margin = new Thickness(3, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, IsHitTestVisible = false };
+                    else if (Kind == PdfNewFieldKind.Dropdown)
+                    {
+                        // the chosen start text (or the name), and the little arrow of a drop-down list
+                        var row = new DockPanel { LastChildFill = true };
+                        var arrow = new TextBlock { Text = "▾", FontSize = Math.Max(8, Math.Min(14, Box.Height * 0.6)), Foreground = edge, Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
+                        DockPanel.SetDock(arrow, Dock.Right);
+                        row.Children.Add(arrow);
+                        row.Children.Add(new TextBlock { Text = DefaultText.Length > 0 ? DefaultText : Name, FontFamily = TextItem.Family(Font), FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, FontSize = Math.Min(FontSize, Math.Max(5, Box.Height * 0.7)), Foreground = new SolidColorBrush(Color.FromArgb(DefaultText.Length > 0 ? (byte)255 : (byte)150, 0x60, 0x60, 0x60)), Margin = new Thickness(3, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, IsHitTestVisible = false });
+                        box.Child = row;
+                    }
                     host = box;
                     break;
             }
@@ -69,13 +86,13 @@ public sealed partial class PdfWindow
             return host;
         }
 
-        public override IEnumerable<PdfMark> Marks() { yield return new PdfFieldMark(Page, Box, Kind, Name, FontSize, Color, Font, Bold, Value); }
+        public override IEnumerable<PdfMark> Marks() { yield return new PdfFieldMark(Page, Box, Kind, Name, FontSize, Color, Font, Bold, Value, Extra); }
     }
 
     /// <summary>A name nobody else on the page uses yet: "Text 1", "Text 2" ... / "Check box 1" ... / "Signature 1" ...</summary>
     private string NewFieldName(PdfNewFieldKind kind)
     {
-        string stem = kind switch { PdfNewFieldKind.Text => "Text", PdfNewFieldKind.Signature => "Signature", PdfNewFieldKind.Radio => "Choice", _ => "Check box" };
+        string stem = kind switch { PdfNewFieldKind.Text => "Text", PdfNewFieldKind.Signature => "Signature", PdfNewFieldKind.Radio => "Choice", PdfNewFieldKind.Dropdown => "Dropdown", _ => "Check box" };
         var taken = new HashSet<string>(_items.OfType<FieldItem>().Select(f => f.Name));
         if (_pdf != null) for (int pg = 0; pg < Math.Min(_pdf.PageCount, 60); pg++) foreach (var f in Fields(pg)) taken.Add(f.Name);       // (the names the file has already)
         for (int n = 1; ; n++) if (!taken.Contains(stem + " " + n)) return stem + " " + n;
@@ -93,7 +110,7 @@ public sealed partial class PdfWindow
 
     private void StartField(PageView pv, Point p)
     {
-        var kind = _tool switch { EditTool.TextField => PdfNewFieldKind.Text, EditTool.RadioField => PdfNewFieldKind.Radio, EditTool.SignField => PdfNewFieldKind.Signature, _ => PdfNewFieldKind.CheckBox };
+        var kind = _tool switch { EditTool.TextField => PdfNewFieldKind.Text, EditTool.RadioField => PdfNewFieldKind.Radio, EditTool.SignField => PdfNewFieldKind.Signature, EditTool.DropField => PdfNewFieldKind.Dropdown, _ => PdfNewFieldKind.CheckBox };
         string name;
         string value = "";
         if (kind == PdfNewFieldKind.Radio)
@@ -120,6 +137,8 @@ public sealed partial class PdfWindow
         else if (r.Width < 8 || r.Height < 8) r = new Rect(start.X - 2, start.Y - 11, 150, 22);
         field.Box = r;
         field.FontSize = Math.Min(_textSize, r.Height * 0.7);
+        if (field.Kind == PdfNewFieldKind.Text) field.Multiline = r.Height > field.FontSize * 2.4;           // (a tall box takes several lines)
         Add(field, select: true);
+        if (field.Kind == PdfNewFieldKind.Dropdown) Dispatcher.BeginInvoke(new Action(() => EditFieldOptions(field, firstTime: true)));      // (a drop-down list needs its choices)
     }
 }

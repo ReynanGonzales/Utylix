@@ -10,10 +10,13 @@ using PdfSharp.Pdf.Advanced;
 
 namespace IdmClone.Engine;
 
-public enum PdfNewFieldKind { Text, CheckBox, Radio, Signature }
+public enum PdfNewFieldKind { Text, CheckBox, Radio, Signature, Dropdown }
+
+/// <summary>What can be set on a field besides its look: must be filled in, several lines, longest text, starting text, the choices of a drop-down list, ticked at the start.</summary>
+public sealed record PdfFieldExtra(bool Required = false, bool Multiline = false, int MaxLength = 0, string DefaultText = "", IReadOnlyList<string>? Choices = null, bool Ticked = false);
 
 /// <summary>A new fillable field to put on a page. Box is in points from the top-left of the page as shown. A radio button's Name is its GROUP (one choice out of the group) and Value is what this button stands for.</summary>
-public sealed record PdfFieldMark(int Page, Rect Box, PdfNewFieldKind Kind, string Name, double FontSize, System.Windows.Media.Color Color, PdfFontKind Font = PdfFontKind.Sans, bool Bold = false, string Value = "") : PdfMark(Page);
+public sealed record PdfFieldMark(int Page, Rect Box, PdfNewFieldKind Kind, string Name, double FontSize, System.Windows.Media.Color Color, PdfFontKind Font = PdfFontKind.Sans, bool Bold = false, string Value = "", PdfFieldExtra? Extra = null) : PdfMark(Page);
 
 /// <summary>
 /// Makes real, fillable form fields (text boxes and check boxes) in a PDF: PDFium can't create them, so they are written into the saved bytes with PDFsharp
@@ -141,6 +144,8 @@ public static class PdfFormFields
             widget.Elements["/BS"] = bs;
 
             var normal = new PdfDictionary(doc);
+            var x = f.Extra ?? new PdfFieldExtra();
+            int flags = x.Required ? 1 << 1 : 0;                                                 // (field flags: bit 2 = required, bit 13 = several lines, bit 18 = drop-down list)
             if (f.Kind == PdfNewFieldKind.Text)
             {
                 widget.Elements.SetName("/FT", "/Tx");
@@ -148,9 +153,27 @@ public static class PdfFormFields
                 string font = FontResource(f.Font, f.Bold);
                 EnsureFont(doc, acro, font);
                 widget.Elements.SetString("/DA", "/" + font + " " + Num(size) + " Tf 0 g");
-                if (h > size * 2.4) widget.Elements.SetInteger("/Ff", 1 << 12);               // (a tall box: several lines)
+                if (x.Multiline) flags |= 1 << 12;
+                if (x.MaxLength > 0) widget.Elements.SetInteger("/MaxLen", x.MaxLength);
+                if (x.DefaultText.Length > 0) { widget.Elements.SetString("/V", x.DefaultText); widget.Elements.SetString("/DV", x.DefaultText); }
                 var ap = new PdfDictionary(doc);
                 ap.Elements["/N"] = Form(doc, w, h, Frame(w, h, edge, ""));
+                widget.Elements["/AP"] = ap;
+            }
+            else if (f.Kind == PdfNewFieldKind.Dropdown)
+            {
+                widget.Elements.SetName("/FT", "/Ch");
+                double size = Math.Clamp(f.FontSize, 4, Math.Max(4, h * 0.75));
+                string font = FontResource(f.Font, f.Bold);
+                EnsureFont(doc, acro, font);
+                widget.Elements.SetString("/DA", "/" + font + " " + Num(size) + " Tf 0 g");
+                flags |= 1 << 17;
+                var opt = new PdfArray(doc);
+                foreach (string choice in x.Choices ?? Array.Empty<string>()) opt.Elements.Add(new PdfString(choice));
+                widget.Elements["/Opt"] = opt;
+                if (x.DefaultText.Length > 0 && (x.Choices?.Contains(x.DefaultText) ?? false)) { widget.Elements.SetString("/V", x.DefaultText); widget.Elements.SetString("/DV", x.DefaultText); }
+                var ap = new PdfDictionary(doc);
+                ap.Elements["/N"] = Form(doc, w, h, Frame(w, h, edge, $"{edge} rg {Num(w - 4 - Math.Min(10, h * 0.5))} {Num(h * 0.62)} m {Num(w - 4)} {Num(h * 0.62)} l {Num(w - 4 - Math.Min(10, h * 0.5) / 2)} {Num(h * 0.32)} l f\n"));
                 widget.Elements["/AP"] = ap;
             }
             else if (f.Kind == PdfNewFieldKind.Radio)
@@ -179,8 +202,8 @@ public static class PdfFormFields
             else
             {
                 widget.Elements.SetName("/FT", "/Btn");
-                widget.Elements.SetName("/V", "/Off");
-                widget.Elements.SetName("/AS", "/Off");
+                widget.Elements.SetName("/V", x.Ticked ? "/Yes" : "/Off");
+                widget.Elements.SetName("/AS", x.Ticked ? "/Yes" : "/Off");
                 mk.Elements.SetString("/CA", "4");
                 double s = Math.Min(w, h);
                 string tick = $"{edge} RG {Num(s * 0.13)} w 1 J 1 j {Num(w * 0.22)} {Num(h * 0.5)} m {Num(w * 0.43)} {Num(h * 0.25)} l {Num(w * 0.79)} {Num(h * 0.77)} l S\n";
@@ -191,8 +214,10 @@ public static class PdfFormFields
                 widget.Elements["/AP"] = ap;
             }
 
+            if (flags != 0 && f.Kind != PdfNewFieldKind.Radio) widget.Elements.SetInteger("/Ff", flags);
             if (widget.Reference == null) doc.Internals.AddObject(widget);             // (a round button was added to the object list above, to be listed in its group)
             var page = doc.Pages[f.Page];
+            page.Elements.SetName("/Tabs", "/R");                                       // (Tab goes along the rows of the page, top to bottom)
             widget.Elements["/P"] = page.Reference;
             var annots = Resolve(page.Elements["/Annots"]) as PdfArray;
             if (annots == null) { annots = new PdfArray(doc); page.Elements["/Annots"] = annots; }
