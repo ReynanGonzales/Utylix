@@ -184,6 +184,11 @@ public sealed partial class PdfWindow
     {
         if (_pdf == null) return false;
         CloseTextBox(commit: true);
+        if (_items.OfType<FieldItem>().Any())
+        {
+            UMessage.Show(this, "There are form fields (text boxes / check boxes) that are not saved yet. Save them first (Ctrl+S): they are written into the file as real fields, and that has to happen before the pages are changed or copied.", "Form fields");
+            return false;
+        }
         if (_items.Any(i => i.Marks().OfType<PdfRedactMark>().Any()))
         {
             UMessage.Show(this, "There are black boxes (Redact) that are not saved yet. Save them first (Ctrl+S): redacting is checked when it is saved, and it has to happen before the pages are changed.", "Pages");

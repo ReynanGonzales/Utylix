@@ -22,7 +22,7 @@ namespace IdmClone;
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact }
+    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField }
 
     // ---------- what can be on a page ----------
     private abstract class EditItem
@@ -440,7 +440,7 @@ public sealed partial class PdfWindow
         (EditTool.Select, Key.V, "V"), (EditTool.EditText, Key.E, "E"), (EditTool.Text, Key.T, "T"), (EditTool.Signature, Key.G, "G"), (EditTool.Image, Key.I, "I"),
         (EditTool.Check, Key.C, "C"), (EditTool.Cross, Key.X, "X"), (EditTool.Stamp, Key.M, "M"), (EditTool.Date, Key.D, "D"), (EditTool.Highlight, Key.H, "H"),
         (EditTool.Underline, Key.U, "U"), (EditTool.Strike, Key.K, "K"), (EditTool.Note, Key.N, "N"), (EditTool.Pen, Key.P, "P"), (EditTool.Shapes, Key.S, "S"),
-        (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"),
+        (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"), (EditTool.TextField, Key.F, "F"), (EditTool.CheckField, Key.B, "B"),
     };
 
     private UIElement BuildEditBar()
@@ -494,6 +494,12 @@ public sealed partial class PdfWindow
         ToolButton(EditTool.Strike, "S̶", "Strike", "Drag over text to strike it out", "Segoe UI");
         ToolButton(EditTool.Note, "", "Note", "Click to add a sticky note (a comment other PDF readers show too)");
         ToolButton(EditTool.Pen, "", "Pen", "Draw freely");
+        ToolButton(EditTool.TextField, "", "Text box", "A fillable text box (a real form field): drag its size on the page. Anyone can type in it, here or in any PDF reader once saved",
+                   icon: new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(2), Width = 26, Height = 16, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
+                                      Child = new TextBlock { Text = "I", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, -1, 0, 0) } });
+        ToolButton(EditTool.CheckField, "", "Check box", "A fillable check box (a real form field): click on the page. Click it to tick or untick",
+                   icon: new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(2), Width = 17, Height = 17, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
+                                      Child = new TextBlock { Text = "✓", FontSize = 12, FontWeight = FontWeights.Bold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, -2, 0, 0) } });
         ToolButton(EditTool.Shapes, "▭", "Shapes", "Box, circle, line or arrow: click again to choose (Shift: straight / square)", "Segoe UI Symbol");
         ShapesMenu();
         StampMenus();
@@ -524,6 +530,7 @@ public sealed partial class PdfWindow
         Group(_toolButtons[EditTool.Text], _toolButtons[EditTool.EditText], _toolButtons[EditTool.Date], actions["PdfActionColumns"]);
         Group(_toolButtons[EditTool.Highlight], _toolButtons[EditTool.Underline], _toolButtons[EditTool.Strike], _toolButtons[EditTool.Note], _toolButtons[EditTool.Pen]);
         Group(_toolButtons[EditTool.Image], _toolButtons[EditTool.Signature], _toolButtons[EditTool.Stamp], _toolButtons[EditTool.Check], _toolButtons[EditTool.Cross], _toolButtons[EditTool.Shapes]);
+        Group(_toolButtons[EditTool.TextField], _toolButtons[EditTool.CheckField]);
         Group(_toolButtons[EditTool.WhiteOut], _toolButtons[EditTool.Redact]);
         Group(actions["PdfActionBorder"], actions["PdfActionWatermark"], actions["PdfActionPageNumbers"]);
         Group(actions["PdfActionToWord"], actions["PdfActionToExcel"], actions["PdfActionToPictures"]);
@@ -809,7 +816,14 @@ public sealed partial class PdfWindow
                        : run ? "Click a line of text to change it, or drag it to move it. Shift+Enter makes a new line; Enter or a click beside it finishes; Save puts it into the PDF." : "";
         _toolHint.Visibility = run ? Visibility.Visible : Visibility.Collapsed;
         bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
-        _colorRow.Visibility = item is ImageItem || (run && typingRun == null) || redact ? Visibility.Collapsed : Visibility.Visible;
+        bool fieldTool = item is FieldItem || (item == null && _tool is EditTool.TextField or EditTool.CheckField);
+        _colorRow.Visibility = item is ImageItem || (run && typingRun == null) || redact || fieldTool ? Visibility.Collapsed : Visibility.Visible;
+        if (fieldTool)
+        {
+            _toolHint.Text = "Text box: drag its size (or click). Check box: click. They become real fillable fields when you Save: fill them here in the form bar, or in any PDF reader.";
+            _toolHint.Visibility = Visibility.Visible;
+            ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
+        }
         if (redact) { _toolHint.Text = "Drag over what must go. Saving removes it from the file for good (Save replaces the file: use Save as… to keep the original)."; _toolHint.Visibility = Visibility.Visible; }
         if (run && typingRun == null) ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
         if (item is ColumnsItem) { _toolHint.Text = "Double-click (or Enter) to change the words or the number of columns. Drag a side handle to make it wider or narrower; the height follows the words."; _toolHint.Visibility = Visibility.Visible; }
@@ -1079,7 +1093,7 @@ public sealed partial class PdfWindow
         e.Handled = true;
         _dragPage = pv; _dragStart = p; _dragSnapshotTaken = false;
         // the handles of the selected item (it can be turned and resized while the tool that placed it is still on)
-        if (_tool is EditTool.Select or EditTool.Stamp or EditTool.Text or EditTool.Date or EditTool.Signature or EditTool.Image && _selected != null)
+        if (_tool is EditTool.Select or EditTool.Stamp or EditTool.Text or EditTool.Date or EditTool.Signature or EditTool.Image or EditTool.TextField or EditTool.CheckField && _selected != null)
         {
             if (OnRotateHandle(pv, p))
             {
@@ -1130,6 +1144,10 @@ public sealed partial class PdfWindow
                 Add(new ShapeItem { Page = pv.Index, Kind = _tool == EditTool.Check ? ShapeKind.Check : ShapeKind.Cross, A = new Point(p.X - s / 2, p.Y - s / 2), B = new Point(p.X + s / 2, p.Y + s / 2), Color = _toolColors[_tool] });
                 return;
             }
+            case EditTool.TextField or EditTool.CheckField:
+                if (ItemAt(pv.Index, p) is FieldItem placed) { Select(placed); _drag = DragMode.Move; _dragBox = placed.Bounds; break; }       // (a click on a field already there moves it)
+                StartField(pv, p);
+                break;
             case EditTool.Stamp:
                 _dragPage = null;
                 PlaceStamp(pv, p);
@@ -1218,6 +1236,13 @@ public sealed partial class PdfWindow
                 RenderItems(pv.Index);
                 break;
             }
+            case DragMode.Draw when _drawing is FieldItem field:
+            {
+                var a = _dragStart;
+                field.Box = new Rect(a, field.Kind == PdfNewFieldKind.CheckBox ? new Point(a.X + Math.Max(Math.Abs(p.X - a.X), Math.Abs(p.Y - a.Y)) * (p.X >= a.X ? 1 : -1), a.Y + Math.Max(Math.Abs(p.X - a.X), Math.Abs(p.Y - a.Y)) * (p.Y >= a.Y ? 1 : -1)) : p);
+                RenderItems(pv.Index);
+                break;
+            }
             case DragMode.Marquee when _marquee != null:
                 _marquee = new Rect(_dragStart, p);
                 RenderItems(pv.Index);
@@ -1294,6 +1319,7 @@ public sealed partial class PdfWindow
             return;
         }
         if (mode == DragMode.GroupMove) { UpdateEditButtons(); return; }
+        if (drawn is FieldItem newField && mode == DragMode.Draw) { FinishField(newField, _dragStart); return; }
         if (mode == DragMode.Marquee)
         {
             var box = _marquee ?? Rect.Empty;
@@ -1540,6 +1566,8 @@ public sealed partial class PdfWindow
         string? password = pdf.Password;
         var marks = _items.SelectMany(i => i.Marks()).ToList();
         var redactions = marks.OfType<PdfRedactMark>().ToList();
+        var newFields = marks.OfType<PdfFieldMark>().ToList();
+        if (newFields.Count > 0 && pdf.IsProtected) { UMessage.Show(this, "A password-protected PDF can't get new form fields here (the file would lose its protection). Open a copy without the password protection.", "Form fields", MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
         var flattened = new List<int>();
         if (redactions.Count > 0)
         {
@@ -1562,12 +1590,13 @@ public sealed partial class PdfWindow
             flattened = PdfMarkWriter.FlattenedPages.Select(p => p + 1).OrderBy(p => p).ToList();
             byte[] bytes = pdf.SaveToBytes();
             if (redactions.Count > 0) bytes = PdfRedactor.Finish(bytes, redactions);       // (cleaned and checked: if anything is left under a box, nothing is saved)
+            if (newFields.Count > 0) bytes = PdfFormFields.Add(pdf, bytes, newFields);     // (PDFium can't make form fields: they are written into the saved bytes)
             // written next to it first, so a failure can't leave half a file
             string temp = target + ".utylix-tmp";
             File.WriteAllBytes(temp, bytes);
             File.Move(temp, target, overwrite: true);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ObjectDisposedException or OutOfMemoryException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ObjectDisposedException or OutOfMemoryException or InvalidOperationException or PdfSharp.PdfSharpException)
         {
             Mouse.OverrideCursor = null;
             _undoAfterSave = null;
