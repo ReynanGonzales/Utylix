@@ -41,6 +41,7 @@ public sealed partial class PdfWindow
         Heading("CLEAN UP");
         Item("Remove a watermark…", RemoveWatermark, "PdfMenuWatermark");
         Item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");
+        Item("Compare with another PDF…", ComparePdf, "PdfMenuCompare");
         Heading("CONVERT");
         Item("Save as Word or Excel…", () => ExportToOffice(), "PdfMenuExport");
         Themed(menu);
@@ -98,6 +99,33 @@ public sealed partial class PdfWindow
         },
         () => Enumerable.Range(at, total).ToList(),
         () => (total == 1 ? "1 page" : total + " pages") + " added after page " + at);
+    }
+
+    /// <summary>Compare the open PDF (as saved on disk) with another one: what is different, page by page.</summary>
+    private void ComparePdf()
+    {
+        if (_pdf == null || _path == null) return;
+        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Compare " + Path.GetFileName(_path) + " with ...", Filter = "PDF|*.pdf", CheckFileExists = true, InitialDirectory = Path.GetDirectoryName(_path) };
+        if (dlg.ShowDialog(this) != true) return;
+        PdfFile? a = null, b = null;
+        try
+        {
+            a = PdfFile.Open(_path, _pdf.Password);
+            b = PdfFile.Open(dlg.FileName);
+            var window = new PdfCompareWindow(this, a, Path.GetFileName(_path), b, Path.GetFileName(dlg.FileName));
+            window.Closed += (_, _) => { a.Dispose(); b.Dispose(); };
+            window.Show();
+        }
+        catch (PdfPasswordException)
+        {
+            a?.Dispose(); b?.Dispose();
+            UMessage.Show(this, "That PDF needs a password. Remove its password first (Tools > Remove the password) and compare the copy.", "Compare", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or OutOfMemoryException)
+        {
+            a?.Dispose(); b?.Dispose();
+            UMessage.Show(this, "Couldn't open it: " + e.Message, "Compare", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     /// <summary>Pages from a scanner (Windows' own scan window): each scan becomes a page after the chosen page; ask for as many as wanted.</summary>
