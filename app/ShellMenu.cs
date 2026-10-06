@@ -311,8 +311,42 @@ public static class ShellMenu
                     c.SetValue("", $"\"{exe}\" --office-pdf \"%1\"");
                 }
             }
+            RegisterBlankPdf(dataDir, enabled, exe);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
+    }
+
+    /// <summary>
+    /// Right-click on the desktop or in a folder &gt; New &gt; Blank PDF: Explorer copies a one-page PDF (kept in the data folder) under the name the person types.
+    /// Only a ShellNew key under .pdf is written (never the default program or the file type's name), and only when something differs.
+    /// </summary>
+    private static void RegisterBlankPdf(string dataDir, bool enabled, string exe)
+    {
+        const string key = @"Software\Classes\.pdf\ShellNew";
+        if (!enabled) { Registry.CurrentUser.DeleteSubKeyTree(key, throwOnMissingSubKey: false); return; }
+        byte[] pdf = BlankPdf();
+        string template = Path.Combine(dataDir, "blank.pdf");
+        if (!File.Exists(template) || new FileInfo(template).Length != pdf.Length) File.WriteAllBytes(template, pdf);
+        using var k = Registry.CurrentUser.CreateSubKey(key);
+        SetIfDifferent(k, "FileName", template);
+        SetIfDifferent(k, "ItemName", "Blank PDF");
+        SetIfDifferent(k, "IconPath", OwnIcon(dataDir, "pdf", IconOf(exe)));
+    }
+
+    /// <summary>A valid PDF with one empty A4 page (595 x 842 points).</summary>
+    internal static byte[] BlankPdf()
+    {
+        var body = new System.Text.StringBuilder("%PDF-1.4\n");
+        var offsets = new List<int>();
+        void Obj(string text) { offsets.Add(body.Length); body.Append(offsets.Count).Append(" 0 obj\n").Append(text).Append("\nendobj\n"); }
+        Obj("<< /Type /Catalog /Pages 2 0 R >>");
+        Obj("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+        Obj("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << >> >>");
+        int xref = body.Length;
+        body.Append("xref\n0 ").Append(offsets.Count + 1).Append("\n0000000000 65535 f \n");
+        foreach (int o in offsets) body.Append(o.ToString("D10")).Append(" 00000 n \n");
+        body.Append("trailer\n<< /Size ").Append(offsets.Count + 1).Append(" /Root 1 0 R >>\nstartxref\n").Append(xref).Append("\n%%EOF\n");
+        return System.Text.Encoding.ASCII.GetBytes(body.ToString());
     }
 
     // ---------- torrents ----------
