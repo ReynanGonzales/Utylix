@@ -104,10 +104,10 @@ public sealed partial class PdfWindow
     private void LiftOwnField(int page, PdfOwnField f)
     {
         if (_pdf == null) return;
-        bool done = PageOp(p => p.SetNote(page, f.AnnotIndex, null), new[] { page }, f.Kind == PdfNewFieldKind.Text ? "Text box picked up: move or resize it, copy it, delete it. Save makes it a field again" : "Check box picked up: move it, copy it, delete it. Save makes it a field again", keepView: true);
+        bool done = PageOp(p => p.SetNote(page, f.AnnotIndex, null), new[] { page }, f.Kind switch { PdfNewFieldKind.Text => "Text box", PdfNewFieldKind.Signature => "Signature box", PdfNewFieldKind.Radio => "Option", _ => "Check box" } + " picked up: move it, resize it, copy it, delete it. Save makes it a field again", keepView: true);
         if (!done) return;
         _fieldsLifted = true;
-        var item = new FieldItem { Page = page, Kind = f.Kind, Box = f.Box, Name = f.Name, FontSize = f.FontSize, Font = f.Font, Bold = f.Bold, Color = f.Color };
+        var item = new FieldItem { Page = page, Kind = f.Kind, Box = f.Box, Name = f.Name, Value = f.Value, FontSize = f.FontSize, Font = f.Font, Bold = f.Bold, Color = f.Color };
         _items.Add(item);                                                // (no step of its own: Undo goes back to the page as it was, with the field on it)
         Select(item);
         RenderItems(page);

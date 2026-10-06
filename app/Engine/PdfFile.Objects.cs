@@ -12,7 +12,7 @@ namespace IdmClone.Engine;
 public sealed record PdfPageObject(int Index, int Kind, Rect Box);
 
 /// <summary>A text box / check box made by Utylix and saved in a PDF (found again so it can be moved, resized, copied or deleted).</summary>
-public sealed record PdfOwnField(int AnnotIndex, PdfNewFieldKind Kind, Rect Box, string Name, double FontSize, PdfFontKind Font, bool Bold, Color Color);
+public sealed record PdfOwnField(int AnnotIndex, PdfNewFieldKind Kind, Rect Box, string Name, double FontSize, PdfFontKind Font, bool Bold, Color Color, string Value = "");
 
 /// <summary>Changing what is already drawn on a page of the open document: pick it up, move it, resize it, delete it. (Save writes it.)</summary>
 public sealed partial class PdfFile
@@ -190,7 +190,8 @@ public sealed partial class PdfFile
         var result = new List<PdfOwnField>();
         List<PdfField> fields;
         try { fields = GetFields(pageIndex); } catch (IOException) { return result; }
-        var candidates = fields.Where(f => f.Kind is PdfFieldKind.Text or PdfFieldKind.CheckBox && !f.ReadOnly && !f.Password).ToList();
+        var candidates = fields.Where(f => f.Kind is PdfFieldKind.Text or PdfFieldKind.CheckBox or PdfFieldKind.Radio or PdfFieldKind.Signature && !f.ReadOnly && !f.Password
+                                           && (f.Kind != PdfFieldKind.Signature || f.Value.Length == 0)).ToList();      // (a signature box that is signed already stays as it is)
         if (candidates.Count == 0) return result;
         lock (Pdfium.Sync)
         {
@@ -205,7 +206,8 @@ public sealed partial class PdfFile
                     try
                     {
                         bool marked = AnnotString(annot, OwnFieldKey).Length > 0;
-                        bool named = f.Name.StartsWith("Text ", StringComparison.Ordinal) || f.Name.StartsWith("Check box ", StringComparison.Ordinal);
+                        bool named = f.Name.StartsWith("Text ", StringComparison.Ordinal) || f.Name.StartsWith("Check box ", StringComparison.Ordinal)
+                                     || f.Name.StartsWith("Choice ", StringComparison.Ordinal) || f.Name.StartsWith("Signature ", StringComparison.Ordinal);
                         if (!marked && !named) continue;
                         var color = Colors.Black;                                       // (older fields have no colour of their own saved: they were drawn in the colour the person chose, black is the usual one)
                         string hex = AnnotString(annot, OwnColorKey);
@@ -213,7 +215,14 @@ public sealed partial class PdfFile
                         string da = AnnotString(annot, "DA");                              // e.g. "/HeBo 12 Tf 0 g"
                         var kind = da.Contains("/TiRo") || da.Contains("/TiBo") ? PdfFontKind.Serif : da.Contains("/Cour") || da.Contains("/CoBo") ? PdfFontKind.Mono : PdfFontKind.Sans;
                         bool bold = da.Contains("/HeBo") || da.Contains("/TiBo") || da.Contains("/CoBo");
-                        result.Add(new PdfOwnField(f.AnnotIndex, f.Kind == PdfFieldKind.Text ? PdfNewFieldKind.Text : PdfNewFieldKind.CheckBox, f.Box, f.Name, f.FontSize > 0 ? f.FontSize : 12, kind, bold, color));
+                        string value = "";
+                        if (f.Kind == PdfFieldKind.Radio)                                         // (what this round button stands for)
+                        {
+                            uint len = Pdfium.FPDFAnnot_GetFormFieldExportValue(_form, annot, null, 0);
+                            if (len > 2 && len < 4096) { var buf = new byte[len]; Pdfium.FPDFAnnot_GetFormFieldExportValue(_form, annot, buf, len); value = Encoding.Unicode.GetString(buf, 0, (int)len - 2); }
+                        }
+                        var newKind = f.Kind switch { PdfFieldKind.Text => PdfNewFieldKind.Text, PdfFieldKind.Radio => PdfNewFieldKind.Radio, PdfFieldKind.Signature => PdfNewFieldKind.Signature, _ => PdfNewFieldKind.CheckBox };
+                        result.Add(new PdfOwnField(f.AnnotIndex, newKind, f.Box, f.Name, f.FontSize > 0 ? f.FontSize : 12, kind, bold, color, value));
                     }
                     finally { Pdfium.FPDFPage_CloseAnnot(annot); }
                 }

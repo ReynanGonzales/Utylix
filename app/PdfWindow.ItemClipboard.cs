@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using IdmClone.Engine;
 
 namespace IdmClone;
 
@@ -71,7 +72,11 @@ public sealed partial class PdfWindow
             var copy = source.Clone();
             copy.Page = page;
             copy.MoveBy(shift);
-            if (copy is FieldItem field) field.Name = NewFieldName(field.Kind);
+            if (copy is FieldItem field)
+            {
+                if (field.Kind == PdfNewFieldKind.Radio) field.Value = NewRadioValue(field.Name);          // (another button of the same group)
+                else field.Name = NewFieldName(field.Kind);
+            }
             _items.Add(copy);
             pasted.Add(copy);
         }

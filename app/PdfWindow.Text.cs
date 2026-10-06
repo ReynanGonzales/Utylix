@@ -664,6 +664,7 @@ public sealed partial class PdfWindow
             void Item(string text, Action action, string id) { var m = new MenuItem { Header = text }; System.Windows.Automation.AutomationProperties.SetAutomationId(m, id); m.Click += (_, _) => action(); menu.Items.Add(m); }
             Item("A blank page after the chosen page", AddBlankPage, "PdfStripAddBlank");
             Item("Pages from a PDF or pictures…", InsertPagesFromFiles, "PdfStripAddFile");
+            Item("Pages from a scanner…", InsertFromScanner, "PdfStripAddScan");
             Themed(menu);
             menu.PlacementTarget = b; menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top; menu.IsOpen = true;
         };

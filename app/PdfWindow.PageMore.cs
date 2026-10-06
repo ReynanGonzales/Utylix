@@ -100,6 +100,44 @@ public sealed partial class PdfWindow
         () => (total == 1 ? "1 page" : total + " pages") + " added after page " + at);
     }
 
+    /// <summary>Pages from a scanner (Windows' own scan window): each scan becomes a page after the chosen page; ask for as many as wanted.</summary>
+    private void InsertFromScanner()
+    {
+        if (_pdf == null || _path == null) return;
+        var sel = SelectedPages();
+        int at = sel[^1] + 1;
+        string folder = Path.Combine(Path.GetTempPath(), "UtylixScanner");
+        var files = new List<string>();
+        while (true)
+        {
+            var file = ScannerImport.ScanOne(folder, out string error);
+            if (file == null)
+            {
+                if (error.Length > 0) UMessage.Show(this, error, "Scan", MessageBoxButton.OK, MessageBoxImage.Information);
+                break;
+            }
+            files.Add(file);
+            var more = UMessage.Ask(this, files.Count == 1 ? "1 page scanned." : files.Count + " pages scanned.", "Scan", MessageBoxImage.Information, MessageBoxResult.No, MessageBoxResult.No,
+                                    ("Scan another page", MessageBoxResult.Yes), ("That's all", MessageBoxResult.No));
+            if (more != MessageBoxResult.Yes) break;
+        }
+        if (files.Count == 0) return;
+        int total = 0;
+        PageOp(p =>
+        {
+            int pos = at;
+            foreach (string file in files)
+            {
+                var like = p.PageSize(Math.Clamp(pos - 1, 0, p.PageCount - 1));
+                PdfPageTools.InsertPicture(p, file, pos, (like.Width, like.Height));
+                pos++; total++;
+            }
+        },
+        () => Enumerable.Range(at, total).ToList(),
+        () => (total == 1 ? "1 scanned page" : total + " scanned pages") + " added after page " + at);
+        foreach (string file in files) { try { File.Delete(file); } catch (IOException) { } }
+    }
+
     /// <summary>One empty page after the chosen page (or the last of the chosen pages), as big as that page.</summary>
     private void AddBlankPage()
     {

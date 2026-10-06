@@ -10,10 +10,10 @@ using PdfSharp.Pdf.Advanced;
 
 namespace IdmClone.Engine;
 
-public enum PdfNewFieldKind { Text, CheckBox }
+public enum PdfNewFieldKind { Text, CheckBox, Radio, Signature }
 
-/// <summary>A new fillable field to put on a page. Box is in points from the top-left of the page as shown.</summary>
-public sealed record PdfFieldMark(int Page, Rect Box, PdfNewFieldKind Kind, string Name, double FontSize, System.Windows.Media.Color Color, PdfFontKind Font = PdfFontKind.Sans, bool Bold = false) : PdfMark(Page);
+/// <summary>A new fillable field to put on a page. Box is in points from the top-left of the page as shown. A radio button's Name is its GROUP (one choice out of the group) and Value is what this button stands for.</summary>
+public sealed record PdfFieldMark(int Page, Rect Box, PdfNewFieldKind Kind, string Name, double FontSize, System.Windows.Media.Color Color, PdfFontKind Font = PdfFontKind.Sans, bool Bold = false, string Value = "") : PdfMark(Page);
 
 /// <summary>
 /// Makes real, fillable form fields (text boxes and check boxes) in a PDF: PDFium can't create them, so they are written into the saved bytes with PDFsharp
@@ -72,8 +72,17 @@ public static class PdfFormFields
         foreach (var pg in doc.Pages)
             if (Resolve(pg.Elements["/Annots"]) is PdfArray onPage) foreach (var it in onPage.Elements) if (it is PdfReference rr) live.Add(rr.ObjectID);
         for (int k = all.Elements.Count - 1; k >= 0; k--)
-            if (all.Elements[k] is PdfReference fr && fr.Value is PdfDictionary fd && fd.Elements.GetName("/Subtype") == "/Widget" && !fd.Elements.ContainsKey("/Kids") && !live.Contains(fr.ObjectID))
-                all.Elements.RemoveAt(k);
+        {
+            if (all.Elements[k] is not PdfReference fr || fr.Value is not PdfDictionary fd) continue;
+            if (fd.Elements.GetName("/Subtype") == "/Widget" && !fd.Elements.ContainsKey("/Kids") && !live.Contains(fr.ObjectID)) { all.Elements.RemoveAt(k); continue; }
+            // a group of round buttons: the buttons that left the page (picked up again) go from its list, and an empty group goes
+            if (Resolve(fd.Elements["/Kids"]) is PdfArray kids && fd.Elements.GetName("/FT") == "/Btn")
+            {
+                for (int q = kids.Elements.Count - 1; q >= 0; q--)
+                    if (kids.Elements[q] is PdfReference kr && kr.Value is PdfDictionary kd && kd.Elements.GetName("/Subtype") == "/Widget" && !live.Contains(kr.ObjectID)) kids.Elements.RemoveAt(q);
+                if (kids.Elements.Count == 0) all.Elements.RemoveAt(k);
+            }
+        }
         if (fields.Count == 0) { using var tidied = new MemoryStream(); doc.Save(tidied, false); return tidied.ToArray(); }
         EnsureFont(doc, acro);
         acro.Elements.SetBoolean("/NeedAppearances", true);
@@ -82,19 +91,42 @@ public static class PdfFormFields
         var used = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in all.Elements) if (Resolve(item) is PdfDictionary d && d.Elements.GetString("/T") is { Length: > 0 } t) used.Add(t);
 
+        // a group of round buttons is ONE field (its parent) whose widgets are the buttons; an existing group of that name is added to
+        var radioParents = new Dictionary<string, PdfDictionary>();
+        PdfDictionary RadioParent(string group)
+        {
+            if (radioParents.TryGetValue(group, out var known)) return known;
+            foreach (var item in all.Elements)
+                if (Resolve(item) is PdfDictionary d && d.Elements.GetString("/T") == group && d.Elements.GetName("/FT") == "/Btn" && (d.Elements.GetInteger("/Ff") & (1 << 15)) != 0)
+                {
+                    if (Resolve(d.Elements["/Kids"]) is not PdfArray) d.Elements["/Kids"] = new PdfArray(doc);
+                    return radioParents[group] = d;
+                }
+            var parent = new PdfDictionary(doc);
+            parent.Elements.SetName("/FT", "/Btn");
+            parent.Elements.SetInteger("/Ff", (1 << 15) | (1 << 14));                          // (round buttons; one of them has to stay chosen once chosen)
+            parent.Elements.SetString("/T", group);
+            parent.Elements.SetName("/V", "/Off");
+            parent.Elements["/Kids"] = new PdfArray(doc);
+            doc.Internals.AddObject(parent);
+            all.Elements.Add(parent.Reference!);
+            used.Add(group);
+            return radioParents[group] = parent;
+        }
+
         for (int i = 0; i < fields.Count; i++)
         {
             var f = fields[i]; var (l, b, r, t) = boxes[i];
             double w = Math.Max(4, r - l), h = Math.Max(4, t - b);
-            string name = f.Name; int n = 2;
-            while (!used.Add(name)) name = f.Name + " (" + n++ + ")";
+            string name = f.Name;
+            if (f.Kind != PdfNewFieldKind.Radio) { int n = 2; while (!used.Add(name)) name = f.Name + " (" + n++ + ")"; }       // (round buttons of one group share the group's name on purpose)
 
             var widget = new PdfDictionary(doc);
             widget.Elements.SetName("/Type", "/Annot");
             widget.Elements.SetName("/Subtype", "/Widget");
             widget.Elements["/Rect"] = Box(doc, l, b, l + w, b + h);
             widget.Elements.SetInteger("/F", 4);                                              // (printed)
-            widget.Elements.SetString("/T", name);
+            if (f.Kind != PdfNewFieldKind.Radio) widget.Elements.SetString("/T", name);
             widget.Elements.SetString("/" + PdfFile.OwnFieldKey, "1");                       // (made here: it can be picked up and edited again)
             widget.Elements.SetString("/" + PdfFile.OwnColorKey, $"{f.Color.R:X2}{f.Color.G:X2}{f.Color.B:X2}");
             // the person's colour: a solid edge, nothing inside (no background)
@@ -121,6 +153,29 @@ public static class PdfFormFields
                 ap.Elements["/N"] = Form(doc, w, h, Frame(w, h, edge, ""));
                 widget.Elements["/AP"] = ap;
             }
+            else if (f.Kind == PdfNewFieldKind.Radio)
+            {
+                // a round button of a group: the group is the field (its parent), this is one of its widgets; "Off" or its own name is the state
+                var parent = RadioParent(name);
+                string on = "/" + ExportName(f.Value);
+                mk.Elements.SetString("/CA", "l");
+                widget.Elements.SetName("/AS", "/Off");
+                widget.Elements["/Parent"] = parent.Reference;
+                normal.Elements[on] = Form(doc, w, h, Circle(w, h, edge, filled: true));
+                normal.Elements["/Off"] = Form(doc, w, h, Circle(w, h, edge, filled: false));
+                var ap = new PdfDictionary(doc);
+                ap.Elements["/N"] = normal;
+                widget.Elements["/AP"] = ap;
+                doc.Internals.AddObject(widget);
+                (Resolve(parent.Elements["/Kids"]) as PdfArray)!.Elements.Add(widget.Reference!);
+            }
+            else if (f.Kind == PdfNewFieldKind.Signature)
+            {
+                widget.Elements.SetName("/FT", "/Sig");
+                var ap = new PdfDictionary(doc);
+                ap.Elements["/N"] = Form(doc, w, h, SignatureLook(w, h, edge));
+                widget.Elements["/AP"] = ap;
+            }
             else
             {
                 widget.Elements.SetName("/FT", "/Btn");
@@ -136,13 +191,13 @@ public static class PdfFormFields
                 widget.Elements["/AP"] = ap;
             }
 
-            doc.Internals.AddObject(widget);
+            if (widget.Reference == null) doc.Internals.AddObject(widget);             // (a round button was added to the object list above, to be listed in its group)
             var page = doc.Pages[f.Page];
             widget.Elements["/P"] = page.Reference;
             var annots = Resolve(page.Elements["/Annots"]) as PdfArray;
             if (annots == null) { annots = new PdfArray(doc); page.Elements["/Annots"] = annots; }
             annots.Elements.Add(widget.Reference!);
-            all.Elements.Add(widget.Reference!);
+            if (f.Kind != PdfNewFieldKind.Radio) all.Elements.Add(widget.Reference!);       // (the group is in the form's list, not each of its buttons)
         }
 
         using var output = new MemoryStream();
@@ -187,6 +242,36 @@ public static class PdfFormFields
     private static string Num(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
     private const double BorderWidth = 1;
+
+    /// <summary>What a round button stands for, as a PDF name (letters and digits only).</summary>
+    private static string ExportName(string value)
+    {
+        string s = new string((value ?? "").Where(char.IsLetterOrDigit).ToArray());
+        return s.Length == 0 ? "Choice" : s;
+    }
+
+    private static string EllipsePath(double cx, double cy, double rx, double ry)
+    {
+        const double k = 0.5523;
+        return $"{Num(cx + rx)} {Num(cy)} m " +
+               $"{Num(cx + rx)} {Num(cy + k * ry)} {Num(cx + k * rx)} {Num(cy + ry)} {Num(cx)} {Num(cy + ry)} c " +
+               $"{Num(cx - k * rx)} {Num(cy + ry)} {Num(cx - rx)} {Num(cy + k * ry)} {Num(cx - rx)} {Num(cy)} c " +
+               $"{Num(cx - rx)} {Num(cy - k * ry)} {Num(cx - k * rx)} {Num(cy - ry)} {Num(cx)} {Num(cy - ry)} c " +
+               $"{Num(cx + k * rx)} {Num(cy - ry)} {Num(cx + rx)} {Num(cy - k * ry)} {Num(cx + rx)} {Num(cy)} c h\n";
+    }
+
+    /// <summary>A round button: a ring, with a dot in it when chosen.</summary>
+    private static string Circle(double w, double h, string edge, bool filled)
+    {
+        double cx = w / 2, cy = h / 2;
+        string ring = EllipsePath(cx, cy, w / 2 - BorderWidth / 2, h / 2 - BorderWidth / 2) + $"{edge} RG {Num(BorderWidth)} w S\n";
+        string dot = filled ? EllipsePath(cx, cy, w * 0.22, h * 0.22) + $"{edge} rg f\n" : "";
+        return $"q\n{ring}{dot}Q\n";
+    }
+
+    /// <summary>An empty signature box: a dashed frame with a line to sign on.</summary>
+    private static string SignatureLook(double w, double h, string edge) =>
+        $"q {edge} RG 1 w [4 3] 0 d {Num(0.5)} {Num(0.5)} {Num(w - 1)} {Num(h - 1)} re S [] 0 d 0.8 w {Num(w * 0.06)} {Num(h * 0.28)} m {Num(w * 0.94)} {Num(h * 0.28)} l S Q\n";
 
     /// <summary>An empty box with a solid edge (no fill), the edge drawn inside the box so it is as sharp as the screen allows (and anything else on top), as an appearance stream.</summary>
     private static string Frame(double w, double h, string edge, string extra) =>

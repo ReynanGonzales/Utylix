@@ -210,6 +210,7 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern void FPDF_SetFormFieldHighlightAlpha(IntPtr form, byte alpha);
     [DllImport(Dll)] public static extern int FPDFAnnot_GetFormFieldType(IntPtr form, IntPtr annot);
     [DllImport(Dll)] public static extern uint FPDFAnnot_GetFormFieldName(IntPtr form, IntPtr annot, byte[]? buffer, uint length);
+    [DllImport(Dll)] public static extern uint FPDFAnnot_GetFormFieldExportValue(IntPtr form, IntPtr annot, byte[]? buffer, uint length);
     [DllImport(Dll)] public static extern uint FPDFAnnot_GetFormFieldAlternateName(IntPtr form, IntPtr annot, byte[]? buffer, uint length);
     [DllImport(Dll)] public static extern uint FPDFAnnot_GetFormFieldValue(IntPtr form, IntPtr annot, byte[]? buffer, uint length);
     [DllImport(Dll)] public static extern int FPDFAnnot_GetFormFieldFlags(IntPtr form, IntPtr annot);
