@@ -359,7 +359,11 @@ public sealed partial class PdfWindow
     private bool _bold;
 
     // dragging
-    private enum DragMode { None, Move, Resize, Draw, Ink, Rotate, RunMove }
+    private enum DragMode { None, Move, Resize, Draw, Ink, Rotate, RunMove, Marquee, GroupMove }
+    private readonly List<EditItem> _group = new();                     // several items chosen with a box (Select tool): they move / delete together
+    private Rect? _marquee;                                             // the box being dragged to choose them
+    private int _marqueePage;
+    private Point _groupLast;
     private RunEditItem? _runDragItem;                                 // Edit text: a line pressed on, to move (or, without moving, to change)
     private PdfTextRun? _runDragRun;
     private Vector _runDragStartOffset;
@@ -656,7 +660,6 @@ public sealed partial class PdfWindow
         if (_rotation != 0) { _rotation = 3; Rotate(); }              // (back to upright: editing works on the pages as they are)
         _editing = true;
         _editBar.Visibility = Visibility.Visible;
-        UpdateConvertBar();
         _editButton.Background = new SolidColorBrush(Color.FromArgb(60, 91, 141, 239));
         ClearTextSelection();
         _toolButtons[_tool].IsChecked = true;
@@ -699,10 +702,10 @@ public sealed partial class PdfWindow
     {
         CloseTextBox(commit: false);
         _items.Clear(); _undo.Clear(); _redo.Clear(); _pageUndo.Clear(); _pageRedo.Clear();
+        _group.Clear(); _marquee = null;
         _selected = null; _dirty = false; _drag = DragMode.None;
         _editing = keepEditing && _editing;
         if (_editBar != null) _editBar.Visibility = _editing ? Visibility.Visible : Visibility.Collapsed;
-        UpdateConvertBar();
         if (_editButton != null) _editButton.Background = _editing ? new SolidColorBrush(Color.FromArgb(60, 91, 141, 239)) : Brushes.Transparent;
         foreach (var p in _pages) { p.Overlay.Children.Clear(); p.Overlay.Cursor = _editing ? CursorFor(_tool) : null; }
         UpdateTitle();
@@ -903,6 +906,7 @@ public sealed partial class PdfWindow
     private void Restore(List<EditItem> state)
     {
         var pages = _items.Select(i => i.Page).Concat(state.Select(i => i.Page)).Distinct().ToList();
+        _group.Clear();
         _items.Clear(); _items.AddRange(state);
         _selected = null;
         _dirty = true;
@@ -914,7 +918,7 @@ public sealed partial class PdfWindow
     {
         _undoButton.IsEnabled = _undo.Count > 0 || _pageUndo.Count > 0;
         _redoButton.IsEnabled = _redo.Count > 0 || _pageRedo.Count > 0;
-        _deleteButton.IsEnabled = _selected != null;
+        _deleteButton.IsEnabled = _selected != null || _group.Count > 0;
         _saveButton.IsEnabled = _dirty;
     }
 
@@ -925,8 +929,28 @@ public sealed partial class PdfWindow
         if (select) Select(item); else RenderItems(item.Page);
     }
 
+    /// <summary>Lets go of the group chosen with a box (and redraws the pages that showed it).</summary>
+    private void ClearGroup()
+    {
+        if (_group.Count == 0) return;
+        var pages = _group.Select(i => i.Page).Distinct().ToList();
+        _group.Clear();
+        foreach (int p in pages) RenderItems(p);
+        UpdateEditButtons();
+    }
+
     private void DeleteSelected()
     {
+        if (_group.Count > 0)
+        {
+            Snapshot();
+            var pages = _group.Select(i => i.Page).Distinct().ToList();
+            foreach (var g in _group) _items.Remove(g);
+            _group.Clear();
+            foreach (int p in pages) RenderItems(p);
+            UpdateEditButtons(); UpdateProperties();
+            return;
+        }
         if (_selected == null) return;
         Snapshot();
         int page = _selected.Page;
@@ -938,6 +962,7 @@ public sealed partial class PdfWindow
 
     private void Select(EditItem? item)
     {
+        ClearGroup();
         var old = _selected;
         _selected = item;
         if (old != null) RenderItems(old.Page);
@@ -964,6 +989,26 @@ public sealed partial class PdfWindow
         if (_drawing != null && _drawing.Page == page) { var e = _drawing.Build(); e.IsHitTestVisible = false; overlay.Children.Add(e); }
         if (_textBox != null && _typing?.Page == page) overlay.Children.Add(_textBox);
         RenderRunExtras(page, overlay);
+        if (_group.Count > 0)
+        {
+            double gk = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);
+            var gblue = new SolidColorBrush(Color.FromRgb(0x2F, 0x6B, 0xEA));
+            foreach (var g in _group.Where(i => i.Page == page))
+            {
+                var gb = g.Bounds;
+                var gf = new Rectangle { Width = gb.Width + 6 * gk, Height = gb.Height + 6 * gk, Stroke = gblue, StrokeThickness = 1.2 * gk, StrokeDashArray = new DoubleCollection { 4, 3 }, IsHitTestVisible = false };
+                if (g.Angle != 0) gf.RenderTransform = new RotateTransform(g.Angle, gf.Width / 2, gf.Height / 2);
+                Canvas.SetLeft(gf, gb.X - 3 * gk); Canvas.SetTop(gf, gb.Y - 3 * gk);
+                overlay.Children.Add(gf);
+            }
+        }
+        if (_marquee is Rect mq && _marqueePage == page)
+        {
+            double mk = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);
+            var box = new Rectangle { Width = mq.Width, Height = mq.Height, Stroke = new SolidColorBrush(Color.FromRgb(0x2F, 0x6B, 0xEA)), StrokeThickness = 1.2 * mk, StrokeDashArray = new DoubleCollection { 4, 3 }, Fill = new SolidColorBrush(Color.FromArgb(40, 0x2F, 0x6B, 0xEA)), IsHitTestVisible = false };
+            Canvas.SetLeft(box, mq.X); Canvas.SetTop(box, mq.Y);
+            overlay.Children.Add(box);
+        }
         if (_selected != null && _selected.Page == page && _selected != _typing)
         {
             double k = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);      // (screen pixels -> points)
@@ -1063,9 +1108,11 @@ public sealed partial class PdfWindow
                 break;
             }
             case EditTool.Select:
+                if (_group.Count > 0 && _group.Any(g => g.Page == pv.Index && g.Hit(p))) { _drag = DragMode.GroupMove; _groupLast = p; break; }      // (several chosen: they all follow the mouse)
                 if (OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
                 var item = ItemAt(pv.Index, p);
                 Select(item);
+                if (item == null) { _drag = DragMode.Marquee; _marquee = new Rect(p, p); _marqueePage = pv.Index; break; }      // (an empty spot: drag a box round what you want)
                 if (item is TextItem t && e.ClickCount == 2) { EditText(t, isNew: false); return; }
                 if (item is NoteItem n && e.ClickCount == 2) { OpenNote(n, isNew: false); return; }
                 if (item is ColumnsItem columns && e.ClickCount == 2) { EditColumns(columns); return; }
@@ -1171,6 +1218,20 @@ public sealed partial class PdfWindow
                 RenderItems(pv.Index);
                 break;
             }
+            case DragMode.Marquee when _marquee != null:
+                _marquee = new Rect(_dragStart, p);
+                RenderItems(pv.Index);
+                break;
+            case DragMode.GroupMove:
+            {
+                var step = p - _groupLast;
+                if (step.Length < 0.01) return;
+                if (!_dragSnapshotTaken) { if ((p - _dragStart).Length < 1.5) return; Snapshot(); _dragSnapshotTaken = true; step = p - _dragStart; }
+                _groupLast = p;
+                foreach (var g in _group) g.MoveBy(step);
+                RenderItems(pv.Index);
+                break;
+            }
             case DragMode.Rotate when _selected != null:
             {
                 var raw = e.GetPosition(pv.Overlay);                                   // (not held inside the page: turning goes on beyond its edge)
@@ -1230,6 +1291,18 @@ public sealed partial class PdfWindow
             if (!moved) EditTextAt(pv, _dragStart);                                    // pressed and let go: change the words
             else { _hoverRun = null; UpdateEditButtons(); RenderItems(pv.Index); }               // (the dashed frame was around the old place)
             _runDragItem = null; _runDragRun = null;
+            return;
+        }
+        if (mode == DragMode.GroupMove) { UpdateEditButtons(); return; }
+        if (mode == DragMode.Marquee)
+        {
+            var box = _marquee ?? Rect.Empty;
+            _marquee = null;
+            var hit = box.Width < 3 && box.Height < 3 ? new List<EditItem>() : _items.Where(i => i.Page == pv.Index && !i.Bounds.IsEmpty && box.IntersectsWith(i.Bounds)).ToList();
+            if (hit.Count == 1) Select(hit[0]);
+            else if (hit.Count > 1) { _selected = null; _group.AddRange(hit); UpdateProperties(); }
+            RenderItems(pv.Index);
+            UpdateEditButtons();
             return;
         }
         if (drawn is ShapeItem shape && mode == DragMode.Draw)
@@ -1409,8 +1482,18 @@ public sealed partial class PdfWindow
             case Key.Z when ctrl && !shift: Undo(); return true;
             case Key.Y when ctrl: Redo(); return true;
             case Key.Z when ctrl && shift: Redo(); return true;
-            case Key.Delete or Key.Back when _selected != null: DeleteSelected(); return true;
+            case Key.Delete or Key.Back when _selected != null || _group.Count > 0: DeleteSelected(); return true;
+            case Key.Escape when _group.Count > 0: ClearGroup(); return true;
             case Key.Escape when _selected != null: Select(null); return true;
+            case Key.Left or Key.Right or Key.Up or Key.Down when _group.Count > 0:
+            {
+                double gstep = shift ? 10 : 1;
+                var gd = e.Key switch { Key.Left => new Vector(-gstep, 0), Key.Right => new Vector(gstep, 0), Key.Up => new Vector(0, -gstep), _ => new Vector(0, gstep) };
+                Snapshot();
+                foreach (var g in _group) g.MoveBy(gd);
+                foreach (int pg in _group.Select(i => i.Page).Distinct().ToList()) RenderItems(pg);
+                return true;
+            }
             case Key.Enter when _selected is TextItem t: EditText(t, isNew: false); return true;
             case Key.Enter when _selected is ColumnsItem columns: EditColumns(columns); return true;
             case Key.Left or Key.Right or Key.Up or Key.Down when _selected != null:
@@ -1447,6 +1530,8 @@ public sealed partial class PdfWindow
         SaveEdits(target);
     }
 
+    private byte[]? _undoAfterSave;       // the document as it was before the last save (LoadAsync puts it into the page undo list)
+
     /// <summary>Writes the items into the pages and saves to <paramref name="target"/>, then shows the saved file. False when it failed.</summary>
     private bool SaveEdits(string target)
     {
@@ -1470,6 +1555,9 @@ public sealed partial class PdfWindow
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
+            // what the document looked like before this save: Undo after saving goes back to it (not for redaction: that must stay gone)
+            _undoAfterSave = null;
+            if (redactions.Count == 0 && pdf.Length < 150_000_000) { try { _undoAfterSave = pdf.SaveToBytes(); } catch (Exception e) when (e is IOException or InvalidOperationException or OutOfMemoryException) { } }
             PdfMarkWriter.Apply(pdf, marks);
             flattened = PdfMarkWriter.FlattenedPages.Select(p => p + 1).OrderBy(p => p).ToList();
             byte[] bytes = pdf.SaveToBytes();
@@ -1482,6 +1570,7 @@ public sealed partial class PdfWindow
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ObjectDisposedException or OutOfMemoryException)
         {
             Mouse.OverrideCursor = null;
+            _undoAfterSave = null;
             // the open copy may hold half the changes now: read the file again, keeping what was added (still editable)
             try { var fresh = PdfFile.Open(_path, password); _pdf.Dispose(); _pdf = fresh; RedrawPages(); } catch (Exception) { }
             UMessage.Show(this, "Couldn't save: " + e.Message + (e is UnauthorizedAccessException or IOException ? "\n\nIs the file open in another program, or in a folder you can't write to? Try \"Save as…\"." : ""), "Utylix Editor", MessageBoxButton.OK, MessageBoxImage.Warning);

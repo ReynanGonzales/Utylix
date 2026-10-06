@@ -197,7 +197,7 @@ public sealed partial class PdfWindow
                 Toast("Couldn't put your changes into the pages: " + e.Message);
                 return false;
             }
-            _items.Clear(); _undo.Clear(); _redo.Clear(); _selected = null;
+            _items.Clear(); _undo.Clear(); _redo.Clear(); _selected = null; _group.Clear();
             _dirty = true; UpdateTitle();
             foreach (var p in _pages) p.Overlay.Children.Clear();
             RedrawPages();
@@ -229,11 +229,11 @@ public sealed partial class PdfWindow
             Toast("Couldn't go back: " + e.Message);
             return true;
         }
-        _undo.Clear(); _redo.Clear(); _items.Clear(); _selected = null;
+        _undo.Clear(); _redo.Clear(); _items.Clear(); _selected = null; _group.Clear();
         _dirty = true;
         UpdateTitle();
         RefreshAfterPageChange(Array.Empty<int>());
-        Toast(redo ? "Page change redone" : "Page change undone");
+        Toast(redo ? "Redone. The file changes when you save" : "Undone. The file on disk stays as it is until you save");
         return true;
     }
 

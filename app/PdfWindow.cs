@@ -317,9 +317,6 @@ public sealed partial class PdfWindow : Window
         var layout = new DockPanel();
         DockPanel.SetDock(top, Dock.Top);
         layout.Children.Add(top);
-        var convertBar = BuildConvertBar();
-        DockPanel.SetDock(convertBar, Dock.Top);
-        layout.Children.Add(convertBar);
         var editBar = BuildEditBar();
         DockPanel.SetDock(editBar, Dock.Top);
         layout.Children.Add(editBar);
@@ -424,7 +421,9 @@ public sealed partial class PdfWindow : Window
         _pdf?.Dispose();
         _pdf = pdf; _path = path; _sizes = sizes; _rotation = 0; _current = keepEditing ? keepPage : 0;
         ResetEdits(keepEditing);
-        Title = System.IO.Path.GetFileName(path) + " - Utylix Editor";
+        if (keepEditing && _undoAfterSave != null) { _pageUndo.Add(_undoAfterSave); UpdateEditButtons(); }       // Undo still works after saving
+        _undoAfterSave = null;
+        Title =System.IO.Path.GetFileName(path) + " - Utylix Editor";
         _info.Text = $"{System.IO.Path.GetFileName(path)}   ·   {pdf.PageCount} page{(pdf.PageCount == 1 ? "" : "s")}   ·   {PdfReduceWindow.Bytes(pdf.Length)}";
         _pageCount.Text = "/ " + pdf.PageCount;
         _pageBox.Text = pdf.PageCount == 0 ? "" : (keepPage + 1).ToString();
