@@ -57,6 +57,7 @@ public sealed partial class PdfFile
         {
             var d = map.ToPage(new Point(shownDelta.X, shownDelta.Y)) - map.ToPage(new Point(0, 0));
             Pdfium.FPDFPageObj_Transform(obj, 1, 0, 0, 1, d.X, d.Y);
+            Pdfium.FPDFPageObj_TransformClipPath(obj, 1, 0, 0, 1, d.X, d.Y);          // (the cut-out the picture sits in moves with it)
         });
 
     /// <summary>Stretches things so that what filled <paramref name="from"/> fills <paramref name="to"/> (both as seen on the page).</summary>
@@ -71,6 +72,7 @@ public sealed partial class PdfFile
             }
             Point r0 = Image(new Point(0, 0)), r1 = Image(new Point(1, 0)), r2 = Image(new Point(0, 1));
             Pdfium.FPDFPageObj_Transform(obj, r1.X - r0.X, r1.Y - r0.Y, r2.X - r0.X, r2.Y - r0.Y, r0.X, r0.Y);
+            Pdfium.FPDFPageObj_TransformClipPath(obj, r1.X - r0.X, r1.Y - r0.Y, r2.X - r0.X, r2.Y - r0.Y, r0.X, r0.Y);
         });
 
     /// <summary>Takes things off the page for good (they are not in the saved file).</summary>

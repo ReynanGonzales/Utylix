@@ -95,6 +95,8 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern int FPDFPageObj_SetLineCap(IntPtr obj, int cap);
     [DllImport(Dll)] public static extern void FPDFPageObj_SetBlendMode(IntPtr obj, [MarshalAs(UnmanagedType.LPStr)] string mode);
     [DllImport(Dll)] public static extern void FPDFPageObj_Transform(IntPtr obj, double a, double b, double c, double d, double e, double f);
+    /// <summary>Moves / scales the object's CLIPPING path the same way (a picture is often cut to its own box: without this the cut stays where the picture was).</summary>
+    [DllImport(Dll)] public static extern void FPDFPageObj_TransformClipPath(IntPtr obj, double a, double b, double c, double d, double e, double f);
     [DllImport(Dll)] public static extern IntPtr FPDFPageObj_CreateNewPath(float x, float y);
     [DllImport(Dll)] public static extern int FPDFPath_MoveTo(IntPtr path, float x, float y);
     [DllImport(Dll)] public static extern int FPDFPath_LineTo(IntPtr path, float x, float y);
