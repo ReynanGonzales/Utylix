@@ -18,7 +18,15 @@ namespace IdmClone;
 public sealed partial class PdfWindow
 {
     private const string DragFormat = "utylix-pages";
-    private readonly List<byte[]> _pageUndo = new(), _pageRedo = new();
+    /// <summary>
+    /// A step of the history that goes through saving and page changes: the document as it was (bytes), and, for the state just before a Save, what was
+    /// added on the pages then (Items) with its own undo steps (Undo, oldest first), so that Undo after saving goes back one change at a time.
+    /// </summary>
+    private sealed record DocState(byte[] Bytes, List<EditItem>? Items = null, List<List<EditItem>>? Undo = null, bool SaveMarker = false);
+
+    private readonly List<DocState> _pageUndo = new(), _pageRedo = new();
+
+    private List<List<EditItem>> UndoSteps() => _undo.Reverse().Select(step => step.Select(i => i.Clone()).ToList()).ToList();
     private StackPanel _pageTools = null!;
     private Button _turnLeft = null!, _turnRight = null!, _moveUp = null!, _moveDown = null!, _deletePages = null!, _morePages = null!;
     private static readonly SolidColorBrush DropLine = new(Color.FromRgb(0x5B, 0x8D, 0xEF));
@@ -162,7 +170,7 @@ public sealed partial class PdfWindow
             Toast("Couldn't do that: " + e.Message);
             return;
         }
-        _pageUndo.Add(before); _pageRedo.Clear();
+        _pageUndo.Add(new DocState(before!)); _pageRedo.Clear();
         TrimPageUndo();
         _dirty = true;
         UpdateTitle();
@@ -212,7 +220,7 @@ public sealed partial class PdfWindow
 
     private void TrimPageUndo()
     {
-        while (_pageUndo.Count > 1 && (_pageUndo.Count > 15 || _pageUndo.Sum(b => (long)b.Length) > 400_000_000)) _pageUndo.RemoveAt(0);
+        while (_pageUndo.Count > 1 && (_pageUndo.Count > 15 || _pageUndo.Sum(b => (long)b.Bytes.Length) > 400_000_000)) _pageUndo.RemoveAt(0);
     }
 
     /// <summary>Undo / Redo of a change of the pages. False when there is none.</summary>
@@ -221,11 +229,11 @@ public sealed partial class PdfWindow
         var from = redo ? _pageRedo : _pageUndo;
         var to = redo ? _pageUndo : _pageRedo;
         if (_pdf == null || from.Count == 0) return false;
+        DocState target = from[^1];
         try
         {
-            byte[] now = _pdf.SaveToBytes();
-            byte[] target = from[^1];
-            _pdf.Restore(target);
+            var now = new DocState(_pdf.SaveToBytes(), _items.Select(i => i.Clone()).ToList(), UndoSteps());
+            _pdf.Restore(target.Bytes);
             from.RemoveAt(from.Count - 1);
             to.Add(now);
         }
@@ -235,9 +243,18 @@ public sealed partial class PdfWindow
             return true;
         }
         _undo.Clear(); _redo.Clear(); _items.Clear(); _selected = null; _group.Clear();
+        if (target.Items != null)                                         // (the state before a save: what was added then is there again, with its own steps)
+        {
+            _items.AddRange(target.Items.Select(i => i.Clone()));
+            foreach (var step in target.Undo ?? new List<List<EditItem>>()) _undo.Push(step.Select(i => i.Clone()).ToList());
+        }
         _dirty = true;
         UpdateTitle();
         RefreshAfterPageChange(Array.Empty<int>());
+        foreach (int p in _items.Select(i => i.Page).Distinct().ToList()) RenderItems(p);
+        UpdateEditButtons();
+        // undoing a save: it is the last CHANGE before the save that goes, not all of them at once
+        if (!redo && target.SaveMarker && _undo.Count > 0) { Undo(); Toast("Undone (back past your save). The file on disk changes when you save again"); return true; }
         Toast(redo ? "Redone. The file changes when you save" : "Undone. The file on disk stays as it is until you save");
         return true;
     }

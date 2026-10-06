@@ -1573,7 +1573,7 @@ public sealed partial class PdfWindow
         SaveEdits(target);
     }
 
-    private byte[]? _undoAfterSave;       // the document as it was before the last save (LoadAsync puts it into the page undo list)
+    private List<DocState>? _historyAfterSave;       // the undo history to keep through the save: what it was, plus a "before this save" step (LoadAsync puts it back after the reload)
 
     /// <summary>Writes the items into the pages and saves to <paramref name="target"/>, then shows the saved file. False when it failed.</summary>
     private bool SaveEdits(string target)
@@ -1601,8 +1601,18 @@ public sealed partial class PdfWindow
         {
             Mouse.OverrideCursor = Cursors.Wait;
             // what the document looked like before this save: Undo after saving goes back to it (not for redaction: that must stay gone)
-            _undoAfterSave = null;
-            if (redactions.Count == 0 && pdf.Length < 150_000_000) { try { _undoAfterSave = pdf.SaveToBytes(); } catch (Exception e) when (e is IOException or InvalidOperationException or OutOfMemoryException) { } }
+            // the history goes on through the save: a step "before this save" (the document, and what was added on the pages with its own undo steps) is put after the older ones.
+            // Not after a redaction: that must stay gone, so nothing before it can be gone back to.
+            _historyAfterSave = new List<DocState>();
+            if (redactions.Count == 0 && pdf.Length < 150_000_000)
+            {
+                try
+                {
+                    _historyAfterSave.AddRange(_pageUndo);
+                    _historyAfterSave.Add(new DocState(pdf.SaveToBytes(), _items.Select(i => i.Clone()).ToList(), UndoSteps(), SaveMarker: true));
+                }
+                catch (Exception e) when (e is IOException or InvalidOperationException or OutOfMemoryException) { _historyAfterSave = new List<DocState>(); }
+            }
             PdfMarkWriter.Apply(pdf, marks);
             flattened = PdfMarkWriter.FlattenedPages.Select(p => p + 1).OrderBy(p => p).ToList();
             byte[] bytes = pdf.SaveToBytes();
@@ -1616,7 +1626,7 @@ public sealed partial class PdfWindow
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ObjectDisposedException or OutOfMemoryException or InvalidOperationException or PdfSharp.PdfSharpException)
         {
             Mouse.OverrideCursor = null;
-            _undoAfterSave = null;
+            _historyAfterSave = null;
             // the open copy may hold half the changes now: read the file again, keeping what was added (still editable)
             try { var fresh = PdfFile.Open(_path, password); _pdf.Dispose(); _pdf = fresh; RedrawPages(); } catch (Exception) { }
             UMessage.Show(this, "Couldn't save: " + e.Message + (e is UnauthorizedAccessException or IOException ? "\n\nIs the file open in another program, or in a folder you can't write to? Try \"Save as…\"." : ""), "Utylix Editor", MessageBoxButton.OK, MessageBoxImage.Warning);

@@ -421,8 +421,8 @@ public sealed partial class PdfWindow : Window
         _pdf?.Dispose();
         _pdf = pdf; _path = path; _sizes = sizes; _rotation = 0; _current = keepEditing ? keepPage : 0;
         ResetEdits(keepEditing);
-        if (keepEditing && _undoAfterSave != null) { _pageUndo.Add(_undoAfterSave); UpdateEditButtons(); }       // Undo still works after saving
-        _undoAfterSave = null;
+        if (keepEditing && _historyAfterSave != null) { _pageUndo.AddRange(_historyAfterSave); TrimPageUndo(); UpdateEditButtons(); }       // Undo still works after saving, one change at a time
+        _historyAfterSave = null;
         Title =System.IO.Path.GetFileName(path) + " - Utylix Editor";
         _info.Text = $"{System.IO.Path.GetFileName(path)}   ·   {pdf.PageCount} page{(pdf.PageCount == 1 ? "" : "s")}   ·   {PdfReduceWindow.Bytes(pdf.Length)}";
         _pageCount.Text = "/ " + pdf.PageCount;
