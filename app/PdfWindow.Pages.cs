@@ -250,7 +250,7 @@ public sealed partial class PdfWindow
         }
         _dirty = true;
         UpdateTitle();
-        RefreshAfterPageChange(Array.Empty<int>());
+        RefreshAfterPageChange(Array.Empty<int>(), keepView: true);
         foreach (int p in _items.Select(i => i.Page).Distinct().ToList()) RenderItems(p);
         UpdateEditButtons();
         // undoing a save: it is the last CHANGE before the save that goes, not all of them at once
@@ -260,13 +260,18 @@ public sealed partial class PdfWindow
     }
 
     /// <summary>The pages are laid out again after their number, order or turn changed.</summary>
-    private void RefreshAfterPageChange(IReadOnlyList<int> select)
+    /// <param name="keepView">Undo / Redo: stay where you are looking (same zoom, same place on the page) when the pages are still the same number</param>
+    private void RefreshAfterPageChange(IReadOnlyList<int> select, bool keepView = false)
     {
         var pdf = _pdf;
         if (pdf == null) return;
+        double keepV = _scroll.VerticalOffset, keepH = _scroll.HorizontalOffset;
+        bool sameCount = keepView && _sizes.Length == pdf.PageCount;
+        int keepCurrent = _current;
         _sizes = Enumerable.Range(0, pdf.PageCount).Select(pdf.PageSize).ToArray();
         _generation++;
         int keep = Math.Clamp(select.Count > 0 ? select[0] : _current, 0, Math.Max(0, _sizes.Length - 1));
+        if (sameCount) keep = Math.Clamp(keepCurrent, 0, Math.Max(0, _sizes.Length - 1));
         _current = keep;
         _info.Text = $"{System.IO.Path.GetFileName(_path)}   ·   {pdf.PageCount} page{(pdf.PageCount == 1 ? "" : "s")}   ·   {PdfReduceWindow.Bytes(pdf.Length)}";
         _pageCount.Text = "/ " + pdf.PageCount;
@@ -274,7 +279,12 @@ public sealed partial class PdfWindow
         OnDocumentLoaded();
         UpdateLayout();
         ApplyZoom(_fit == Fit.None ? _zoom : FitZoom(_fit), keepPlace: false);
-        GoTo(keep);
+        if (sameCount)
+        {
+            UpdateLayout();
+            _scroll.ScrollToVerticalOffset(keepV); _scroll.ScrollToHorizontalOffset(keepH);       // (the view stays where it was)
+        }
+        else GoTo(keep);
         _syncingStrip = true;
         try
         {
