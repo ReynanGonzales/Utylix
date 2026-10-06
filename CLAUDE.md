@@ -147,7 +147,8 @@ Standing wishes (all said explicitly):
   the owner continues at home on another PC.
 
 ## Plan (kept current - continue from here)
-State on 2026-10-03: v1.4.0 is released on GitHub (single-file Utylix.exe). `<Version>` in app/Utylix.csproj is NOW 1.7.0 (2026-10-05: the owner chose 1.7.0 for the release; 1.5.0 and 1.6.0 were never published) and the 1.7.0 files are
+UPDATE 2026-10-06: `<Version>` is now **1.7.1** (the owner agreed). 1.7.0 is published (tag v1.7.0 on a9c479b); 1.7.1 = everything done after it (Explorer real file types, fans on standard accounts, Convert to PDF for Office files, To Word / Excel / Pictures buttons, fillable text / check boxes, undo through saves, box-select, New > Blank PDF ...). Owner's steps: create the GitHub release tagged `v1.7.1`, attach `Utylix-Setup.exe` + `Utylix.exe` from D:\Utylix (built at 11:39 after the bump, product version 1.7.1), mark it Latest.
+State on 2026-10-03: v1.4.0 is released on GitHub (single-file Utylix.exe). `<Version>` in app/Utylix.csproj was then 1.7.0 (2026-10-05: the owner chose 1.7.0 for the release; 1.5.0 and 1.6.0 were never published) and the 1.7.0 files are
 already built in D:\Utylix (`Utylix-Setup.exe` + single-file `Utylix.exe`, both self-tested; the owner's PC runs the previous build from
 C:\Program Files\Utylix): the owner only has to create the GitHub release tagged `v1.7.0` and upload both (no `gh` on the home PC; browser upload tool is capped at 10 MB). Everything below marked
 "not released" is on `main` and goes out in it. The recipe for any release: raise `<Version>`, run build.bat, then attach BOTH `Utylix-Setup.exe` (new
