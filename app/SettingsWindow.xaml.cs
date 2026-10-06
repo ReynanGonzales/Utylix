@@ -203,13 +203,21 @@ public partial class SettingsWindow : Window
             row.Children.Add(text);
             PdfKeysPanel.Children.Add(row);
         }
-        Heading("Tools while editing (hold Alt)");
-        foreach (var (key, what) in new[] { ("V", "Select, move, resize"), ("E", "Edit text already in the PDF"), ("T", "Text"), ("G", "Sign"), ("I", "Picture"), ("C", "Check mark"), ("X", "Cross"),
-                                            ("M", "Stamp"), ("D", "Date"), ("H", "Highlight"), ("U", "Underline"), ("K", "Strike"), ("N", "Note"), ("P", "Pen"), ("S", "Shapes"),
-                                            ("W", "White-out"), ("R", "Redact"), ("F", "Fillable text box"), ("B", "Fillable check box"), ("O", "Fillable round option"), ("Q", "Signature box"), ("L", "Table") })
-            Row("Alt + " + key, what);
+        // (sorted like the tabs of the editor's tool bar)
+        void Tools(string heading, params (string Key, string What)[] list)
+        {
+            Heading(heading);
+            foreach (var (key, what) in list) Row("Alt + " + key, what);
+        }
+        Tools("Tools while editing (hold Alt) - everywhere", ("V", "Select, move, resize"));
+        Tools("Tab Add", ("T", "Text"), ("E", "Edit text already in the PDF"), ("D", "Date"), ("I", "Picture"), ("G", "Sign"), ("M", "Stamp"));
+        Tools("Tab Mark up", ("H", "Highlight"), ("U", "Underline"), ("K", "Strike"), ("N", "Note"), ("P", "Pen"), ("S", "Shapes"), ("L", "Table"), ("C", "Check mark"), ("X", "Cross"));
+        Tools("Tab Forms", ("F", "Fillable text box"), ("B", "Fillable check box"), ("O", "Fillable round option"), ("Q", "Signature box"));
+        Tools("Tab Page", ("W", "White-out"), ("R", "Redact"));
+        Heading("Choosing and arranging");
         Row("Ctrl + Z", "Undo (also after saving)");
         Row("Drag a box with Select", "Choose several things: move or delete them together");
+        Row("Ctrl + ]  /  Ctrl + [", "Bring forward / send backward (Shift: to the front / back)");
         Heading("File");
         foreach (var (keys, what) in new[] { ("Ctrl + O", "Open a PDF"), ("Ctrl + S", "Save"), ("Ctrl + Shift + S", "Save as"), ("Ctrl + P", "Print"), ("Ctrl + W", "Close the window") }) Row(keys, what);
         Heading("Editing");

@@ -444,6 +444,28 @@ public sealed partial class PdfWindow
         (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"), (EditTool.TextField, Key.F, "F"), (EditTool.CheckField, Key.B, "B"), (EditTool.Table, Key.L, "L"), (EditTool.RadioField, Key.O, "O"), (EditTool.SignField, Key.Q, "Q"),
     };
 
+    // the tabs of the tool bar (see BuildEditBar)
+    private readonly Dictionary<string, RadioButton> _tabChips = new();
+    private readonly Dictionary<string, StackPanel> _tabPanels = new();
+    private string _editTab = "Add";
+
+    private void ShowTab(string name)
+    {
+        if (!_tabPanels.ContainsKey(name)) return;
+        _editTab = name;
+        foreach (var (n, panel) in _tabPanels) panel.Visibility = n == name ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Choosing a tool by its key (or from anywhere else) shows the tab it lives on.</summary>
+    private static string? TabOf(EditTool tool) => tool switch
+    {
+        EditTool.Text or EditTool.EditText or EditTool.Date or EditTool.Image or EditTool.Signature or EditTool.Stamp => "Add",
+        EditTool.Highlight or EditTool.Underline or EditTool.Strike or EditTool.Note or EditTool.Pen or EditTool.Shapes or EditTool.Table or EditTool.Check or EditTool.Cross => "Mark up",
+        EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField => "Forms",
+        EditTool.WhiteOut or EditTool.Redact => "Page",
+        _ => null,                                                          // (Select is on every tab)
+    };
+
     private UIElement BuildEditBar()
     {
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -528,22 +550,40 @@ public sealed partial class PdfWindow
         ActionButton("To Excel", "Make an Excel workbook (.xlsx) from this PDF", () => ExportToOffice(excel: true), "PdfActionToExcel", ConvertIcon("X", Color.FromRgb(0x1D, 0x6F, 0x42)));
         ActionButton("To Pictures", "Save the pages as PNG or JPG pictures", () => OpenPagesDialog(split: false), "PdfActionToPictures", ConvertIcon("", Color.FromRgb(0xC2, 0x6A, 0x1B), "Segoe MDL2 Assets"));
 
-        // the tools are put in groups, with a thin line between them: choose / write / mark up / put on the page / hide / the whole pages
+        // The tools are sorted into tabs, so the bar never gets longer than the window: Select is always there, then the tabs, then the tools of the chosen tab.
+        // Add (put something on the page) / Mark up (comment and draw) / Forms (fields to fill in) / Page (hide things, frames, numbers) / Convert (into other files).
         tools.Children.Clear();
         UIElement Sep() => new Border { Width = 1, Height = 30, Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)), Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
-        void Group(params UIElement[] items)
+        void Tab(string name, string tip, params UIElement[][] groups)
         {
-            if (tools.Children.Count > 0) tools.Children.Add(Sep());
-            foreach (var item in items) tools.Children.Add(item);
+            var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            foreach (var group in groups)
+            {
+                if (panel.Children.Count > 0) panel.Children.Add(Sep());
+                foreach (var item in group) panel.Children.Add(item);
+            }
+            _tabPanels[name] = panel;
+            var chip = new RadioButton { Content = new TextBlock { Text = name, Foreground = Brushes.White, FontSize = 12.5, FontWeight = FontWeights.SemiBold }, GroupName = "pdftab", Template = ToolChoiceTemplate(small: true), Focusable = false, Margin = new Thickness(1, 0, 1, 0), ToolTip = tip };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(chip, "PdfTab" + name.Replace(" ", ""));
+            System.Windows.Automation.AutomationProperties.SetName(chip, name);
+            chip.Checked += (_, _) => ShowTab(name);
+            _tabChips[name] = chip;
         }
-        Group(_toolButtons[EditTool.Select]);
-        Group(_toolButtons[EditTool.Text], _toolButtons[EditTool.EditText], _toolButtons[EditTool.Date], actions["PdfActionColumns"]);
-        Group(_toolButtons[EditTool.Highlight], _toolButtons[EditTool.Underline], _toolButtons[EditTool.Strike], _toolButtons[EditTool.Note], _toolButtons[EditTool.Pen]);
-        Group(_toolButtons[EditTool.Image], _toolButtons[EditTool.Signature], _toolButtons[EditTool.Stamp], _toolButtons[EditTool.Check], _toolButtons[EditTool.Cross], _toolButtons[EditTool.Shapes], _toolButtons[EditTool.Table]);
-        Group(_toolButtons[EditTool.TextField], _toolButtons[EditTool.CheckField], _toolButtons[EditTool.RadioField], _toolButtons[EditTool.SignField]);
-        Group(_toolButtons[EditTool.WhiteOut], _toolButtons[EditTool.Redact]);
-        Group(actions["PdfActionBorder"], actions["PdfActionWatermark"], actions["PdfActionPageNumbers"]);
-        Group(actions["PdfActionToWord"], actions["PdfActionToExcel"], actions["PdfActionToPictures"]);
+        UIElement[] T(params EditTool[] list) => list.Select(t => (UIElement)_toolButtons[t]).ToArray();
+        UIElement[] A(params string[] list) => list.Select(id => (UIElement)actions[id]).ToArray();
+        Tab("Add", "Put something on the page: text, the date, columns, pictures, your signature, stamps", T(EditTool.Text, EditTool.EditText, EditTool.Date).Concat(A("PdfActionColumns")).ToArray(), T(EditTool.Image, EditTool.Signature, EditTool.Stamp));
+        Tab("Mark up", "Comment and draw: highlight, underline, notes, pen, shapes, tables, check marks", T(EditTool.Highlight, EditTool.Underline, EditTool.Strike, EditTool.Note), T(EditTool.Pen, EditTool.Shapes, EditTool.Table, EditTool.Check, EditTool.Cross));
+        Tab("Forms", "Fields people can fill in: text box, check box, option buttons, signature box", T(EditTool.TextField, EditTool.CheckField, EditTool.RadioField, EditTool.SignField));
+        Tab("Page", "Hide or remove things, a frame, a watermark, page numbers", T(EditTool.WhiteOut, EditTool.Redact), A("PdfActionBorder", "PdfActionWatermark", "PdfActionPageNumbers"));
+        Tab("Convert", "Make a Word or Excel file or pictures from this PDF", A("PdfActionToWord", "PdfActionToExcel", "PdfActionToPictures"));
+        tools.Children.Add(_toolButtons[EditTool.Select]);
+        tools.Children.Add(Sep());
+        var chipRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var chip in _tabChips.Values) chipRow.Children.Add(chip);
+        tools.Children.Add(chipRow);
+        tools.Children.Add(Sep());
+        foreach (var panel in _tabPanels.Values) tools.Children.Add(panel);
+        _tabChips[_editTab].IsChecked = true;
 
         // colours, size, font
         foreach (var c in Swatches)
@@ -759,6 +799,7 @@ public sealed partial class PdfWindow
     {
         CloseTextBox(commit: true);
         _tool = tool;
+        if (TabOf(tool) is string tab && tab != _editTab && _tabChips.TryGetValue(tab, out var tabChip)) tabChip.IsChecked = true;      // (the tab with that tool is shown)
         if (tool == EditTool.RadioField) _radioGroup = null;                // (choosing the tool starts a new group of round buttons)
         if (tool is EditTool.Signature) { _toolButtons[EditTool.Select].IsChecked = true; AddSignature(); return; }
         if (tool is EditTool.Image) { _toolButtons[EditTool.Select].IsChecked = true; AddPicture(); return; }
