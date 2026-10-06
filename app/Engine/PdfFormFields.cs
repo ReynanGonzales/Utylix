@@ -175,7 +175,7 @@ public static class PdfFormFields
 
     private static string Num(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
-    private const double BorderWidth = 1.5;
+    private const double BorderWidth = 1;
 
     /// <summary>An empty box with a solid edge (no fill), the edge drawn inside the box so it is as sharp as the screen allows (and anything else on top), as an appearance stream.</summary>
     private static string Frame(double w, double h, string edge, string extra) =>

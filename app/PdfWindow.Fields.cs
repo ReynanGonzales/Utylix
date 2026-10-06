@@ -33,7 +33,7 @@ public sealed partial class PdfWindow
         {
             // the same look the saved field gets: no background, a solid 1.5 pt edge in the colour
             var edge = new SolidColorBrush(Color);
-            var host = new Border { Width = Box.Width, Height = Box.Height, Background = Brushes.Transparent, BorderBrush = edge, BorderThickness = new Thickness(1.5), SnapsToDevicePixels = true };
+            var host = new Border { Width = Box.Width, Height = Box.Height, Background = Brushes.Transparent, BorderBrush = edge, BorderThickness = new Thickness(1), SnapsToDevicePixels = true };
             if (Kind == PdfNewFieldKind.Text)
                 host.Child = new TextBlock { Text = Name, FontFamily = TextItem.Family(Font), FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, FontSize = Math.Min(FontSize, Math.Max(5, Box.Height * 0.7)), Foreground = new SolidColorBrush(Color.FromArgb(150, 0x60, 0x60, 0x60)), Margin = new Thickness(3, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, IsHitTestVisible = false };
             Canvas.SetLeft(host, Box.X); Canvas.SetTop(host, Box.Y);
