@@ -81,6 +81,12 @@ Made by `tools\organize-publish.ps1`, which `tools\pack-setup.ps1` runs first (s
 - **Editing C# through shell heredocs mangles backslashes** (`\\` collapses). Use the Edit/Write tools for code with Windows paths or registry keys.
 - **Registry (`ShellMenu`)**: only write what changed (`SetIfDifferent`); never delete/recreate verb keys on every start. Utylix must not override
   an existing user choice (uTorrent, VLC) for default apps; it only registers itself in "Open with" / Default apps.
+  Our file ProgIDs (Utylix.PictureFile, .MediaFile, .MusicFile, .PdfFile, .ArchiveFile, .Torrent) have NO description on purpose (`NoTypeName`):
+  Explorer's Type column then shows "JPG File" / "MP4 File" per extension instead of one shared "Picture (opened with Utylix)" (owner's wish,
+  2026-10-06). Never rename a ProgID to get per-type names: the person's default-app choices (UserChoice) point at these exact names.
+- **Updating while the fan helper runs (standard account)**: there the helper is started with "runas" from the installed `Utylix.exe` itself
+  (`FanClient`), so that elevated process locks the program folder and `--setup-update` fails ("could not be updated") after closing Utylix.
+  It exits by itself ~60 s after no Utylix is connected; updating then works. Open: the updater should send the helper `quit` first.
 - **Fan control** needs administrator rights: an elevated helper (`--fan-helper`) talks over a named pipe. A scheduled task "Utylix Fan Helper"
   (installed once with one UAC prompt) runs a protected copy in `C:\Program Files\Utylix\FanHelper`. `FanTask.Generation` must be raised if the
   helper protocol changes (an older copy otherwise keeps working after an update).

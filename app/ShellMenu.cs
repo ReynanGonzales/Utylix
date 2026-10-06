@@ -115,7 +115,7 @@ public static class ShellMenu
                 // Only what is different is written: Windows watches these keys, and re-writing the same values at every start
                 // can make it distrust the person's choice of default app ("How do you want to open this file?").
                 using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + PlayProgId);
-                SetIfDifferent(progId, "", "Video or music (played with Utylix)");
+                NoTypeName(progId);
                 using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", icon);
                 AppIdentity(progId, "Utylix Player", icon, "Plays videos and music");
                 using var cmd = progId.CreateSubKey(@"shell\open\command");
@@ -127,7 +127,7 @@ public static class ShellMenu
             if (enabled)
             {
                 using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + MusicProgId);
-                SetIfDifferent(progId, "", "Music (played with Utylix Music)");
+                NoTypeName(progId);
                 using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", musicIcon);
                 AppIdentity(progId, "Utylix Music", musicIcon, "Plays music");
                 using var cmd = progId.CreateSubKey(@"shell\open\command");
@@ -195,7 +195,7 @@ public static class ShellMenu
             {
                 string icon = OwnIcon(dataDir!, "photos", IconOf(exe));
                 using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + PictureProgId);
-                SetIfDifferent(progId, "", "Picture (opened with Utylix)");
+                NoTypeName(progId);
                 using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", icon);
                 AppIdentity(progId, "Utylix Photos", icon, "Shows pictures");
                 using var cmd = progId.CreateSubKey(@"shell\open\command");
@@ -237,7 +237,7 @@ public static class ShellMenu
             {
                 string icon = OwnIcon(dataDir!, "pdf", IconOf(exe));
                 using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + PdfProgId);
-                SetIfDifferent(progId, "", "PDF document (opened with Utylix)");
+                NoTypeName(progId);
                 using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", icon);
                 AppIdentity(progId, "Utylix Editor", icon, "Reads, edits, signs and shrinks PDFs");
                 using var cmd = progId.CreateSubKey(@"shell\open\command");
@@ -315,11 +315,11 @@ public static class ShellMenu
             string command = $"\"{exe}\" --torrent \"%1\"";
             if (enabled)
             {
-                foreach (var (id, text, url) in new[] { (TorrentProgId, "Torrent file (opened with Utylix)", false), (MagnetProgId, "URL:Magnet link", true) })
+                foreach (var (id, url) in new[] { (TorrentProgId, false), (MagnetProgId, true) })
                 {
                     using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + id);
-                    SetIfDifferent(progId, "", text);
-                    if (url) SetIfDifferent(progId, "URL Protocol", "");
+                    if (url) { SetIfDifferent(progId, "", "URL:Magnet link"); SetIfDifferent(progId, "URL Protocol", ""); }
+                    else NoTypeName(progId);
                     using (var di = progId.CreateSubKey("DefaultIcon")) SetIfDifferent(di, "", IconOf(exe));
                     using var cmd = progId.CreateSubKey(@"shell\open\command");
                     SetIfDifferent(cmd, "", command);
@@ -373,6 +373,15 @@ public static class ShellMenu
     private static void SetIfDifferent(RegistryKey key, string name, string value)
     {
         if (key.GetValue(name) as string != value) key.SetValue(name, value);
+    }
+
+    /// <summary>
+    /// No description on a file entry: Explorer's "Type" column then says what the file is ("JPG File", "MP4 File", "PDF File") instead
+    /// of one shared "Picture (opened with Utylix)" for every type. Older versions wrote such a description; it is removed once.
+    /// </summary>
+    private static void NoTypeName(RegistryKey progId)
+    {
+        if (progId.GetValue("") != null) progId.DeleteValue("", throwOnMissingValue: false);
     }
 
     /// <summary>
@@ -435,7 +444,7 @@ public static class ShellMenu
             if (enabled)
             {
                 using var progId = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + ProgId);
-                progId.SetValue("", "Archive (opened with Utylix)");
+                NoTypeName(progId);
                 if (icon.Length > 0) { using var di = progId.CreateSubKey("DefaultIcon"); di.SetValue("", icon); }
                 AppIdentity(progId, "Utylix Archive", icon, "Opens and makes ZIP, RAR, 7z and other archives");
                 using var cmd = progId.CreateSubKey(@"shell\open\command");
