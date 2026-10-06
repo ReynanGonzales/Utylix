@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using IdmClone.Engine;
@@ -20,14 +21,30 @@ public sealed partial class PdfWindow
     /// <summary>Words that are marked (highlight / underline / strike) belong to their words, and a changed line of the PDF's own text to that line: those are not copied.</summary>
     private static bool Copyable(EditItem item) => item is not (TextMarkupItem or RunEditItem or PageObjectItem);
 
+    // things that were already in the PDF (picked up with Select): a small PDF holding just them, and where they were
+    private byte[]? _objectClip;
+    private Rect _objectClipBox;
+    private int _objectClipPage;
+
     private bool CopyItems()
     {
-        var items = ChosenItems().Where(Copyable).ToList();
-        if (items.Count == 0)
+        if (_selected is PageObjectItem picked && _pdf != null)
         {
-            if (_selected is PageObjectItem) Toast("This is already part of the PDF: it can be moved, resized or deleted, not copied. (A saved text box can be copied: click it first)");
-            return false;
+            try { _objectClip = _pdf.CopyPageObjects(picked.Page, picked.Indices); }
+            catch (Exception e) when (e is IOException or InvalidOperationException or OutOfMemoryException or ObjectDisposedException or PdfProtectedException)
+            {
+                Toast("Couldn't copy it: " + e.Message);
+                return false;
+            }
+            _objectClipBox = picked.Box; _objectClipPage = picked.Page;
+            _itemClipboard = new List<EditItem>();                     // (the last copy is the one that is pasted)
+            _pasteStep = 0;
+            Toast("Copied: Ctrl+V pastes it");
+            return true;
         }
+        var items = ChosenItems().Where(Copyable).ToList();
+        if (items.Count == 0) return false;
+        _objectClip = null;
         _itemClipboard = items.Select(i => i.Clone()).ToList();
         _pasteStep = 0;
         if (items.Count == 1 && items[0] is TextItem { Text.Length: > 0 } text)
@@ -45,8 +62,33 @@ public sealed partial class PdfWindow
     }
 
     /// <summary>Pastes what was copied onto the page being looked at: a little below and right of the original on the same page, or where you right-clicked (<paramref name="at"/>).</summary>
+    private bool HasCopy => _itemClipboard.Count > 0 || _objectClip != null;
+
+    /// <summary>Pastes things copied from the PDF's own content: as one thing on the page, then chosen so it can be moved.</summary>
+    private bool PastePageObjects(Point? at, int? onPage)
+    {
+        if (_pdf == null || _objectClip == null || _pages.Count == 0) return false;
+        int page = Math.Clamp(onPage ?? _current, 0, _pages.Count - 1);
+        _pasteStep++;
+        var box = _objectClipBox;
+        Vector shift = at is Point p ? p - box.TopLeft : _objectClipPage == page ? new Vector(14 * _pasteStep, 14 * _pasteStep) : new Vector(0, 0);
+        var size = _sizes.Length > page ? _sizes[page] : new Size(595, 842);
+        double right = box.Right + shift.X, bottom = box.Bottom + shift.Y;
+        if (right > size.Width) shift.X -= right - size.Width;
+        if (bottom > size.Height) shift.Y -= bottom - size.Height;
+        if (box.X + shift.X < 0) shift.X = -box.X;
+        if (box.Y + shift.Y < 0) shift.Y = -box.Y;
+        var clip = _objectClip;
+        bool done = PageOp(pdf => pdf.PastePageObjects(page, clip, shift), new[] { page }, "Pasted. Undo takes it away", keepView: true);
+        if (!done) return false;
+        var last = PageObjects(page).LastOrDefault();                       // (it is the newest thing on the page)
+        if (last != null) Select(new PageObjectItem { Page = page, Indices = { last.Index }, Box = last.Box, Original = last.Box });
+        return true;
+    }
+
     private bool PasteItems(Point? at = null, int? onPage = null)
     {
+        if (_itemClipboard.Count == 0 && _objectClip != null) return PastePageObjects(at, onPage);
         if (_itemClipboard.Count == 0 || _pages.Count == 0) return false;
         int page = Math.Clamp(onPage ?? _current, 0, _pages.Count - 1);
         _pasteStep++;

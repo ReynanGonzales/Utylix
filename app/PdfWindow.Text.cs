@@ -397,14 +397,14 @@ public sealed partial class PdfWindow
             menu.Items.Add(m);
         }
         bool sel = HasSelection;
-        bool itemChosen = _editing && ChosenItems().Any(Copyable);
+        bool itemChosen = _editing && (ChosenItems().Any(Copyable) || _selected is PageObjectItem);
         if (!sel && itemChosen)
         {
             Item("Copy", "Ctrl+C", true, () => CopyItems());
             Item("Cut", "Ctrl+X", true, CutItems);
         }
         else Item("Copy", "Ctrl+C", sel, CopySelection);
-        if (_editing && _itemClipboard.Count > 0) Item("Paste here", "Ctrl+V", true, () => PasteItems(p, pv.Index));
+        if (_editing && HasCopy) Item("Paste here", "Ctrl+V", true, () => PasteItems(p, pv.Index));
         if (_editing && CanArrange)
         {
             menu.Items.Add(new Separator());

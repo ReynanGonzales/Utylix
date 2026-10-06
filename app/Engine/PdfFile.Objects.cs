@@ -95,6 +95,58 @@ public sealed partial class PdfFile
         }
     }
 
+    /// <summary>
+    /// A copy of things already on a page, as a small PDF (the page with everything else taken off): pictures, fonts and all travel with it.
+    /// Put it back with <see cref="PastePageObjects"/>, on this PDF or another.
+    /// </summary>
+    public byte[] CopyPageObjects(int pageIndex, IReadOnlyList<int> indices)
+    {
+        byte[] onePage = PdfPageTools.Extract(this, new[] { pageIndex });
+        string temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "UtylixCopy-" + Guid.NewGuid().ToString("N") + ".pdf");
+        File.WriteAllBytes(temp, onePage);
+        try
+        {
+            using var small = Open(temp);
+            var keep = new HashSet<int>(indices);
+            var drop = small.GetPageObjects(0).Select(o => o.Index).Where(i => !keep.Contains(i)).ToList();
+            if (drop.Count > 0) small.RemovePageObjects(0, drop);
+            return small.SaveToBytes();
+        }
+        finally { try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
+    /// <summary>Puts a copy made by <see cref="CopyPageObjects"/> on a page, moved by <paramref name="shownDelta"/> (points, as seen on the page). It comes in as one thing.</summary>
+    public void PastePageObjects(int pageIndex, byte[] copy, Vector shownDelta)
+    {
+        string temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "UtylixPaste-" + Guid.NewGuid().ToString("N") + ".pdf");
+        File.WriteAllBytes(temp, copy);
+        try
+        {
+            using var source = Open(temp);
+            lock (Pdfium.Sync)
+            {
+                ThrowIfClosed();
+                Pdfium.FPDF_GetPageSizeByIndexF(_doc, pageIndex, out var size);
+                IntPtr page = LoadPageOrThrow(pageIndex);
+                IntPtr xobject = Pdfium.FPDF_NewXObjectFromPage(_doc, source.Handle, 0);
+                try
+                {
+                    if (xobject == IntPtr.Zero) throw new IOException("The copy couldn't be put on the page.");
+                    var map = new PageMapping(page, size.Width, size.Height);
+                    var d = map.ToPage(new Point(shownDelta.X, shownDelta.Y)) - map.ToPage(new Point(0, 0));
+                    IntPtr form = Pdfium.FPDF_NewFormObjectFromXObject(xobject);
+                    if (form == IntPtr.Zero) throw new IOException("The copy couldn't be put on the page.");
+                    Pdfium.FPDFPageObj_Transform(form, 1, 0, 0, 1, d.X, d.Y);
+                    Pdfium.FPDFPage_InsertObject(page, form);
+                    if (Pdfium.FPDFPage_GenerateContent(page) == 0) throw new IOException("Page " + (pageIndex + 1) + " couldn't be written.");
+                }
+                finally { if (xobject != IntPtr.Zero) Pdfium.FPDF_CloseXObject(xobject); Pdfium.FPDF_ClosePage(page); }
+                _texts.Remove(pageIndex); _runs.Remove(pageIndex);
+            }
+        }
+        finally { try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
     /// <summary>Changes the stacking of things on the page: mode 0 = to the very front, 1 = one step forward, 2 = one step back, 3 = to the very back. Returns where they are in the list afterwards.</summary>
     public List<int> ReorderPageObjects(int pageIndex, IReadOnlyList<int> indices, int mode)
     {

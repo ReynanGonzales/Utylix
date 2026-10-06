@@ -1601,7 +1601,7 @@ public sealed partial class PdfWindow
         {
             case Key.C when ctrl && !shift && (_selected != null || _group.Count > 0) && !HasSelection: return CopyItems();
             case Key.X when ctrl && !shift && (_selected != null || _group.Count > 0): CutItems(); return true;
-            case Key.V when ctrl && !shift && _itemClipboard.Count > 0: return PasteItems();
+            case Key.V when ctrl && !shift && HasCopy: return PasteItems();
             case Key.D when ctrl && !shift && (_selected != null || _group.Count > 0): if (CopyItems()) PasteItems(); return true;
             case Key.OemCloseBrackets when ctrl && CanArrange: Arrange(shift ? ZMove.ToFront : ZMove.Forward); return true;
             case Key.OemOpenBrackets when ctrl && CanArrange: Arrange(shift ? ZMove.ToBack : ZMove.Backward); return true;
