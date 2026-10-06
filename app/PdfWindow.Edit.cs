@@ -504,6 +504,10 @@ public sealed partial class PdfWindow
         ActionButton("Page no.", "Page numbers, header and footer on the pages", () => AddPageMarks("line"), "PdfActionPageNumbers",
                      new TextBlock { Text = "#", FontSize = 17, FontWeight = FontWeights.Bold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, -2, 0, -1) });
 
+        ActionButton("To Word", "Make a Word document (.docx) from this PDF", () => ExportToOffice(excel: false), "PdfActionToWord", ConvertIcon("W", Color.FromRgb(0x2B, 0x57, 0x9A)));
+        ActionButton("To Excel", "Make an Excel workbook (.xlsx) from this PDF", () => ExportToOffice(excel: true), "PdfActionToExcel", ConvertIcon("X", Color.FromRgb(0x1D, 0x6F, 0x42)));
+        ActionButton("To Pictures", "Save the pages as PNG or JPG pictures", () => OpenPagesDialog(split: false), "PdfActionToPictures", ConvertIcon("", Color.FromRgb(0xC2, 0x6A, 0x1B), "Segoe MDL2 Assets"));
+
         // the tools are put in groups, with a thin line between them: choose / write / mark up / put on the page / hide / the whole pages
         tools.Children.Clear();
         UIElement Sep() => new Border { Width = 1, Height = 30, Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)), Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -518,6 +522,7 @@ public sealed partial class PdfWindow
         Group(_toolButtons[EditTool.Image], _toolButtons[EditTool.Signature], _toolButtons[EditTool.Stamp], _toolButtons[EditTool.Check], _toolButtons[EditTool.Cross], _toolButtons[EditTool.Shapes]);
         Group(_toolButtons[EditTool.WhiteOut], _toolButtons[EditTool.Redact]);
         Group(actions["PdfActionBorder"], actions["PdfActionWatermark"], actions["PdfActionPageNumbers"]);
+        Group(actions["PdfActionToWord"], actions["PdfActionToExcel"], actions["PdfActionToPictures"]);
 
         // colours, size, font
         foreach (var c in Swatches)

@@ -29,6 +29,13 @@ public sealed partial class PdfWindow
         return _convertBar;
     }
 
+    /// <summary>The small coloured square of a convert button (W = Word blue, X = Excel green) for the edit bar's tool row.</summary>
+    private static Border ConvertIcon(string glyph, Color colour, string glyphFont = "Segoe UI") => new()
+    {
+        Width = 22, Height = 22, CornerRadius = new CornerRadius(5), Background = new SolidColorBrush(colour), HorizontalAlignment = HorizontalAlignment.Center,
+        Child = new TextBlock { Text = glyph, Foreground = Brushes.White, FontFamily = new FontFamily(glyphFont), FontSize = glyphFont == "Segoe UI" ? 13 : 12, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+    };
+
     private Button ConvertButton(string glyph, Color colour, string label, string tip, string id, Action action, string glyphFont = "Segoe UI")
     {
         var icon = new Border
