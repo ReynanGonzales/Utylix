@@ -227,6 +227,7 @@ public partial class App : Application
                 _ephemeral = true;
                 PdfWindow.AnyClosed += MaybeQuitAfterArchive; PdfReduceWindow.AnyClosed += MaybeQuitAfterArchive; PdfCombineWindow.AnyClosed += MaybeQuitAfterArchive;
             }
+            if (toolCmd.Value.Op == "office-pdf") { _ephemeral = true; OfficePdfQueue.Idle += () => Dispatcher.BeginInvoke(MaybeQuitAfterArchive); }   // converting a Word / Excel file: go away when all are done
             if (toolCmd.Value.Op == "play") { _ephemeral = true; PlayerWindow.AnyClosed += MaybeQuitAfterArchive; MusicWindow.AnyClosed += MaybeQuitAfterArchive; }   // a double-clicked video: go away when the player is closed
             HandleTool(toolCmd.Value.Op, toolCmd.Value.Files);
         }
@@ -268,7 +269,7 @@ public partial class App : Application
         if (args.Contains("--extension-help")) return ("extension", new List<string>());    // shows how to add the browser extension
         if (args.Contains("--snip")) return ("snip", new List<string>());                  // opens the Snip window
         if (args.Contains("--brightness")) return ("brightness", new List<string>());       // opens the brightness panel
-        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent" or "--view" or "--pdf" or "--pdf-reduce" or "--pdf-combine" or "--to-pdf");
+        int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent" or "--view" or "--pdf" or "--pdf-reduce" or "--pdf-combine" or "--to-pdf" or "--office-pdf");
         if (i < 0) return null;
         var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).ToList();
         // "Convert to PDF" on pictures and "Combine into one PDF" on PDFs end up in the same window
@@ -285,6 +286,7 @@ public partial class App : Application
             if (op == "pdf-reduce") PdfReduceWindow.Show(files);
             else PdfCombineWindow.Show(files);
         }
+        else if (op == "office-pdf") OfficePdfQueue.Enqueue(files.Where(OfficeToPdf.IsOffice));
         else if (op == "remove-bg") _quickBackground?.Enqueue(files.Where(BackgroundRemover.IsPicture));
         else if (op == "play")
         {
@@ -345,13 +347,13 @@ public partial class App : Application
 
     private void MaybeQuitAfterArchive()
     {
-        if (!_ephemeral || ArchiveWindow.Count > 0 || PlayerWindow.Count > 0 || ViewerWindow.Count > 0 || MusicWindow.Count > 0 || PdfWindow.Count > 0 || PdfReduceWindow.Count > 0 || PdfCombineWindow.Count > 0 || (_shell?.IsVisible ?? false) || _manager == null) return;
+        if (!_ephemeral || OfficePdfQueue.IsBusy || ArchiveWindow.Count > 0 || PlayerWindow.Count > 0 || ViewerWindow.Count > 0 || MusicWindow.Count > 0 || PdfWindow.Count > 0 || PdfReduceWindow.Count > 0 || PdfCombineWindow.Count > 0 || (_shell?.IsVisible ?? false) || _manager == null) return;
         if (_manager.All().Any(d => d.Status is DlStatus.Downloading or DlStatus.Queued)) return;      // it is doing something else too
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (_ephemeral && ArchiveWindow.Count == 0 && PlayerWindow.Count == 0 && ViewerWindow.Count == 0 && MusicWindow.Count == 0 && PdfWindow.Count == 0 && PdfReduceWindow.Count == 0 && PdfCombineWindow.Count == 0 && !(_shell?.IsVisible ?? false)) Quit();
+            if (_ephemeral && !OfficePdfQueue.IsBusy && ArchiveWindow.Count == 0 && PlayerWindow.Count == 0 && ViewerWindow.Count == 0 && MusicWindow.Count == 0 && PdfWindow.Count == 0 && PdfReduceWindow.Count == 0 && PdfCombineWindow.Count == 0 && !(_shell?.IsVisible ?? false)) Quit();
         };
         timer.Start();
     }

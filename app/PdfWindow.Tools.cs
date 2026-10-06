@@ -14,9 +14,9 @@ namespace IdmClone;
 public sealed partial class PdfWindow
 {
     // (the menu itself is built in ShowPagesMenu: grouped, with headings)
-    private void ExportToOffice()
+    private void ExportToOffice(bool excel = false)
     {
-        if (_pdf != null && _path != null && CommitItems()) new PdfExportDialog(this, _pdf, _path, SelectedPages()).ShowDialog();
+        if (_pdf != null && _path != null && CommitItems()) new PdfExportDialog(this, _pdf, _path, SelectedPages(), excel).ShowDialog();
     }
 
     // ---------- page numbers, header / footer, watermark ----------

@@ -651,6 +651,7 @@ public sealed partial class PdfWindow
         if (_rotation != 0) { _rotation = 3; Rotate(); }              // (back to upright: editing works on the pages as they are)
         _editing = true;
         _editBar.Visibility = Visibility.Visible;
+        UpdateConvertBar();
         _editButton.Background = new SolidColorBrush(Color.FromArgb(60, 91, 141, 239));
         ClearTextSelection();
         _toolButtons[_tool].IsChecked = true;
@@ -696,6 +697,7 @@ public sealed partial class PdfWindow
         _selected = null; _dirty = false; _drag = DragMode.None;
         _editing = keepEditing && _editing;
         if (_editBar != null) _editBar.Visibility = _editing ? Visibility.Visible : Visibility.Collapsed;
+        UpdateConvertBar();
         if (_editButton != null) _editButton.Background = _editing ? new SolidColorBrush(Color.FromArgb(60, 91, 141, 239)) : Brushes.Transparent;
         foreach (var p in _pages) { p.Overlay.Children.Clear(); p.Overlay.Cursor = _editing ? CursorFor(_tool) : null; }
         UpdateTitle();

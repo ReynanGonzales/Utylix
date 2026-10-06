@@ -32,7 +32,7 @@ public sealed class PdfExportDialog : Window
     private string? _saved;
     private CancellationTokenSource? _cts;
 
-    public PdfExportDialog(Window owner, PdfFile pdf, string path, IReadOnlyList<int> selected)
+    public PdfExportDialog(Window owner, PdfFile pdf, string path, IReadOnlyList<int> selected, bool excel = false)
     {
         _pdf = pdf; _path = path; _selected = selected;
         Owner = owner;
@@ -52,8 +52,8 @@ public sealed class PdfExportDialog : Window
 
         root.Children.Add(new TextBlock { Text = "Make a", FontWeight = FontWeights.SemiBold });
         var kinds = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-        _word = new RadioButton { Content = "Word document (.docx)", Style = chip, GroupName = "kind", IsChecked = true };
-        _excel = new RadioButton { Content = "Excel workbook (.xlsx)", Style = chip, GroupName = "kind" };
+        _word = new RadioButton { Content = "Word document (.docx)", Style = chip, GroupName = "kind", IsChecked = !excel };
+        _excel = new RadioButton { Content = "Excel workbook (.xlsx)", Style = chip, GroupName = "kind", IsChecked = excel };
         System.Windows.Automation.AutomationProperties.SetAutomationId(_word, "PdfExportWord");
         System.Windows.Automation.AutomationProperties.SetAutomationId(_excel, "PdfExportExcel");
         kinds.Children.Add(_word); kinds.Children.Add(_excel);
@@ -78,6 +78,7 @@ public sealed class PdfExportDialog : Window
         _excelOptions.Children.Add(new TextBlock { Text = "Sheets", FontWeight = FontWeights.SemiBold });
         _excelOptions.Children.Add(sheets);
         root.Children.Add(_excelOptions);
+        if (excel) _excelOptions.Visibility = Visibility.Visible;
         _excel.Checked += (_, _) => _excelOptions.Visibility = Visibility.Visible;
         _word.Checked += (_, _) => _excelOptions.Visibility = Visibility.Collapsed;
 

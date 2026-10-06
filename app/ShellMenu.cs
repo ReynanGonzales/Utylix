@@ -295,6 +295,22 @@ public static class ShellMenu
                     c.SetValue("", command);
                 }
             }
+            // Word / Excel / PowerPoint files: "Convert to PDF" (done by the Office on this PC, so only where that program is installed)
+            foreach (OfficeKind kind in Enum.GetValues<OfficeKind>())
+            {
+                bool offer = enabled && OfficeToPdf.IsInstalled(kind);
+                foreach (string ext in OfficeToPdf.Extensions(kind))
+                {
+                    string own = $@"Software\Classes\SystemFileAssociations\.{ext}\shell\{ToPdfVerb}";
+                    Registry.CurrentUser.DeleteSubKeyTree(own, throwOnMissingSubKey: false);
+                    if (!offer) continue;
+                    using var verb = Registry.CurrentUser.CreateSubKey(own);
+                    verb.SetValue("MUIVerb", "Convert to PDF");
+                    verb.SetValue("Icon", OwnIcon(dataDir, "pdf", IconOf(exe)));
+                    using var c = verb.CreateSubKey("command");
+                    c.SetValue("", $"\"{exe}\" --office-pdf \"%1\"");
+                }
+            }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
     }

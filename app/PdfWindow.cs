@@ -317,6 +317,9 @@ public sealed partial class PdfWindow : Window
         var layout = new DockPanel();
         DockPanel.SetDock(top, Dock.Top);
         layout.Children.Add(top);
+        var convertBar = BuildConvertBar();
+        DockPanel.SetDock(convertBar, Dock.Top);
+        layout.Children.Add(convertBar);
         var editBar = BuildEditBar();
         DockPanel.SetDock(editBar, Dock.Top);
         layout.Children.Add(editBar);

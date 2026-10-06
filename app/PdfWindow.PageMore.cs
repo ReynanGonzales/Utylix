@@ -42,7 +42,7 @@ public sealed partial class PdfWindow
         Item("Remove a watermark…", RemoveWatermark, "PdfMenuWatermark");
         Item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");
         Heading("CONVERT");
-        Item("Save as Word or Excel…", ExportToOffice, "PdfMenuExport");
+        Item("Save as Word or Excel…", () => ExportToOffice(), "PdfMenuExport");
         Themed(menu);
         menu.PlacementTarget = under ?? _morePages; menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; menu.IsOpen = true;
     }
