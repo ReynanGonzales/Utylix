@@ -20,6 +20,8 @@ public sealed partial class PdfWindow
         public Rect Box;
         public string Name = "";
         public double FontSize = 12;
+        public PdfFontKind Font;
+        public bool Bold;
 
         public override Rect Bounds => Box;
         public override bool KeepAspect => Kind == PdfNewFieldKind.CheckBox;
@@ -29,17 +31,16 @@ public sealed partial class PdfWindow
 
         public override FrameworkElement Build()
         {
-            // the same look the saved field gets: a very pale tint of the colour, a solid 1.5 pt edge
-            var fill = new SolidColorBrush(Color.FromRgb((byte)(237 + Color.R * 0.07), (byte)(237 + Color.G * 0.07), (byte)(237 + Color.B * 0.07)));
+            // the same look the saved field gets: no background, a solid 1.5 pt edge in the colour
             var edge = new SolidColorBrush(Color);
-            var host = new Border { Width = Box.Width, Height = Box.Height, Background = fill, BorderBrush = edge, BorderThickness = new Thickness(1.5), SnapsToDevicePixels = true };
+            var host = new Border { Width = Box.Width, Height = Box.Height, Background = Brushes.Transparent, BorderBrush = edge, BorderThickness = new Thickness(1.5), SnapsToDevicePixels = true };
             if (Kind == PdfNewFieldKind.Text)
-                host.Child = new TextBlock { Text = Name, FontSize = Math.Min(10, Math.Max(5, Box.Height * 0.6)), Foreground = new SolidColorBrush(Color.FromArgb(170, Color.R, Color.G, Color.B)), Margin = new Thickness(3, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, IsHitTestVisible = false };
+                host.Child = new TextBlock { Text = Name, FontFamily = TextItem.Family(Font), FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, FontSize = Math.Min(FontSize, Math.Max(5, Box.Height * 0.7)), Foreground = new SolidColorBrush(Color.FromArgb(150, 0x60, 0x60, 0x60)), Margin = new Thickness(3, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, IsHitTestVisible = false };
             Canvas.SetLeft(host, Box.X); Canvas.SetTop(host, Box.Y);
             return host;
         }
 
-        public override IEnumerable<PdfMark> Marks() { yield return new PdfFieldMark(Page, Box, Kind, Name, FontSize, Color); }
+        public override IEnumerable<PdfMark> Marks() { yield return new PdfFieldMark(Page, Box, Kind, Name, FontSize, Color, Font, Bold); }
     }
 
     /// <summary>A name nobody else on the page uses yet: "Text 1", "Text 2" ... / "Check box 1" ...</summary>
@@ -53,7 +54,7 @@ public sealed partial class PdfWindow
     private void StartField(PageView pv, Point p)
     {
         var kind = _tool == EditTool.TextField ? PdfNewFieldKind.Text : PdfNewFieldKind.CheckBox;
-        _drawing = new FieldItem { Page = pv.Index, Kind = kind, Box = new Rect(p, p), Color = _toolColors[_tool], Name = NewFieldName(kind), FontSize = _textSize };
+        _drawing = new FieldItem { Page = pv.Index, Kind = kind, Box = new Rect(p, p), Color = _toolColors[_tool], Name = NewFieldName(kind), FontSize = _textSize, Font = _font, Bold = _bold };
         _drag = DragMode.Draw;
     }
 

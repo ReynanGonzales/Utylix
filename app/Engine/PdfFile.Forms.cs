@@ -36,10 +36,20 @@ public sealed partial class PdfFile
         _form = Pdfium.FPDFDOC_InitFormFillEnvironment(_doc, _formInfo);
         if (_form == IntPtr.Zero) { Marshal.FreeHGlobal(_formInfo); _formInfo = IntPtr.Zero; return; }
         Pdfium.FPDF_SetFormFieldHighlightColor(_form, 0, 0xFFE0CF);           // (light blue, like other readers; PDFium wants 0xBBGGRR)
-        Pdfium.FPDF_SetFormFieldHighlightAlpha(_form, Highlight);
+        Pdfium.FPDF_SetFormFieldHighlightAlpha(_form, HighlightAlpha);
     }
 
-    private const byte Highlight = 32;               // (very light: the text typed in a field stays dark and easy to read, and a field's own colour shows)
+    private const byte Highlight = 40;               // (light: the text typed in a field stays dark and easy to read)
+
+    /// <summary>Tint over every fillable field on screen (like other readers do). Off by default: the person's own fields have an edge and no background.</summary>
+    public static bool HighlightFields { get; set; }
+    private static byte HighlightAlpha => HighlightFields ? Highlight : (byte)0;
+
+    /// <summary>Applies <see cref="HighlightFields"/> to this open document (the pages are drawn again afterwards).</summary>
+    public void ApplyHighlight()
+    {
+        lock (Pdfium.Sync) { if (_form != IntPtr.Zero) Pdfium.FPDF_SetFormFieldHighlightAlpha(_form, HighlightAlpha); }
+    }
 
     private void ExitForm()
     {
@@ -54,7 +64,7 @@ public sealed partial class PdfFile
         Pdfium.FORM_OnAfterLoadPage(page, _form);
         if (!forScreen) Pdfium.FPDF_SetFormFieldHighlightAlpha(_form, 0);              // (paper: no highlight)
         Pdfium.FPDF_FFLDraw(_form, bmp, page, 0, 0, width, height, rotate, Pdfium.RenderAnnotations | Pdfium.RenderLcdText);
-        if (!forScreen) Pdfium.FPDF_SetFormFieldHighlightAlpha(_form, Highlight);
+        if (!forScreen) Pdfium.FPDF_SetFormFieldHighlightAlpha(_form, HighlightAlpha);
         Pdfium.FORM_OnBeforeClosePage(page, _form);
     }
 

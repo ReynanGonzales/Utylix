@@ -13,7 +13,7 @@ namespace IdmClone.Engine;
 public enum PdfNewFieldKind { Text, CheckBox }
 
 /// <summary>A new fillable field to put on a page. Box is in points from the top-left of the page as shown.</summary>
-public sealed record PdfFieldMark(int Page, Rect Box, PdfNewFieldKind Kind, string Name, double FontSize, System.Windows.Media.Color Color) : PdfMark(Page);
+public sealed record PdfFieldMark(int Page, Rect Box, PdfNewFieldKind Kind, string Name, double FontSize, System.Windows.Media.Color Color, PdfFontKind Font = PdfFontKind.Sans, bool Bold = false) : PdfMark(Page);
 
 /// <summary>
 /// Makes real, fillable form fields (text boxes and check boxes) in a PDF: PDFium can't create them, so they are written into the saved bytes with PDFsharp
@@ -86,13 +86,11 @@ public static class PdfFormFields
             widget.Elements["/Rect"] = Box(doc, l, b, l + w, b + h);
             widget.Elements.SetInteger("/F", 4);                                              // (printed)
             widget.Elements.SetString("/T", name);
-            // the person's colour: a solid edge, and a very pale tint of it inside
+            // the person's colour: a solid edge, nothing inside (no background)
             double cr = f.Color.R / 255.0, cg = f.Color.G / 255.0, cb = f.Color.B / 255.0;
-            double tr = 0.93 + cr * 0.07, tg = 0.93 + cg * 0.07, tb = 0.93 + cb * 0.07;
-            string edge = $"{Num(cr)} {Num(cg)} {Num(cb)}", tint = $"{Num(tr)} {Num(tg)} {Num(tb)}";
+            string edge = $"{Num(cr)} {Num(cg)} {Num(cb)}";
             var mk = new PdfDictionary(doc);
             mk.Elements["/BC"] = new PdfArray(doc, new PdfReal(cr), new PdfReal(cg), new PdfReal(cb));
-            mk.Elements["/BG"] = new PdfArray(doc, new PdfReal(tr), new PdfReal(tg), new PdfReal(tb));
             widget.Elements["/MK"] = mk;
             var bs = new PdfDictionary(doc);                                                   // (border style: solid, 1.5 pt)
             bs.Elements.SetName("/S", "/S");
@@ -104,10 +102,12 @@ public static class PdfFormFields
             {
                 widget.Elements.SetName("/FT", "/Tx");
                 double size = Math.Clamp(f.FontSize, 4, Math.Max(4, h * 0.75));
-                widget.Elements.SetString("/DA", "/Helv " + Num(size) + " Tf 0 g");
+                string font = FontResource(f.Font, f.Bold);
+                EnsureFont(doc, acro, font);
+                widget.Elements.SetString("/DA", "/" + font + " " + Num(size) + " Tf 0 g");
                 if (h > size * 2.4) widget.Elements.SetInteger("/Ff", 1 << 12);               // (a tall box: several lines)
                 var ap = new PdfDictionary(doc);
-                ap.Elements["/N"] = Form(doc, w, h, Frame(w, h, tint, edge, ""));
+                ap.Elements["/N"] = Form(doc, w, h, Frame(w, h, edge, ""));
                 widget.Elements["/AP"] = ap;
             }
             else
@@ -118,8 +118,8 @@ public static class PdfFormFields
                 mk.Elements.SetString("/CA", "4");
                 double s = Math.Min(w, h);
                 string tick = $"{edge} RG {Num(s * 0.13)} w 1 J 1 j {Num(w * 0.22)} {Num(h * 0.5)} m {Num(w * 0.43)} {Num(h * 0.25)} l {Num(w * 0.79)} {Num(h * 0.77)} l S\n";
-                normal.Elements["/Yes"] = Form(doc, w, h, Frame(w, h, tint, edge, tick));
-                normal.Elements["/Off"] = Form(doc, w, h, Frame(w, h, tint, edge, ""));
+                normal.Elements["/Yes"] = Form(doc, w, h, Frame(w, h, edge, tick));
+                normal.Elements["/Off"] = Form(doc, w, h, Frame(w, h, edge, ""));
                 var ap = new PdfDictionary(doc);
                 ap.Elements["/N"] = normal;
                 widget.Elements["/AP"] = ap;
@@ -143,30 +143,43 @@ public static class PdfFormFields
 
     private static PdfItem? Resolve(PdfItem? item) => item is PdfReference r ? r.Value : item;
 
-    /// <summary>Helvetica as /Helv in the form's default resources (what the fields' /DA refers to).</summary>
-    private static void EnsureFont(PdfDocument doc, PdfDictionary acro)
+    /// <summary>The names Acrobat uses in a form's default resources for the standard fonts.</summary>
+    private static string FontResource(PdfFontKind kind, bool bold) => kind switch
+    {
+        PdfFontKind.Serif => bold ? "TiBo" : "TiRo",
+        PdfFontKind.Mono => bold ? "CoBo" : "Cour",
+        _ => bold ? "HeBo" : "Helv",
+    };
+
+    private static string BaseFont(string resource) => resource switch
+    {
+        "TiBo" => "Times-Bold", "TiRo" => "Times-Roman", "CoBo" => "Courier-Bold", "Cour" => "Courier", "HeBo" => "Helvetica-Bold", _ => "Helvetica",
+    };
+
+    /// <summary>A standard font under its short name in the form's default resources (what the fields' /DA refers to).</summary>
+    private static void EnsureFont(PdfDocument doc, PdfDictionary acro, string name = "Helv")
     {
         var dr = Resolve(acro.Elements["/DR"]) as PdfDictionary;
         if (dr == null) { dr = new PdfDictionary(doc); acro.Elements["/DR"] = dr; }
         var fonts = Resolve(dr.Elements["/Font"]) as PdfDictionary;
         if (fonts == null) { fonts = new PdfDictionary(doc); dr.Elements["/Font"] = fonts; }
-        if (fonts.Elements.ContainsKey("/Helv")) return;
+        if (fonts.Elements.ContainsKey("/" + name)) return;
         var helv = new PdfDictionary(doc);
         helv.Elements.SetName("/Type", "/Font");
         helv.Elements.SetName("/Subtype", "/Type1");
-        helv.Elements.SetName("/BaseFont", "/Helvetica");
+        helv.Elements.SetName("/BaseFont", "/" + BaseFont(name));
         helv.Elements.SetName("/Encoding", "/WinAnsiEncoding");
         doc.Internals.AddObject(helv);
-        fonts.Elements["/Helv"] = helv.Reference;
+        fonts.Elements["/" + name] = helv.Reference;
     }
 
     private static string Num(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
     private const double BorderWidth = 1.5;
 
-    /// <summary>A box in the tint with a solid edge, the edge drawn inside the box so it is as sharp as the screen allows (and anything else on top), as an appearance stream.</summary>
-    private static string Frame(double w, double h, string tint, string edge, string extra) =>
-        $"q {tint} rg 0 0 {Num(w)} {Num(h)} re f {edge} RG {Num(BorderWidth)} w {Num(BorderWidth / 2)} {Num(BorderWidth / 2)} {Num(w - BorderWidth)} {Num(h - BorderWidth)} re S Q\n{extra}";
+    /// <summary>An empty box with a solid edge (no fill), the edge drawn inside the box so it is as sharp as the screen allows (and anything else on top), as an appearance stream.</summary>
+    private static string Frame(double w, double h, string edge, string extra) =>
+        $"q {edge} RG {Num(BorderWidth)} w {Num(BorderWidth / 2)} {Num(BorderWidth / 2)} {Num(w - BorderWidth)} {Num(h - BorderWidth)} re S Q\n{extra}";
 
     private static PdfReference Form(PdfDocument doc, double w, double h, string content)
     {

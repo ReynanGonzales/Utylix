@@ -17,6 +17,7 @@ public sealed partial class PdfWindow
     private string? _fontName;                       // the font chosen by name for new text (null = Sans / Serif / Mono)
     private bool _syncingFont;                       // (the bar is only showing the font of what is selected)
     private TextBlock _fontLabel = null!;
+    private UIElement? _fontPickerButton;              // ("More fonts": hidden for form fields, which only have Sans / Serif / Mono)
     private Popup? _fontPopup;
     private ListBox _fontList = null!;
     private TextBox _fontFilter = null!;
@@ -39,6 +40,7 @@ public sealed partial class PdfWindow
         var b = new Button { Content = content, Template = BarButtonTemplate(), Height = 26, Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(6, 0, 0, 0), Focusable = false, ToolTip = "Choose any font installed on this PC (it is put into the PDF, so it looks the same everywhere)" };
         System.Windows.Automation.AutomationProperties.SetAutomationId(b, "PdfFontMore");
         b.Click += (_, _) => OpenFontList(b);
+        _fontPickerButton = b;
         return b;
     }
 

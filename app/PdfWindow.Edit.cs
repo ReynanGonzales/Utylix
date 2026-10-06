@@ -552,6 +552,8 @@ public sealed partial class PdfWindow
                 Background = new SolidColorBrush(c),
             };
             b.Click += (_, _) => SetColor(c);
+            System.Windows.Automation.AutomationProperties.SetAutomationId(b, "PdfColor" + _swatchButtons.Count);
+            System.Windows.Automation.AutomationProperties.SetName(b, ColorName(c));
             _swatchButtons.Add((b, c));
             _colorRow.Children.Add(b);
         }
@@ -791,13 +793,15 @@ public sealed partial class PdfWindow
     {
         var item = _selected;
         var typingRun = _runTyping;                                // Edit text with a line open: the font, size and colour are that line's
-        bool text = item is TextItem || (item == null && _tool is EditTool.Text or EditTool.Date) || typingRun != null;
+        bool textField = item is FieldItem { Kind: PdfNewFieldKind.Text } || (item == null && _tool == EditTool.TextField);
+        bool text = item is TextItem || (item == null && _tool is EditTool.Text or EditTool.Date) || typingRun != null || textField;
         bool line = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.Line or ShapeKind.Arrow } || item is InkItem { Signature: false }
                     || (item == null && _tool is EditTool.Pen or EditTool.Shapes);
         _fontRow.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)_sizeLabel.Parent).Visibility = text || line ? Visibility.Visible : Visibility.Collapsed;
         _sizeLabel.Text = text ? "Size" : "Line";
-        double size = typingRun != null ? typingRun.EffSize : item switch { TextItem t => t.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, _ => text ? _textSize : _lineWidth };
+        double size = typingRun != null ? typingRun.EffSize : item switch { TextItem t => t.FontSize, FieldItem f => f.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, _ => text ? _textSize : _lineWidth };
+        if (_fontPickerButton != null) _fontPickerButton.Visibility = textField ? Visibility.Collapsed : Visibility.Visible;
         _sizeText.Text = size.ToString(size < 10 ? "0.#" : "0", CultureInfo.InvariantCulture);
         _syncingFont = true;                                       // (showing the font must not change it)
         try
@@ -809,6 +813,8 @@ public sealed partial class PdfWindow
                 _boldButton.IsChecked = typingRun.EffBold;
             }
             else if (item is TextItem ti) { ShowFont(ti.Font, ti.FontName); _boldButton.IsChecked = ti.Bold; }
+            else if (item is FieldItem fi && fi.Kind == PdfNewFieldKind.Text) { ShowFont(fi.Font, null); _boldButton.IsChecked = fi.Bold; }
+            else if (textField) { ShowFont(_font, null); _boldButton.IsChecked = _bold; }
             else if (text) { ShowFont(_font, _fontName); _boldButton.IsChecked = _bold; }
         }
         finally { _syncingFont = false; }
@@ -823,7 +829,6 @@ public sealed partial class PdfWindow
         {
             _toolHint.Text = "Text box: drag its size (or click). Check box: click. The colour is the edge of the field. They become real fillable fields when you Save.";
             _toolHint.Visibility = Visibility.Visible;
-            ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
         }
         if (redact) { _toolHint.Text = "Drag over what must go. Saving removes it from the file for good (Save replaces the file: use Save as… to keep the original)."; _toolHint.Visibility = Visibility.Visible; }
         if (run && typingRun == null) ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
@@ -840,8 +845,10 @@ public sealed partial class PdfWindow
             Snapshot();
             _selected.Color = c;
             RenderItems(_selected.Page);
+            if (_tool != EditTool.Select) _toolColors[_tool] = c;             // (the next one made with this tool has the colour just chosen, not an older one)
         }
         else _toolColors[_tool] = c;
+        if (_tool is EditTool.TextField or EditTool.CheckField || _selected is FieldItem) _toolColors[EditTool.TextField] = _toolColors[EditTool.CheckField] = c;     // (text boxes and check boxes share their colour)
         MarkColor();
     }
 
@@ -856,10 +863,11 @@ public sealed partial class PdfWindow
         switch (_selected)
         {
             case TextItem t: Snapshot(); t.FontSize = Next(TextSizes, t.FontSize, step); _textSize = t.FontSize; RenderItems(t.Page); break;
+            case FieldItem { Kind: PdfNewFieldKind.Text } fld: Snapshot(); fld.FontSize = Next(TextSizes, fld.FontSize, step); _textSize = fld.FontSize; RenderItems(fld.Page); break;
             case ShapeItem s: Snapshot(); s.Width = Next(LineWidths, s.Width, step); _lineWidth = s.Width; RenderItems(s.Page); break;
             case InkItem i: Snapshot(); i.Width = Next(LineWidths, i.Width, step); _lineWidth = i.Width; RenderItems(i.Page); break;
             default:
-                if (_tool is EditTool.Text or EditTool.Date) _textSize = Next(TextSizes, _textSize, step); else _lineWidth = Next(LineWidths, _lineWidth, step);
+                if (_tool is EditTool.Text or EditTool.Date or EditTool.TextField) _textSize = Next(TextSizes, _textSize, step); else _lineWidth = Next(LineWidths, _lineWidth, step);
                 break;
         }
         if (_typing != null && _textBox != null) { _typing.FontSize = _textSize; _textBox.FontSize = _textSize; }
@@ -880,6 +888,14 @@ public sealed partial class PdfWindow
         if (kind is PdfFontKind k) { _font = k; _fontName = null; if (_fontLabel != null) _fontLabel.Text = "More fonts"; }
         if (name != null) _fontName = name;
         if (bold is bool b) _bold = b;
+        if (_selected is FieldItem { Kind: PdfNewFieldKind.Text } field)             // a text box of a form: Sans / Serif / Mono and bold (the standard PDF fonts)
+        {
+            Snapshot();
+            if (kind is PdfFontKind fk) field.Font = fk;
+            if (bold is bool fb) field.Bold = fb;
+            RenderItems(field.Page);
+            return;
+        }
         var target = _typing ?? _selected as TextItem;
         if (target != null)
         {

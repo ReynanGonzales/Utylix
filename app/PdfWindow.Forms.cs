@@ -43,9 +43,23 @@ public sealed partial class PdfWindow
         save.Click += async (_, _) => await SaveEditsAsync(saveAs: false);
         var close = SmallBar("", "Hide this bar", () => _formBar.Visibility = Visibility.Collapsed);
         var icon = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), Foreground = Brushes.White, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        // (remembered: a marker file in the data folder)
+        string marker = System.IO.Path.Combine(App.DataDir, "pdf-field-highlight");
+        try { PdfFile.HighlightFields = System.IO.File.Exists(marker); } catch (System.IO.IOException) { }
+        var tint = new CheckBox { Content = new TextBlock { Text = "Tint the fields", Foreground = Brushes.White }, IsChecked = PdfFile.HighlightFields, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0), Focusable = false, ToolTip = "Colour every fillable field lightly, so they are easy to find (only on screen: it is not printed or saved)" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(tint, "PdfFormTint");
+        RoutedEventHandler tintChanged = (_, _) =>
+        {
+            PdfFile.HighlightFields = tint.IsChecked == true;
+            try { if (PdfFile.HighlightFields) System.IO.File.WriteAllText(marker, "1"); else System.IO.File.Delete(marker); } catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { }
+            _pdf?.ApplyHighlight();
+            RedrawPages();
+        };
+        tint.Checked += tintChanged; tint.Unchecked += tintChanged;
         var row = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(close, Dock.Right); row.Children.Add(close);
         DockPanel.SetDock(save, Dock.Right); row.Children.Add(save);
+        DockPanel.SetDock(tint, Dock.Right); row.Children.Add(tint);
         DockPanel.SetDock(icon, Dock.Left); row.Children.Add(icon);
         row.Children.Add(_formBarText);
         _formBar = new Border { Child = row, Background = new SolidColorBrush(Color.FromRgb(0x2F, 0x4A, 0x8A)), Padding = new Thickness(0, 6, 6, 6), Visibility = Visibility.Collapsed };
