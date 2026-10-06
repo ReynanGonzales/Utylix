@@ -19,7 +19,31 @@ namespace IdmClone;
 /// </summary>
 internal static class FanTask
 {
-    public const string Name = "Utylix Fan Helper";
+    /// <summary>
+    /// The scheduled task belongs to ONE Windows account (it starts the helper in that account's session, and only that account may run it), so every account
+    /// gets its own: "Utylix Fan Helper (name)". Until 2026-10-06 there was one shared "Utylix Fan Helper": when a second account used Utylix, it found the
+    /// first account's task "ready", could not run it ("Access is denied") and the person had to press Start (a prompt) every time.
+    /// </summary>
+    private const string BaseName = "Utylix Fan Helper";
+    private static string CurrentSid => System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? "";
+    private static string? _name;
+    public static string Name => _name ??= NameFor(CurrentSid);
+
+    private static string NameFor(string sid)
+    {
+        string who;
+        try
+        {
+            who = new System.Security.Principal.SecurityIdentifier(sid).Translate(typeof(System.Security.Principal.NTAccount)).Value;
+            who = who[(who.LastIndexOf('\\') + 1)..];
+        }
+        catch (Exception e) when (e is ArgumentException or System.Security.Principal.IdentityNotMappedException or SystemException) { who = sid; }
+        foreach (char c in Path.GetInvalidFileNameChars()) who = who.Replace(c, '_');
+        return BaseName + " (" + who + ")";
+    }
+
+    /// <summary>The task of the old shared name, when it belongs to this account (it is replaced by the account's own).</summary>
+    private static bool OldTaskIsMine(string sid) => Schtasks($"/query /tn \"{BaseName}\" /xml", out string xml) == 0 && xml.Contains(">" + sid + "<", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The old place of the helper's own protected copy (Program Files\Utylix\FanHelper). Still used by installs that can't be locked (a per-user install).</summary>
     private static string LegacyDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Utylix", "FanHelper");
@@ -143,6 +167,12 @@ internal static class FanTask
 
     public static bool Exists() => Schtasks($"/query /tn \"{Name}\"", out _) == 0;
 
+    /// <summary>A fan helper task exists for any account (the uninstall removes them all).</summary>
+    public static bool AnyExists() => Schtasks("/query /fo csv /nh", out string list) == 0 && list.Contains(BaseName, StringComparison.Ordinal);
+
+    /// <summary>The task is this account's own (it runs as this account, so this account may start it).</summary>
+    private static bool BelongsToMe(string xml) => xml.Contains(">" + CurrentSid + "<", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The task exists and the copy it runs, though perhaps from an older version, still works with this program.</summary>
     public static async Task<bool> IsReadyAsync()
     {
@@ -151,11 +181,10 @@ internal static class FanTask
             try
             {
                 string? self = Environment.ProcessPath;
-                if (self == null || !Exists()) return false;
+                if (self == null || Schtasks($"/query /tn \"{Name}\" /xml", out string xml) != 0 || !BelongsToMe(xml)) return false;
                 if (DirectInstall)
                 {
                     // the task must run THIS folder's exe, and the folder must be locked (else anyone could swap the exe that runs as administrator)
-                    Schtasks($"/query /tn \"{Name}\" /xml", out string xml);
                     return xml.Contains(ProgramExe, StringComparison.OrdinalIgnoreCase) && FolderIsProtected(ProgramDir);
                 }
                 if (!File.Exists(LegacyExe)) return false;
@@ -193,12 +222,13 @@ internal static class FanTask
         catch (System.ComponentModel.Win32Exception) { return false; }                       // "No" on the Windows prompt
     }
 
-    public static async Task<bool> RemoveWithPromptAsync()
+    /// <summary>allAccounts: the program is being uninstalled, so every account's task goes (else only this account's).</summary>
+    public static async Task<bool> RemoveWithPromptAsync(bool allAccounts = false)
     {
         string? exe = Environment.ProcessPath;
         if (exe == null) return false;
         var psi = new ProcessStartInfo(exe) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden };
-        psi.ArgumentList.Add("--fan-task-remove");
+        psi.ArgumentList.Add("--fan-task-remove"); psi.ArgumentList.Add(allAccounts ? "all" : CurrentSid);
         try
         {
             using var p = Process.Start(psi);
@@ -258,7 +288,9 @@ internal static class FanTask
     {
         try
         {
-            Schtasks($"/end /tn \"{Name}\"", out _);
+            string name = NameFor(sid);
+            Schtasks($"/end /tn \"{name}\"", out _);
+            if (OldTaskIsMine(sid)) { Schtasks($"/end /tn \"{BaseName}\"", out _); Schtasks($"/delete /tn \"{BaseName}\" /f", out _); }       // (the shared task of before: replaced by this account's own)
             KillAt(LegacyExe);
             string exe;
             if (DirectInstall)
@@ -304,17 +336,39 @@ internal static class FanTask
 </Task>";
             string file = Path.Combine(Path.GetTempPath(), "utylix_fan_task_" + Guid.NewGuid().ToString("N")[..8] + ".xml");
             File.WriteAllText(file, xml, Encoding.Unicode);
-            try { return Schtasks($"/create /tn \"{Name}\" /xml \"{file}\" /f", out _); }
+            try { return Schtasks($"/create /tn \"{name}\" /xml \"{file}\" /f", out _); }
             finally { try { File.Delete(file); } catch (IOException) { } }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return 1; }
     }
 
     /// <summary>Runs with administrator rights ("--fan-task-remove"): delete the task and the copy.</summary>
-    public static int Remove()
+    public static int Remove(string? who)
     {
-        Schtasks($"/end /tn \"{Name}\"", out _);
-        int code = Schtasks($"/delete /tn \"{Name}\" /f", out _);
+        // who = an account's SID (its own task), "all" (every account's: the program is being uninstalled) or null (the old call: the task of the shared name)
+        var names = new List<string>();
+        if (who == "all")
+        {
+            Schtasks("/query /fo csv /nh", out string list);
+            foreach (string line in list.Split('\n'))
+            {
+                string first = line.Split(',')[0].Trim().Trim('"').TrimStart('\\');
+                if (first.StartsWith(BaseName, StringComparison.Ordinal)) names.Add(first);
+            }
+        }
+        else if (!string.IsNullOrEmpty(who))
+        {
+            names.Add(NameFor(who));
+            if (OldTaskIsMine(who)) names.Add(BaseName);
+        }
+        else names.Add(BaseName);
+        int code = 0;
+        foreach (string n in names)
+        {
+            Schtasks($"/end /tn \"{n}\"", out _);
+            int c = Schtasks($"/delete /tn \"{n}\" /f", out _);
+            if (c != 0 && code == 0) code = c;
+        }
         // only the old separate copy is deleted: when the helper runs from the program's own folder, that folder is the program itself
         RemoveLegacyCopy();
         if (Directory.Exists(LegacyDir)) code = code == 0 ? 2 : code;

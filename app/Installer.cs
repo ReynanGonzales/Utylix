@@ -449,10 +449,10 @@ internal static partial class Installer
             try { Directory.Delete(dataDir, true); } catch (Exception) { }
             Thread.Sleep(600);
         }
-        if (FanTask.Exists())
+        if (FanTask.AnyExists())
         {
             progress.Report((90, "Removing the fan control helper (Windows asks for permission)…"));
-            try { FanTask.RemoveWithPromptAsync().GetAwaiter().GetResult(); } catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            try { FanTask.RemoveWithPromptAsync(allAccounts: true).GetAwaiter().GetResult(); } catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
         }
         progress.Report((95, "Removing the program files…"));
         // the program cannot delete itself while it runs: a helper waits a moment, removes its files and the folder (only if empty)

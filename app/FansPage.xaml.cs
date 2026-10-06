@@ -130,7 +130,11 @@ public partial class FansPage : UserControl
                 ready = await FanTask.IsReadyAsync();
             }
             if (ready) started = FanTask.RunNow();
-            else if (!interactive) return;                            // not set up (or out of date after an update): press Start once
+            else if (!interactive)                                    // not set up for THIS Windows account (or out of date after an update): press Start once
+            {
+                SetOff("Automatic start is not set up for this Windows account yet. Press Start once (Windows asks for permission once); after that fan control starts by itself.");
+                return;
+            }
         }
         if (!started)
         {

@@ -77,7 +77,8 @@ public partial class App : Application
         // one-time setup / removal of the "start the fan helper without a prompt" task (started with administrator rights, then ends)
         int taskInstall = Array.IndexOf(e.Args, "--fan-task-install");
         if (taskInstall >= 0 && taskInstall + 1 < e.Args.Length) { Shutdown(FanTask.Install(e.Args[taskInstall + 1])); return; }
-        if (e.Args.Contains("--fan-task-remove")) { Shutdown(FanTask.Remove()); return; }
+        int taskRemove = Array.IndexOf(e.Args, "--fan-task-remove");
+        if (taskRemove >= 0) { Shutdown(FanTask.Remove(taskRemove + 1 < e.Args.Length ? e.Args[taskRemove + 1] : null)); return; }
         int fanHelper = Array.IndexOf(e.Args, "--fan-helper");
         if (fanHelper >= 0 && fanHelper + 1 < e.Args.Length)
         {
