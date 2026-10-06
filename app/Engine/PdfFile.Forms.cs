@@ -39,7 +39,7 @@ public sealed partial class PdfFile
         Pdfium.FPDF_SetFormFieldHighlightAlpha(_form, Highlight);
     }
 
-    private const byte Highlight = 60;               // (light: the text typed in a field stays dark and easy to read)
+    private const byte Highlight = 32;               // (very light: the text typed in a field stays dark and easy to read, and a field's own colour shows)
 
     private void ExitForm()
     {

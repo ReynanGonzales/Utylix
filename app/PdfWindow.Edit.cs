@@ -349,6 +349,7 @@ public sealed partial class PdfWindow
     private EditItem? _selected;
     private readonly Dictionary<EditTool, Color> _toolColors = new()
     {
+        [EditTool.TextField] = Color.FromRgb(0x2E, 0x7D, 0x32), [EditTool.CheckField] = Color.FromRgb(0x2E, 0x7D, 0x32),
         [EditTool.Text] = Colors.Black, [EditTool.Stamp] = Color.FromRgb(0x2E, 0x7D, 0x32), [EditTool.Date] = Colors.Black, [EditTool.Signature] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Check] = Colors.Black, [EditTool.Cross] = Colors.Black,
         [EditTool.Highlight] = Color.FromRgb(0xFF, 0xE0, 0x30), [EditTool.Underline] = Color.FromRgb(0x1E, 0x63, 0xE9), [EditTool.Strike] = Color.FromRgb(0xD3, 0x2F, 0x2F),
         [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White, [EditTool.Redact] = Colors.Black,
@@ -817,10 +818,10 @@ public sealed partial class PdfWindow
         _toolHint.Visibility = run ? Visibility.Visible : Visibility.Collapsed;
         bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
         bool fieldTool = item is FieldItem || (item == null && _tool is EditTool.TextField or EditTool.CheckField);
-        _colorRow.Visibility = item is ImageItem || (run && typingRun == null) || redact || fieldTool ? Visibility.Collapsed : Visibility.Visible;
+        _colorRow.Visibility = item is ImageItem || (run && typingRun == null) || redact ? Visibility.Collapsed : Visibility.Visible;
         if (fieldTool)
         {
-            _toolHint.Text = "Text box: drag its size (or click). Check box: click. They become real fillable fields when you Save: fill them here in the form bar, or in any PDF reader.";
+            _toolHint.Text = "Text box: drag its size (or click). Check box: click. The colour is the edge of the field. They become real fillable fields when you Save.";
             _toolHint.Visibility = Visibility.Visible;
             ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
         }

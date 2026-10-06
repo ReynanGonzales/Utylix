@@ -13,7 +13,7 @@ namespace IdmClone.Engine;
 public enum PdfNewFieldKind { Text, CheckBox }
 
 /// <summary>A new fillable field to put on a page. Box is in points from the top-left of the page as shown.</summary>
-public sealed record PdfFieldMark(int Page, Rect Box, PdfNewFieldKind Kind, string Name, double FontSize) : PdfMark(Page);
+public sealed record PdfFieldMark(int Page, Rect Box, PdfNewFieldKind Kind, string Name, double FontSize, System.Windows.Media.Color Color) : PdfMark(Page);
 
 /// <summary>
 /// Makes real, fillable form fields (text boxes and check boxes) in a PDF: PDFium can't create them, so they are written into the saved bytes with PDFsharp
@@ -86,10 +86,18 @@ public static class PdfFormFields
             widget.Elements["/Rect"] = Box(doc, l, b, l + w, b + h);
             widget.Elements.SetInteger("/F", 4);                                              // (printed)
             widget.Elements.SetString("/T", name);
+            // the person's colour: a solid edge, and a very pale tint of it inside
+            double cr = f.Color.R / 255.0, cg = f.Color.G / 255.0, cb = f.Color.B / 255.0;
+            double tr = 0.93 + cr * 0.07, tg = 0.93 + cg * 0.07, tb = 0.93 + cb * 0.07;
+            string edge = $"{Num(cr)} {Num(cg)} {Num(cb)}", tint = $"{Num(tr)} {Num(tg)} {Num(tb)}";
             var mk = new PdfDictionary(doc);
-            mk.Elements["/BC"] = new PdfArray(doc, new PdfReal(0.35), new PdfReal(0.45), new PdfReal(0.65));
-            mk.Elements["/BG"] = new PdfArray(doc, new PdfReal(0.94), new PdfReal(0.96), new PdfReal(1));
+            mk.Elements["/BC"] = new PdfArray(doc, new PdfReal(cr), new PdfReal(cg), new PdfReal(cb));
+            mk.Elements["/BG"] = new PdfArray(doc, new PdfReal(tr), new PdfReal(tg), new PdfReal(tb));
             widget.Elements["/MK"] = mk;
+            var bs = new PdfDictionary(doc);                                                   // (border style: solid, 1.5 pt)
+            bs.Elements.SetName("/S", "/S");
+            bs.Elements["/W"] = new PdfReal(BorderWidth);
+            widget.Elements["/BS"] = bs;
 
             var normal = new PdfDictionary(doc);
             if (f.Kind == PdfNewFieldKind.Text)
@@ -99,7 +107,7 @@ public static class PdfFormFields
                 widget.Elements.SetString("/DA", "/Helv " + Num(size) + " Tf 0 g");
                 if (h > size * 2.4) widget.Elements.SetInteger("/Ff", 1 << 12);               // (a tall box: several lines)
                 var ap = new PdfDictionary(doc);
-                ap.Elements["/N"] = Form(doc, w, h, Frame(w, h, "") );
+                ap.Elements["/N"] = Form(doc, w, h, Frame(w, h, tint, edge, ""));
                 widget.Elements["/AP"] = ap;
             }
             else
@@ -109,9 +117,9 @@ public static class PdfFormFields
                 widget.Elements.SetName("/AS", "/Off");
                 mk.Elements.SetString("/CA", "4");
                 double s = Math.Min(w, h);
-                string tick = $"0 g 0 G {Num(s * 0.12)} w 1 J 1 j {Num(w * 0.2)} {Num(h * 0.5)} m {Num(w * 0.42)} {Num(h * 0.24)} l {Num(w * 0.8)} {Num(h * 0.78)} l S\n";
-                normal.Elements["/Yes"] = Form(doc, w, h, Frame(w, h, tick));
-                normal.Elements["/Off"] = Form(doc, w, h, Frame(w, h, ""));
+                string tick = $"{edge} RG {Num(s * 0.13)} w 1 J 1 j {Num(w * 0.22)} {Num(h * 0.5)} m {Num(w * 0.43)} {Num(h * 0.25)} l {Num(w * 0.79)} {Num(h * 0.77)} l S\n";
+                normal.Elements["/Yes"] = Form(doc, w, h, Frame(w, h, tint, edge, tick));
+                normal.Elements["/Off"] = Form(doc, w, h, Frame(w, h, tint, edge, ""));
                 var ap = new PdfDictionary(doc);
                 ap.Elements["/N"] = normal;
                 widget.Elements["/AP"] = ap;
@@ -154,9 +162,11 @@ public static class PdfFormFields
 
     private static string Num(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
-    /// <summary>A pale blue box with a dark blue edge (and anything else drawn on top), as an appearance stream.</summary>
-    private static string Frame(double w, double h, string extra) =>
-        $"q 0.94 0.96 1 rg 0 0 {Num(w)} {Num(h)} re f 0.35 0.45 0.65 RG 0.75 w 0.375 0.375 {Num(w - 0.75)} {Num(h - 0.75)} re S Q\n{extra}";
+    private const double BorderWidth = 1.5;
+
+    /// <summary>A box in the tint with a solid edge, the edge drawn inside the box so it is as sharp as the screen allows (and anything else on top), as an appearance stream.</summary>
+    private static string Frame(double w, double h, string tint, string edge, string extra) =>
+        $"q {tint} rg 0 0 {Num(w)} {Num(h)} re f {edge} RG {Num(BorderWidth)} w {Num(BorderWidth / 2)} {Num(BorderWidth / 2)} {Num(w - BorderWidth)} {Num(h - BorderWidth)} re S Q\n{extra}";
 
     private static PdfReference Form(PdfDocument doc, double w, double h, string content)
     {
