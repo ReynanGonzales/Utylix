@@ -58,6 +58,7 @@ public static class PdfFormFields
         var catalog = doc.Internals.Catalog;
         PdfDictionary acro;
         if (Resolve(catalog.Elements["/AcroForm"]) is PdfDictionary existing) acro = existing;
+        else if (fields.Count == 0) return bytes;                        // (nothing to add and no form to tidy)
         else
         {
             acro = new PdfDictionary(doc);
@@ -66,6 +67,14 @@ public static class PdfFormFields
         }
         var all = Resolve(acro.Elements["/Fields"]) as PdfArray;
         if (all == null) { all = new PdfArray(doc); acro.Elements["/Fields"] = all; }
+        // fields whose box was taken off its page (a saved field picked up again to move or delete it) are not in the form any more
+        var live = new HashSet<PdfObjectID>();
+        foreach (var pg in doc.Pages)
+            if (Resolve(pg.Elements["/Annots"]) is PdfArray onPage) foreach (var it in onPage.Elements) if (it is PdfReference rr) live.Add(rr.ObjectID);
+        for (int k = all.Elements.Count - 1; k >= 0; k--)
+            if (all.Elements[k] is PdfReference fr && fr.Value is PdfDictionary fd && fd.Elements.GetName("/Subtype") == "/Widget" && !fd.Elements.ContainsKey("/Kids") && !live.Contains(fr.ObjectID))
+                all.Elements.RemoveAt(k);
+        if (fields.Count == 0) { using var tidied = new MemoryStream(); doc.Save(tidied, false); return tidied.ToArray(); }
         EnsureFont(doc, acro);
         acro.Elements.SetBoolean("/NeedAppearances", true);
         if (!acro.Elements.ContainsKey("/DA")) acro.Elements.SetString("/DA", "/Helv 0 Tf 0 g");
@@ -86,6 +95,8 @@ public static class PdfFormFields
             widget.Elements["/Rect"] = Box(doc, l, b, l + w, b + h);
             widget.Elements.SetInteger("/F", 4);                                              // (printed)
             widget.Elements.SetString("/T", name);
+            widget.Elements.SetString("/" + PdfFile.OwnFieldKey, "1");                       // (made here: it can be picked up and edited again)
+            widget.Elements.SetString("/" + PdfFile.OwnColorKey, $"{f.Color.R:X2}{f.Color.G:X2}{f.Color.B:X2}");
             // the person's colour: a solid edge, nothing inside (no background)
             double cr = f.Color.R / 255.0, cg = f.Color.G / 255.0, cb = f.Color.B / 255.0;
             string edge = $"{Num(cr)} {Num(cg)} {Num(cb)}";

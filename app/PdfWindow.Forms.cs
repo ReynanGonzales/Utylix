@@ -71,7 +71,7 @@ public sealed partial class PdfWindow
     private void OnFormLoaded()
     {
         CloseFieldEditor(commit: false);
-        _fields.Clear();
+        _fields.Clear(); _ownFields.Clear();
         if (_pdf?.HasForm == true)
         {
             _formBarText.Text = "This PDF has fields to fill in. Click a field to type in it; Tab goes to the next one.";

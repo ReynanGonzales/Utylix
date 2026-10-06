@@ -824,7 +824,8 @@ public sealed partial class PdfWindow
         _toolHint.Visibility = run ? Visibility.Visible : Visibility.Collapsed;
         bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
         bool fieldTool = item is FieldItem || (item == null && _tool is EditTool.TextField or EditTool.CheckField);
-        _colorRow.Visibility = item is ImageItem || (run && typingRun == null) || redact ? Visibility.Collapsed : Visibility.Visible;
+        _colorRow.Visibility = item is ImageItem or PageObjectItem || (run && typingRun == null) || redact ? Visibility.Collapsed : Visibility.Visible;
+        if (item is PageObjectItem) { _toolHint.Text = "Already in the PDF: drag it to move it, the corner to resize it, Delete to remove it. Undo takes it back."; _toolHint.Visibility = Visibility.Visible; }
         if (fieldTool)
         {
             _toolHint.Text = "Text box: drag its size (or click). Check box: click. The colour is the edge of the field. They become real fillable fields when you Save.";
@@ -840,7 +841,7 @@ public sealed partial class PdfWindow
     private void SetColor(Color c)
     {
         if (_runTyping != null) { _runTyping.ColorOverride = c; StyleRunBox(); RenderItems(_runTyping.Page); MarkColor(); return; }
-        if (_selected != null && _selected is not ImageItem)
+        if (_selected != null && _selected is not (ImageItem or PageObjectItem))
         {
             Snapshot();
             _selected.Color = c;
@@ -972,6 +973,7 @@ public sealed partial class PdfWindow
 
     private void DeleteSelected()
     {
+        if (_selected is PageObjectItem picked) { DeletePageObjects(picked); return; }
         if (_group.Count > 0)
         {
             Snapshot();
@@ -1145,7 +1147,13 @@ public sealed partial class PdfWindow
                 if (OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
                 var item = ItemAt(pv.Index, p);
                 Select(item);
-                if (item == null) { _drag = DragMode.Marquee; _marquee = new Rect(p, p); _marqueePage = pv.Index; break; }      // (an empty spot: drag a box round what you want)
+                if (item == null)
+                {
+                    // not one of this session's things: a saved text box / check box of ours, or anything drawn on the page, can be picked up too
+                    if (OwnFieldAt(pv.Index, p) is { } own) { _dragPage = null; LiftOwnField(pv.Index, own); return; }
+                    if (PickPageObject(pv.Index, p) is { } picked) { Select(picked); _drag = DragMode.Move; _dragBox = picked.Bounds; break; }
+                    _drag = DragMode.Marquee; _marquee = new Rect(p, p); _marqueePage = pv.Index; break;      // (an empty spot: drag a box round what you want)
+                }
                 if (item is TextItem t && e.ClickCount == 2) { EditText(t, isNew: false); return; }
                 if (item is NoteItem n && e.ClickCount == 2) { OpenNote(n, isNew: false); return; }
                 if (item is ColumnsItem columns && e.ClickCount == 2) { EditColumns(columns); return; }
@@ -1165,6 +1173,7 @@ public sealed partial class PdfWindow
             }
             case EditTool.TextField or EditTool.CheckField:
                 if (ItemAt(pv.Index, p) is FieldItem placed) { Select(placed); _drag = DragMode.Move; _dragBox = placed.Bounds; break; }       // (a click on a field already there moves it)
+                if (OwnFieldAt(pv.Index, p) is { } saved) { _dragPage = null; LiftOwnField(pv.Index, saved); return; }                        // (a saved one: picked up again)
                 StartField(pv, p);
                 break;
             case EditTool.Stamp:
@@ -1215,14 +1224,14 @@ public sealed partial class PdfWindow
                 var target = _dragBox.TopLeft + (p - _dragStart);
                 var delta = target - _selected.Bounds.TopLeft;
                 if (delta.Length < 0.01) return;
-                if (!_dragSnapshotTaken) { if ((p - _dragStart).Length < 1.5) return; Snapshot(); _dragSnapshotTaken = true; }
+                if (!_dragSnapshotTaken) { if ((p - _dragStart).Length < 1.5) return; if (_selected is not PageObjectItem) Snapshot(); _dragSnapshotTaken = true; }
                 _selected.MoveBy(delta);
                 RenderItems(pv.Index);
                 break;
             }
             case DragMode.Resize when _selected != null:
             {
-                if (!_dragSnapshotTaken) { Snapshot(); _dragSnapshotTaken = true; }
+                if (!_dragSnapshotTaken) { if (_selected is not PageObjectItem) Snapshot(); _dragSnapshotTaken = true; }
                 // (a turned item keeps its top-left corner where it is on the page, and the mouse is measured along the item's own directions)
                 double angle = _selected.Angle;
                 var c0 = CentreOf(_dragBox);
@@ -1337,6 +1346,7 @@ public sealed partial class PdfWindow
             _runDragItem = null; _runDragRun = null;
             return;
         }
+        if (mode is DragMode.Move or DragMode.Resize && _selected is PageObjectItem pickedUp) { CommitPageObject(pickedUp); return; }
         if (mode == DragMode.GroupMove) { UpdateEditButtons(); return; }
         if (drawn is FieldItem newField && mode == DragMode.Draw) { FinishField(newField, _dragStart); return; }
         if (mode == DragMode.Marquee)
@@ -1346,6 +1356,7 @@ public sealed partial class PdfWindow
             var hit = box.Width < 3 && box.Height < 3 ? new List<EditItem>() : _items.Where(i => i.Page == pv.Index && !i.Bounds.IsEmpty && box.IntersectsWith(i.Bounds)).ToList();
             if (hit.Count == 1) Select(hit[0]);
             else if (hit.Count > 1) { _selected = null; _group.AddRange(hit); UpdateProperties(); }
+            else if (box.Width >= 3 || box.Height >= 3) { if (PickPageObjectsIn(pv.Index, box) is { } many) Select(many); }       // (nothing of this session's: what is already drawn inside the box)
             RenderItems(pv.Index);
             UpdateEditButtons();
             return;
@@ -1549,6 +1560,7 @@ public sealed partial class PdfWindow
             {
                 double step = shift ? 10 : 1;
                 var d = e.Key switch { Key.Left => new Vector(-step, 0), Key.Right => new Vector(step, 0), Key.Up => new Vector(0, -step), _ => new Vector(0, step) };
+                if (_selected is PageObjectItem nudged) { nudged.MoveBy(d); CommitPageObject(nudged); return true; }
                 Snapshot();
                 _selected.MoveBy(d);
                 RenderItems(_selected.Page);
@@ -1623,7 +1635,7 @@ public sealed partial class PdfWindow
             flattened = PdfMarkWriter.FlattenedPages.Select(p => p + 1).OrderBy(p => p).ToList();
             byte[] bytes = pdf.SaveToBytes();
             if (redactions.Count > 0) bytes = PdfRedactor.Finish(bytes, redactions);       // (cleaned and checked: if anything is left under a box, nothing is saved)
-            if (newFields.Count > 0) bytes = PdfFormFields.Add(pdf, bytes, newFields);     // (PDFium can't make form fields: they are written into the saved bytes)
+            if (newFields.Count > 0 || _fieldsLifted) bytes = PdfFormFields.Add(pdf, bytes, newFields);     // (PDFium can't make form fields: they are written into the saved bytes; also tidies the form after a saved field was picked up)
             // written next to it first, so a failure can't leave half a file
             string temp = target + ".utylix-tmp";
             File.WriteAllBytes(temp, bytes);
@@ -1639,7 +1651,7 @@ public sealed partial class PdfWindow
             return false;
         }
         finally { Mouse.OverrideCursor = null; }
-        _dirty = false;
+        _dirty = false; _fieldsLifted = false;
         bool other = !string.Equals(System.IO.Path.GetFullPath(target), System.IO.Path.GetFullPath(_path), StringComparison.OrdinalIgnoreCase);
         _ = LoadAsync(target, password, keepEditing: true);
         string saved = other ? "Saved as " + System.IO.Path.GetFileName(target) : "Saved";

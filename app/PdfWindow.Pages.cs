@@ -150,12 +150,12 @@ public sealed partial class PdfWindow
     }
 
     /// <summary>Makes a change to the pages of the document: edits so far go into the pages, the old state is kept for Undo, the pages are drawn again.</summary>
-    private void PageOp(Action<PdfFile> change, IReadOnlyList<int> select, string message) => PageOp(change, () => select, () => message);
+    private bool PageOp(Action<PdfFile> change, IReadOnlyList<int> select, string message, bool keepView = false) => PageOp(change, () => select, () => message, keepView);
 
-    /// <summary>As above, but the pages to choose afterwards and the message are worked out after the change (inserting pages: how many came in).</summary>
-    private void PageOp(Action<PdfFile> change, Func<IReadOnlyList<int>> select, Func<string> message)
+    /// <summary>As above, but the pages to choose afterwards and the message are worked out after the change (inserting pages: how many came in). True when it was done.</summary>
+    private bool PageOp(Action<PdfFile> change, Func<IReadOnlyList<int>> select, Func<string> message, bool keepView = false)
     {
-        if (!PreparePageOp()) return;
+        if (!PreparePageOp()) return false;
         var pdf = _pdf!;
         byte[]? before = null;
         try
@@ -166,16 +166,17 @@ public sealed partial class PdfWindow
         catch (Exception e) when (e is IOException or InvalidOperationException or OutOfMemoryException or ObjectDisposedException or PdfProtectedException)
         {
             if (before != null) { try { pdf.Restore(before); } catch (Exception) { } }
-            RefreshAfterPageChange(Array.Empty<int>());
+            RefreshAfterPageChange(Array.Empty<int>(), keepView);
             Toast("Couldn't do that: " + e.Message);
-            return;
+            return false;
         }
         _pageUndo.Add(new DocState(before!)); _pageRedo.Clear();
         TrimPageUndo();
         _dirty = true;
         UpdateTitle();
-        RefreshAfterPageChange(select());
+        RefreshAfterPageChange(select(), keepView);
         Toast(message());
+        return true;
     }
 
     /// <summary>Makes ready for a change of the pages: editing is on, and what was added to the pages is written into them. False = not now.</summary>

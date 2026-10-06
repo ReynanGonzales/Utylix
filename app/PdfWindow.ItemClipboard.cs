@@ -17,12 +17,16 @@ public sealed partial class PdfWindow
     private List<EditItem> ChosenItems() => _group.Count > 0 ? _group.ToList() : _selected != null ? new List<EditItem> { _selected } : new List<EditItem>();
 
     /// <summary>Words that are marked (highlight / underline / strike) belong to their words, and a changed line of the PDF's own text to that line: those are not copied.</summary>
-    private static bool Copyable(EditItem item) => item is not (TextMarkupItem or RunEditItem);
+    private static bool Copyable(EditItem item) => item is not (TextMarkupItem or RunEditItem or PageObjectItem);
 
     private bool CopyItems()
     {
         var items = ChosenItems().Where(Copyable).ToList();
-        if (items.Count == 0) return false;
+        if (items.Count == 0)
+        {
+            if (_selected is PageObjectItem) Toast("This is already part of the PDF: it can be moved, resized or deleted, not copied. (A saved text box can be copied: click it first)");
+            return false;
+        }
         _itemClipboard = items.Select(i => i.Clone()).ToList();
         _pasteStep = 0;
         if (items.Count == 1 && items[0] is TextItem { Text.Length: > 0 } text)
