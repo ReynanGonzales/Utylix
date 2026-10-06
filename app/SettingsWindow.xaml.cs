@@ -206,7 +206,7 @@ public partial class SettingsWindow : Window
         Heading("Tools while editing (hold Alt)");
         foreach (var (key, what) in new[] { ("V", "Select, move, resize"), ("E", "Edit text already in the PDF"), ("T", "Text"), ("G", "Sign"), ("I", "Picture"), ("C", "Check mark"), ("X", "Cross"),
                                             ("M", "Stamp"), ("D", "Date"), ("H", "Highlight"), ("U", "Underline"), ("K", "Strike"), ("N", "Note"), ("P", "Pen"), ("S", "Shapes"),
-                                            ("W", "White-out"), ("R", "Redact"), ("F", "Fillable text box"), ("B", "Fillable check box") })
+                                            ("W", "White-out"), ("R", "Redact"), ("F", "Fillable text box"), ("B", "Fillable check box"), ("L", "Table") })
             Row("Alt + " + key, what);
         Row("Ctrl + Z", "Undo (also after saving)");
         Row("Drag a box with Select", "Choose several things: move or delete them together");

@@ -95,6 +95,64 @@ public sealed partial class PdfFile
         }
     }
 
+    /// <summary>Changes the stacking of things on the page: mode 0 = to the very front, 1 = one step forward, 2 = one step back, 3 = to the very back. Returns where they are in the list afterwards.</summary>
+    public List<int> ReorderPageObjects(int pageIndex, IReadOnlyList<int> indices, int mode)
+    {
+        lock (Pdfium.Sync)
+        {
+            ThrowIfClosed();
+            IntPtr page = LoadPageOrThrow(pageIndex);
+            try
+            {
+                int total = Pdfium.FPDFPage_CountObjects(page);
+                var sel = indices.Where(i => i >= 0 && i < total).Distinct().OrderBy(i => i).ToList();
+                var set = new HashSet<int>(sel);
+                var result = new List<int>();
+                void Move(int from, int to)                                        // (take one thing out of the list and put it back at another place)
+                {
+                    IntPtr obj = Pdfium.FPDFPage_GetObject(page, from);
+                    if (obj == IntPtr.Zero || Pdfium.FPDFPage_RemoveObject(page, obj) == 0) return;
+                    Pdfium.FPDFPage_InsertObjectAtIndex(page, obj, (UIntPtr)(uint)to);
+                }
+                switch (mode)
+                {
+                    case 0:
+                        for (int k = 0; k < sel.Count; k++) Move(sel[k] - k, total - 1);          // (the k ones before it were already taken out and put at the end: its place is k less)
+                        for (int k = 0; k < sel.Count; k++) result.Add(total - sel.Count + k);
+                        break;
+                    case 3:
+                        for (int k = 0; k < sel.Count; k++) { Move(sel[k], k); result.Add(k); }
+                        break;
+                    case 1:
+                    {
+                        var now = sel.ToList();
+                        for (int k = now.Count - 1; k >= 0; k--)
+                        {
+                            int i = now[k];
+                            if (i + 1 < total && !now.Contains(i + 1)) { Move(i, i + 1); now[k] = i + 1; }
+                        }
+                        result = now;
+                        break;
+                    }
+                    default:
+                    {
+                        var now = sel.ToList();
+                        for (int k = 0; k < now.Count; k++)
+                        {
+                            int i = now[k];
+                            if (i - 1 >= 0 && !now.Contains(i - 1)) { Move(i, i - 1); now[k] = i - 1; }
+                        }
+                        result = now;
+                        break;
+                    }
+                }
+                if (Pdfium.FPDFPage_GenerateContent(page) == 0) throw new IOException("Page " + (pageIndex + 1) + " couldn't be written.");
+                return result;
+            }
+            finally { Pdfium.FPDF_ClosePage(page); _texts.Remove(pageIndex); _runs.Remove(pageIndex); }
+        }
+    }
+
     private void ChangeObjects(int pageIndex, IReadOnlyList<int> indices, Action<PageMapping, IntPtr> change)
     {
         lock (Pdfium.Sync)

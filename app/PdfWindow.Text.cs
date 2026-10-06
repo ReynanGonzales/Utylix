@@ -405,6 +405,15 @@ public sealed partial class PdfWindow
         }
         else Item("Copy", "Ctrl+C", sel, CopySelection);
         if (_editing && _itemClipboard.Count > 0) Item("Paste here", "Ctrl+V", true, () => PasteItems(p, pv.Index));
+        if (_editing && CanArrange)
+        {
+            menu.Items.Add(new Separator());
+            Item("Bring to front", "Ctrl+Shift+]", true, () => Arrange(ZMove.ToFront));
+            Item("Bring forward", "Ctrl+]", true, () => Arrange(ZMove.Forward));
+            Item("Send backward", "Ctrl+[", true, () => Arrange(ZMove.Backward));
+            Item("Send to back", "Ctrl+Shift+[", true, () => Arrange(ZMove.ToBack));
+            Item("Delete", "Del", true, DeleteSelected);
+        }
         Item("Select all text on this page", "Ctrl+A", true, () => { _current = pv.Index; SelectAllOnPage(); });
         menu.Items.Add(new Separator());
         Item("Highlight", "", sel, () => MarkSelection(Pdfium.AnnotHighlight));
