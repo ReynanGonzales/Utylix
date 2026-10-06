@@ -19,6 +19,22 @@ internal sealed class FanClient : IDisposable
 
     public bool Connected => _pipe is { IsConnected: true };
 
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetNamedPipeServerProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint processId);
+
+    /// <summary>
+    /// The helper at the other end runs without administrator rights, so it can't drive the fans or open PawnIO for the lights. That happens
+    /// when the Windows account isn't an administrator: the scheduled task then starts the helper with the account's own rights.
+    /// </summary>
+    public bool HelperIsLimited
+    {
+        get
+        {
+            try { return _pipe is { IsConnected: true } pipe && GetNamedPipeServerProcessId(pipe.SafePipeHandle, out uint pid) && FanTask.IsLimited((int)pid); }
+            catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException) { return false; }
+        }
+    }
+
     /// <summary>Starts the helper with administrator rights. Returns false if the person said no to the Windows prompt.</summary>
     public static bool StartHelper()
     {

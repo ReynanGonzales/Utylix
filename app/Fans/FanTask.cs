@@ -85,6 +85,50 @@ internal static class FanTask
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or System.Security.Principal.IdentityNotMappedException) { return false; }
     }
 
+    // ---------- can this Windows account get administrator rights by itself? ----------
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+    [System.Runtime.InteropServices.DllImport("advapi32.dll")] private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+    [System.Runtime.InteropServices.DllImport("advapi32.dll")] private static extern bool GetTokenInformation(IntPtr token, int infoClass, out int value, int length, out int returned);
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
+    private const int TokenElevationType = 18, TokenElevation = 20;
+
+    /// <summary>
+    /// The account is an administrator (with or without Windows' "yes" prompt). A standard account - like a company's domain account - is not:
+    /// the task's "highest privileges" then are the account's own, so a helper started through it can't drive the hardware, and Windows has
+    /// to be asked for an administrator's password each time instead.
+    /// </summary>
+    public static bool AccountCanElevate
+    {
+        get
+        {
+            try
+            {
+                using var me = System.Security.Principal.WindowsIdentity.GetCurrent();
+                if (new System.Security.Principal.WindowsPrincipal(me).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator)) return true;
+                // 2 = full (already elevated), 3 = limited (an administrator whose rights are held back until Windows asks)
+                return GetTokenInformation(me.Token, TokenElevationType, out int type, 4, out _) && type is 2 or 3;
+            }
+            catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException) { return false; }
+        }
+    }
+
+    /// <summary>
+    /// The process runs WITHOUT administrator rights (a helper that can't drive the hardware). False when it has them, or when Windows doesn't
+    /// let us look (a helper started with an administrator's password runs as that administrator, whose process we may not inspect).
+    /// </summary>
+    public static bool IsLimited(int pid)
+    {
+        IntPtr process = OpenProcess(0x1000, false, pid);                     // PROCESS_QUERY_LIMITED_INFORMATION
+        if (process == IntPtr.Zero) return false;
+        try
+        {
+            if (!OpenProcessToken(process, 0x0008, out IntPtr token)) return false;    // TOKEN_QUERY
+            try { return GetTokenInformation(token, TokenElevation, out int elevated, 4, out _) && elevated == 0; }
+            finally { CloseHandle(token); }
+        }
+        finally { CloseHandle(process); }
+    }
+
     /// <summary>The program's folder will be locked by the one-time setup (a machine-wide install that isn't locked yet).</summary>
     public static bool WillLockFolder => DirectInstall && !FolderIsProtected(ProgramDir);
 

@@ -83,7 +83,14 @@ Made by `tools\organize-publish.ps1`, which `tools\pack-setup.ps1` runs first (s
   an existing user choice (uTorrent, VLC) for default apps; it only registers itself in "Open with" / Default apps.
 - **Fan control** needs administrator rights: an elevated helper (`--fan-helper`) talks over a named pipe. A scheduled task "Utylix Fan Helper"
   (installed once with one UAC prompt) runs a protected copy in `C:\Program Files\Utylix\FanHelper`. `FanTask.Generation` must be raised if the
-  helper protocol changes (an older copy otherwise keeps working after an update). The helper reverts every fan to automatic if Utylix stops,
+  helper protocol changes (an older copy otherwise keeps working after an update).
+  **Standard (non-administrator) accounts** - e.g. the owner's office PC, domain account GEOGROUP\reynan: the task's "HighestAvailable" is then
+  the account's OWN rights, so a task-started helper runs unelevated and PawnIO / fan control fail ("PawnIO could not be opened"). Since
+  2026-10-06: `FanTask.AccountCanElevate` (in Administrators, or TokenElevationType full/limited) decides; if false the task is not used,
+  nothing starts at Utylix start, and Start / "Find my RAM lights" start the helper with "runas" (Windows asks for an administrator's
+  name + password, once per Utylix session - the owner asked for exactly this). `FanClient.HelperIsLimited` (GetNamedPipeServerProcessId
+  + TokenElevation) ends a connected helper that has no rights. The helper then runs as THAT administrator (its App.DataDir/logs are in
+  the admin's profile). The helper reverts every fan to automatic if Utylix stops,
   disconnects, or goes silent for 10 s. Never relax those safeties. Board here: ASUS PRIME B550M-A (Nuvoton NCT6798D), GPU fan via NVIDIA.
 - **libvlc** must only be called from one dedicated thread per window (PlayerWindow/MusicWindow "player thread"); calling it on the UI thread can deadlock.
 - **Torrents** (MonoTorrent 3.0.2): no uTP, its DHT bootstraps poorly on some networks; trackers are tried one after another, so `Download.Torrent.cs`

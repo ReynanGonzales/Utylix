@@ -251,15 +251,21 @@ internal sealed class RgbPanel : UserControl
         _busy = true;
         try
         {
-            if (!FanSettings.Client.Connected)
+            bool canTask = FanTask.AccountCanElevate;
+            if (!FanSettings.Client.Connected || FanSettings.Client.HelperIsLimited)
             {
-                if (!interactive) return;                                        // a quiet look only uses a helper that already runs
+                // a quiet look only uses a helper that already runs with administrator rights
+                if (!interactive)
+                {
+                    if (!canTask && !_intro.Text.Contains(FansPage.NeedsAdminPassword)) _intro.Text += "\n\n" + FansPage.NeedsAdminPassword;
+                    return;
+                }
                 _find.IsEnabled = false;
-                SetStatus("Starting the helperâ€¦");
-                if (!await _fans.EnsureHelperAsync()) { SetStatus("The helper did not start"); return; }
+                SetStatus(canTask ? "Starting the helper…" : "Type an administrator's password in Windows' prompt…");
+                if (!await _fans.EnsureHelperAsync()) { SetStatus(canTask ? "The helper did not start" : "Not started: Windows needs an administrator's password"); return; }
             }
             _find.IsEnabled = false;
-            SetStatus("Lookingâ€¦");
+            SetStatus("Looking…");
             var reply = await FanSettings.Client.AskAsync(new FanRequest { Cmd = "light-scan" }, 15);
             if (reply == null) { SetStatus("No answer from the helper"); return; }
             if (!reply.Ok) { SetStatus(reply.Error ?? "Could not look"); ShowArmoury(reply.Armoury); return; }
@@ -324,7 +330,7 @@ internal sealed class RgbPanel : UserControl
         if (!FanSettings.Client.Connected) return;
         bool back = _armouryState != "running";
         _armouryButton.IsEnabled = false;
-        SetStatus(back ? "Turning it back onâ€¦" : "Turning it offâ€¦");
+        SetStatus(back ? "Turning it back on…" : "Turning it off…");
         var reply = await FanSettings.Client.AskAsync(new FanRequest { Cmd = "armoury", Flag = back }, 20);
         ShowArmoury(reply?.Armoury);
         SetStatus(reply?.Ok == true ? (back ? "Armoury Crate's lighting is back on" : "Armoury Crate's lighting is off") : reply?.Error ?? "No answer from the helper");

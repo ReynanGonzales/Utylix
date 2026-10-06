@@ -81,8 +81,11 @@ public partial class FansPage : UserControl
     public async Task<bool> EnsureHelperAsync()
     {
         await BringUpAsync(interactive: true);
-        return FanSettings.Client.Connected;
+        return FanSettings.Client.Connected && !FanSettings.Client.HelperIsLimited;
     }
+
+    /// <summary>Said when the Windows account isn't an administrator, so Windows asks for an administrator's password at each start.</summary>
+    public const string NeedsAdminPassword = "Your Windows account isn't an administrator on this PC, so Windows asks for an administrator's name and password each time this starts (once per Utylix session).";
 
     /// <summary>
     /// Gets the helper running and connected. "interactive" = the person pressed Start: Windows may be asked for permission. Otherwise
@@ -90,13 +93,24 @@ public partial class FansPage : UserControl
     /// </summary>
     private async Task BringUpAsync(bool interactive)
     {
+        // a helper without administrator rights (the task started it for a standard account) can't drive anything: end it
+        if (FanSettings.Client.Connected && FanSettings.Client.HelperIsLimited) await FanSettings.Client.StopAsync();
         if (FanSettings.Client.Connected) return;
         if (!interactive && !_settings.AutoStart) return;
-        if (await FanSettings.Client.ConnectAsync(400)) { await PushAsync(); await TickAsync(); return; }        // already running from before
+        if (await FanSettings.Client.ConnectAsync(400))                                                        // already running from before
+        {
+            if (!FanSettings.Client.HelperIsLimited) { await PushAsync(); await TickAsync(); return; }
+            await FanSettings.Client.StopAsync();
+            await Task.Delay(500);
+        }
+        // a standard account (e.g. a company's domain account): the task can't give the helper administrator rights, so it isn't used,
+        // and the helper is only started when the person asks (Windows then asks for an administrator's password)
+        bool canTask = FanTask.AccountCanElevate;
+        if (!interactive && !canTask) { SetOff(NeedsAdminPassword + " Press Start when you want fan control."); return; }
         if (interactive) { StartBtn.IsEnabled = false; StatusText.Text = "Starting…"; }
 
         bool started = false;
-        if (_settings.AutoStart)
+        if (_settings.AutoStart && canTask)
         {
             bool ready = await FanTask.IsReadyAsync();
             if (!ready && interactive)
@@ -121,8 +135,8 @@ public partial class FansPage : UserControl
         if (!started)
         {
             if (!interactive) return;
-            StatusText.Text = "Waiting for Windows' permission…";
-            if (!FanClient.StartHelper()) { SetOff("Windows' permission was not given, so fan control did not start."); return; }
+            StatusText.Text = canTask ? "Waiting for Windows' permission…" : "Waiting for an administrator's password in Windows' prompt…";
+            if (!FanClient.StartHelper()) { SetOff("Windows' permission was not given, so fan control did not start." + (canTask ? "" : " " + NeedsAdminPassword)); return; }
         }
         if (interactive) StatusText.Text = "Starting… (reading the hardware takes a few seconds)";
         bool connected = await FanSettings.Client.ConnectAsync(started ? 15000 : 25000);
