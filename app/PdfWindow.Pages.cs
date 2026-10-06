@@ -278,7 +278,7 @@ public sealed partial class PdfWindow
         _info.Text = $"{System.IO.Path.GetFileName(_path)}   ·   {pdf.PageCount} page{(pdf.PageCount == 1 ? "" : "s")}   ·   {PdfReduceWindow.Bytes(pdf.Length)}";
         _pageCount.Text = "/ " + pdf.PageCount;
         BuildPages();
-        OnDocumentLoaded();
+        OnDocumentLoaded(sameDocument: true);
         UpdateLayout();
         ApplyZoom(_fit == Fit.None ? _zoom : FitZoom(_fit), keepPlace: false);
         if (sameCount)
@@ -297,6 +297,7 @@ public sealed partial class PdfWindow
         finally { _syncingStrip = false; }
         UpdatePageTools();
         UpdateEditButtons(); UpdateProperties();
+        OutlinesChanged();
     }
 
     // ---------- dragging the small pages ----------

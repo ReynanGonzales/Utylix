@@ -22,7 +22,7 @@ namespace IdmClone;
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField, DropField }
+    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField, DropField, Link }
 
     // ---------- what can be on a page ----------
     private abstract class EditItem
@@ -441,17 +441,26 @@ public sealed partial class PdfWindow
         (EditTool.Select, Key.V, "V"), (EditTool.EditText, Key.E, "E"), (EditTool.Text, Key.T, "T"), (EditTool.Signature, Key.G, "G"), (EditTool.Image, Key.I, "I"),
         (EditTool.Check, Key.C, "C"), (EditTool.Cross, Key.X, "X"), (EditTool.Stamp, Key.M, "M"), (EditTool.Date, Key.D, "D"), (EditTool.Highlight, Key.H, "H"),
         (EditTool.Underline, Key.U, "U"), (EditTool.Strike, Key.K, "K"), (EditTool.Note, Key.N, "N"), (EditTool.Pen, Key.P, "P"), (EditTool.Shapes, Key.S, "S"),
-        (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"), (EditTool.TextField, Key.F, "F"), (EditTool.CheckField, Key.B, "B"), (EditTool.Table, Key.L, "L"), (EditTool.RadioField, Key.O, "O"), (EditTool.SignField, Key.Q, "Q"), (EditTool.DropField, Key.Y, "Y"),
+        (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"), (EditTool.TextField, Key.F, "F"), (EditTool.CheckField, Key.B, "B"), (EditTool.Table, Key.L, "L"), (EditTool.RadioField, Key.O, "O"), (EditTool.SignField, Key.Q, "Q"), (EditTool.DropField, Key.Y, "Y"), (EditTool.Link, Key.J, "J"),
     };
 
     // the tabs of the tool bar (see BuildEditBar)
     private readonly Dictionary<string, RadioButton> _tabChips = new();
     private readonly Dictionary<string, StackPanel> _tabPanels = new();
-    private string _editTab = "Add";
+    private string _editTab = LoadEditTab();
+
+    // the tab you were on is remembered (a one-word file in the data folder)
+    private static string TabFile => System.IO.Path.Combine(App.DataDir, "pdf-editor-tab.txt");
+    private static string LoadEditTab()
+    {
+        try { string t = System.IO.File.Exists(TabFile) ? System.IO.File.ReadAllText(TabFile).Trim() : ""; return t is "Add" or "Mark up" or "Forms" or "Page" or "Convert" ? t : "Add"; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return "Add"; }
+    }
 
     private void ShowTab(string name)
     {
         if (!_tabPanels.ContainsKey(name)) return;
+        if (_editTab != name) { try { System.IO.File.WriteAllText(TabFile, name); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* not kept this time */ } }
         _editTab = name;
         foreach (var (n, panel) in _tabPanels) panel.Visibility = n == name ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -459,7 +468,7 @@ public sealed partial class PdfWindow
     /// <summary>Choosing a tool by its key (or from anywhere else) shows the tab it lives on.</summary>
     private static string? TabOf(EditTool tool) => tool switch
     {
-        EditTool.Text or EditTool.EditText or EditTool.Date or EditTool.Image or EditTool.Signature or EditTool.Stamp => "Add",
+        EditTool.Text or EditTool.EditText or EditTool.Date or EditTool.Image or EditTool.Signature or EditTool.Stamp or EditTool.Link => "Add",
         EditTool.Highlight or EditTool.Underline or EditTool.Strike or EditTool.Note or EditTool.Pen or EditTool.Shapes or EditTool.Table or EditTool.Check or EditTool.Cross => "Mark up",
         EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField => "Forms",
         EditTool.WhiteOut or EditTool.Redact => "Page",
@@ -526,6 +535,7 @@ public sealed partial class PdfWindow
         ToolButton(EditTool.RadioField, "", "Option", "A fillable round button (a real form field): click for each choice. Buttons placed one after the other are one group, where only one can be chosen; choose the tool again to start another group",
                    icon: new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(9), Width = 17, Height = 17, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
                                       Child = new Border { Background = Brushes.White, CornerRadius = new CornerRadius(4), Width = 7, Height = 7, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
+        ToolButton(EditTool.Link, "", "Link", "Drag a box and say where it goes: a web address or a page of this PDF. (Or select words and right-click > Make the selected words a link.) While this or Select is chosen, the links are outlined in blue: click one to change or delete it");
         ToolButton(EditTool.DropField, "", "Dropdown", "A fillable drop-down list (a real form field): drag its size, then type the choices. People pick one from the list, here or in any PDF reader",
                    icon: new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(2), Width = 26, Height = 16, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
                                       Child = new TextBlock { Text = "▾", FontSize = 11, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, -1, 4, 0) } });
@@ -574,7 +584,7 @@ public sealed partial class PdfWindow
         }
         UIElement[] T(params EditTool[] list) => list.Select(t => (UIElement)_toolButtons[t]).ToArray();
         UIElement[] A(params string[] list) => list.Select(id => (UIElement)actions[id]).ToArray();
-        Tab("Add", "Put something on the page: text, the date, columns, pictures, your signature, stamps", T(EditTool.Text, EditTool.EditText, EditTool.Date).Concat(A("PdfActionColumns")).ToArray(), T(EditTool.Image, EditTool.Signature, EditTool.Stamp));
+        Tab("Add", "Put something on the page: text, the date, columns, pictures, your signature, stamps", T(EditTool.Text, EditTool.EditText, EditTool.Date).Concat(A("PdfActionColumns")).ToArray(), T(EditTool.Image, EditTool.Signature, EditTool.Stamp, EditTool.Link));
         Tab("Mark up", "Comment and draw: highlight, underline, notes, pen, shapes, tables, check marks", T(EditTool.Highlight, EditTool.Underline, EditTool.Strike, EditTool.Note), T(EditTool.Pen, EditTool.Shapes, EditTool.Table, EditTool.Check, EditTool.Cross));
         Tab("Forms", "Fields people can fill in: text box, check box, option buttons, signature box", T(EditTool.TextField, EditTool.CheckField, EditTool.RadioField, EditTool.DropField, EditTool.SignField));
         Tab("Page", "Hide or remove things, a frame, a watermark, page numbers", T(EditTool.WhiteOut, EditTool.Redact), A("PdfActionBorder", "PdfActionWatermark", "PdfActionPageNumbers"));
@@ -721,9 +731,11 @@ public sealed partial class PdfWindow
         if (!_pdf.CanEdit && !AskOwnerPassword()) return;
         if (_rotation != 0) { _rotation = 3; Rotate(); }              // (back to upright: editing works on the pages as they are)
         _editing = true;
+        OutlinesChanged();
         _editBar.Visibility = Visibility.Visible;
         _editButton.Background = new SolidColorBrush(Color.FromArgb(60, 91, 141, 239));
         ClearTextSelection();
+        if (TabOf(_tool) is string toolTab && toolTab != _editTab) _tool = EditTool.Select;          // (the tab you were last on stays: the tool of another tab would switch it)
         _toolButtons[_tool].IsChecked = true;
         SetTool(_tool);
         UpdateEditButtons();
@@ -767,6 +779,7 @@ public sealed partial class PdfWindow
         _group.Clear(); _marquee = null;
         _selected = null; _dirty = false; _drag = DragMode.None;
         _editing = keepEditing && _editing;
+        OutlinesChanged();
         if (_editBar != null) _editBar.Visibility = _editing ? Visibility.Visible : Visibility.Collapsed;
         if (_editButton != null) _editButton.Background = _editing ? new SolidColorBrush(Color.FromArgb(60, 91, 141, 239)) : Brushes.Transparent;
         foreach (var p in _pages) { p.Overlay.Children.Clear(); p.Overlay.Cursor = _editing ? CursorFor(_tool) : null; }
@@ -802,6 +815,7 @@ public sealed partial class PdfWindow
     {
         CloseTextBox(commit: true);
         _tool = tool;
+        OutlinesChanged();
         if (TabOf(tool) is string tab && tab != _editTab && _tabChips.TryGetValue(tab, out var tabChip)) tabChip.IsChecked = true;      // (the tab with that tool is shown)
         if (tool == EditTool.RadioField) _radioGroup = null;                // (choosing the tool starts a new group of round buttons)
         if (tool is EditTool.Signature) { _toolButtons[EditTool.Select].IsChecked = true; AddSignature(); return; }
@@ -878,7 +892,17 @@ public sealed partial class PdfWindow
         _toolHint.Visibility = run ? Visibility.Visible : Visibility.Collapsed;
         bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
         bool fieldTool = item is FieldItem || (item == null && _tool is EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField);
-        _colorRow.Visibility = item is ImageItem or PageObjectItem || (run && typingRun == null) || redact ? Visibility.Collapsed : Visibility.Visible;
+        // nothing to set: no colour dots, size or font for a tool or a choice that has none (the bar only shows what the tool uses)
+        bool nothingToSet = (item == null && _tool is EditTool.Select or EditTool.EditText or EditTool.Image or EditTool.Signature or EditTool.Link) && typingRun == null;
+        _colorRow.Visibility = item is ImageItem or PageObjectItem or LinkPick || (run && typingRun == null) || redact || nothingToSet ? Visibility.Collapsed : Visibility.Visible;
+        if (nothingToSet && !run)
+        {
+            _toolHint.Text = _tool == EditTool.Link
+                ? "Drag a box where the link should be, then say where it goes. Or select words and right-click > Make the selected words a link."
+                : "Click something to change it, or drag a box on empty paper to choose several things. Right-click for more (copy, arrange, field options ...).";
+            _toolHint.Visibility = Visibility.Visible;
+        }
+        if (item is LinkPick lp) { _toolHint.Text = (lp.Link.Uri != null ? "A link to " + lp.Link.Uri : "A link to page " + (lp.Link.Page + 1)) + ". Enter changes where it goes, Delete removes it."; _toolHint.Visibility = Visibility.Visible; }
         if (item is PageObjectItem) { _toolHint.Text = "Already in the PDF: drag it to move it, the corner to resize it, Delete to remove it. Undo takes it back."; _toolHint.Visibility = Visibility.Visible; }
         if (fieldTool)
         {
@@ -895,7 +919,7 @@ public sealed partial class PdfWindow
     private void SetColor(Color c)
     {
         if (_runTyping != null) { _runTyping.ColorOverride = c; StyleRunBox(); RenderItems(_runTyping.Page); MarkColor(); return; }
-        if (_selected != null && _selected is not (ImageItem or PageObjectItem))
+        if (_selected != null && _selected is not (ImageItem or PageObjectItem or LinkPick))
         {
             Snapshot();
             _selected.Color = c;
@@ -1030,6 +1054,7 @@ public sealed partial class PdfWindow
     private void DeleteSelected()
     {
         if (_selected is PageObjectItem picked) { DeletePageObjects(picked); return; }
+        if (_selected is LinkPick pickedLink) { DeleteLink(pickedLink); return; }
         if (_group.Count > 0)
         {
             Snapshot();
@@ -1078,6 +1103,7 @@ public sealed partial class PdfWindow
         if (_drawing != null && _drawing.Page == page) { var e = _drawing.Build(); e.IsHitTestVisible = false; overlay.Children.Add(e); }
         if (_textBox != null && _typing?.Page == page) overlay.Children.Add(_textBox);
         RenderRunExtras(page, overlay);
+        DrawLinkOutlines(page, overlay);
         if (_group.Count > 0)
         {
             double gk = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);
@@ -1207,6 +1233,15 @@ public sealed partial class PdfWindow
                 {
                     // not one of this session's things: a saved text box / check box of ours, or anything drawn on the page, can be picked up too
                     if (OwnFieldAt(pv.Index, p) is { } own) { _dragPage = null; LiftOwnField(pv.Index, own); return; }
+                    if (AnnotLinkAt(pv.Index, p) is { } link)                        // (a link of the PDF: chosen; a second click on it changes where it goes)
+                    {
+                        bool again = e.ClickCount >= 2 && _selected is LinkPick prev && prev.Link.Box == link.Box;
+                        _dragPage = null;
+                        var pick = new LinkPick { Page = pv.Index, Link = link };
+                        if (again) { EditLink(pick); return; }
+                        Select(pick);
+                        return;
+                    }
                     if (PickPageObject(pv.Index, p) is { } picked) { Select(picked); _drag = DragMode.Move; _dragBox = picked.Bounds; break; }
                     _drag = DragMode.Marquee; _marquee = new Rect(p, p); _marqueePage = pv.Index; break;      // (an empty spot: drag a box round what you want)
                 }
@@ -1229,6 +1264,11 @@ public sealed partial class PdfWindow
                 Add(new ShapeItem { Page = pv.Index, Kind = _tool == EditTool.Check ? ShapeKind.Check : ShapeKind.Cross, A = new Point(p.X - s / 2, p.Y - s / 2), B = new Point(p.X + s / 2, p.Y + s / 2), Color = _toolColors[_tool] });
                 return;
             }
+            case EditTool.Link:
+                if (AnnotLinkAt(pv.Index, p) is { } existingLink) { _dragPage = null; Select(new LinkPick { Page = pv.Index, Link = existingLink }); return; }
+                _drawing = new LinkDraft { Page = pv.Index, Box = new Rect(p, p) };
+                _drag = DragMode.Draw;
+                break;
             case EditTool.Table:
                 if (ItemAt(pv.Index, p) is TableItem existingTable) { Select(existingTable); _drag = DragMode.Move; _dragBox = existingTable.Bounds; break; }
                 _drawing = new TableItem { Page = pv.Index, Box = new Rect(p, p), Rows = _tableRows, Cols = _tableCols, Color = _toolColors[EditTool.Table], Width = _lineWidth };
@@ -1327,6 +1367,10 @@ public sealed partial class PdfWindow
                 RenderItems(pv.Index);
                 break;
             }
+            case DragMode.Draw when _drawing is LinkDraft draft:
+                draft.Box = new Rect(_dragStart, p);
+                RenderItems(pv.Index);
+                break;
             case DragMode.Draw when _drawing is TableItem table:
                 table.Box = new Rect(_dragStart, p);
                 RenderItems(pv.Index);
@@ -1417,6 +1461,7 @@ public sealed partial class PdfWindow
         if (mode == DragMode.GroupMove) { UpdateEditButtons(); return; }
         if (drawn is FieldItem newField && mode == DragMode.Draw) { FinishField(newField, _dragStart); return; }
         if (drawn is TableItem newTable && mode == DragMode.Draw) { FinishTable(newTable); return; }
+        if (drawn is LinkDraft newLink && mode == DragMode.Draw) { FinishLink(newLink); return; }
         if (mode == DragMode.Marquee)
         {
             var box = _marquee ?? Rect.Empty;
@@ -1628,6 +1673,7 @@ public sealed partial class PdfWindow
             case Key.Enter when _selected is ColumnsItem columns: EditColumns(columns); return true;
             case Key.Enter when _selected is TableItem tableSel: EditTable(tableSel); return true;
             case Key.Enter when _selected is FieldItem fieldSel: EditFieldOptions(fieldSel); return true;
+            case Key.Enter when _selected is LinkPick linkSel: EditLink(linkSel); return true;
             case Key.Left or Key.Right or Key.Up or Key.Down when _selected != null:
             {
                 double step = shift ? 10 : 1;

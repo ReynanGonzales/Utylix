@@ -425,6 +425,7 @@ public sealed partial class PdfWindow
         Item("Underline", "", sel, () => MarkSelection(Pdfium.AnnotUnderline));
         Item("Strike out", "", sel, () => MarkSelection(Pdfium.AnnotStrikeOut));
         Item("Redact (black out for good)", "", sel, RedactSelection);
+        Item("Make the selected words a link…", "", sel, LinkSelection);
         Item("Add a comment on the selected words…", "", sel, CommentSelection);
         Item("Add a note (comment) here…", "", true, () =>
         {
@@ -635,7 +636,7 @@ public sealed partial class PdfWindow
         _bookmarks.Resources[SystemColors.HighlightTextBrushKey] = Brushes.White;
         _bookmarks.Resources[SystemColors.InactiveSelectionHighlightBrushKey] = new SolidColorBrush(Color.FromRgb(0x33, 0x45, 0x6B));
         _bookmarks.Resources[SystemColors.InactiveSelectionHighlightTextBrushKey] = Brushes.White;
-        _bookmarks.SelectedItemChanged += (_, _) => { if (_bookmarks.SelectedItem is TreeViewItem { Tag: int page } && page >= 0) GoTo(page); };
+        _bookmarks.SelectedItemChanged += (_, _) => { if (_bookmarks.SelectedItem is TreeViewItem { Tag: BmNode node } && node.Page >= 0) GoTo(node.Page); };
         System.Windows.Automation.AutomationProperties.SetAutomationId(_bookmarks, "PdfBookmarks");
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 6, 8, 2) };
         tabs.Children.Add(_pagesTab); tabs.Children.Add(_marksTab);
@@ -644,6 +645,12 @@ public sealed partial class PdfWindow
         var panel = new DockPanel { Background = Bar };
         DockPanel.SetDock(tabs, Dock.Top);
         panel.Children.Add(tabs);
+        var bookmarkBar = BookmarkBar();
+        bookmarkBar.Visibility = Visibility.Collapsed;
+        _pagesTab.Checked += (_, _) => bookmarkBar.Visibility = Visibility.Collapsed;
+        _marksTab.Checked += (_, _) => bookmarkBar.Visibility = Visibility.Visible;
+        DockPanel.SetDock(bookmarkBar, Dock.Top);
+        panel.Children.Add(bookmarkBar);
         DockPanel.SetDock(pageTools, Dock.Top);
         panel.Children.Add(pageTools);
         var add = AddPageButton();
@@ -700,37 +707,30 @@ public sealed partial class PdfWindow
     }
 
     /// <summary>A new PDF is shown: forget the old selection and search, read its bookmarks.</summary>
-    private void OnDocumentLoaded()
+    private void OnDocumentLoaded(bool sameDocument = false)
     {
         _selPage = -1; _textDrag = false;
         _hits.Clear(); _hitIndex = -1;
         if (_searchBar != null && _searchBar.Visibility == Visibility.Visible && _searchText.Text.Length > 0) _ = RunSearchAsync();
         OnFormLoaded();
         _bookmarks.Items.Clear();
-        _marksTab.IsEnabled = false;
-        _marksTab.ToolTip = "This PDF has no bookmarks";
-        _pagesTab.IsChecked = true;
+        _bmModel = new List<BmNode>();
+        bool stay = _stayOnBookmarks || (sameDocument && _marksTab.IsChecked == true);                                    // (after a change to the bookmarks the list stays in view)
+        _stayOnBookmarks = false;
+        var selectPath = _bmSelectPath; _bmSelectPath = null;
+        _marksTab.IsEnabled = _pdf != null;
+        _marksTab.ToolTip = "The PDF's table of contents: you can add, rename, move and delete bookmarks here";
+        if (!stay) _pagesTab.IsChecked = true;
         var pdf = _pdf;
         if (pdf == null) return;
         _ = Task.Run(() => { try { return pdf.GetBookmarks(); } catch (Exception e) when (e is ObjectDisposedException or System.IO.IOException) { return new List<PdfBookmark>(); } })
             .ContinueWith(t =>
             {
-                if (pdf != _pdf || t.Result.Count == 0) return;
-                foreach (var b in t.Result) _bookmarks.Items.Add(TreeItem(b, 0));
-                _marksTab.IsEnabled = true;
-                _marksTab.ToolTip = "The PDF's table of contents";
+                if (pdf != _pdf) return;
+                _bmModel = t.Result.Select(BmNode.From).ToList();
+                RebuildBookmarkTree(selectPath);
+                if (stay) _marksTab.IsChecked = true;
             }, TaskScheduler.FromCurrentSynchronizationContext());
-    }
-
-    private static TreeViewItem TreeItem(PdfBookmark b, int depth)
-    {
-        var item = new TreeViewItem
-        {
-            Header = new TextBlock { Text = b.Title.Length == 0 ? "(untitled)" : b.Title, Foreground = Brushes.White, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 150 - depth * 12, ToolTip = b.Title + (b.Page >= 0 ? $"  (page {b.Page + 1})" : "") },
-            Tag = b.Page, IsExpanded = depth == 0 && b.Children.Count <= 12, Foreground = Brushes.White,
-        };
-        foreach (var c in b.Children) item.Items.Add(TreeItem(c, depth + 1));
-        return item;
     }
 
     // ---------- keys for text ----------

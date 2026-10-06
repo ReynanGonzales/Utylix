@@ -19,7 +19,7 @@ public sealed partial class PdfWindow
     private List<EditItem> ChosenItems() => _group.Count > 0 ? _group.ToList() : _selected != null ? new List<EditItem> { _selected } : new List<EditItem>();
 
     /// <summary>Words that are marked (highlight / underline / strike) belong to their words, and a changed line of the PDF's own text to that line: those are not copied.</summary>
-    private static bool Copyable(EditItem item) => item is not (TextMarkupItem or RunEditItem or PageObjectItem);
+    private static bool Copyable(EditItem item) => item is not (TextMarkupItem or RunEditItem or PageObjectItem or LinkPick or LinkDraft);
 
     // things that were already in the PDF (picked up with Select): a small PDF holding just them, and where they were
     private byte[]? _objectClip;

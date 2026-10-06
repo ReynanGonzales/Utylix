@@ -431,7 +431,7 @@ public sealed partial class PdfWindow : Window
         _message.Visibility = pdf.PageCount == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (pdf.PageCount == 0) _message.Text = "This PDF has no pages.";
         BuildPages();
-        OnDocumentLoaded();
+        OnDocumentLoaded(sameDocument: keepEditing);
         _fit = sameLook ? keepFit : Fit.Width;
         UpdateLayout();
         ApplyZoom(sameLook ? (keepFit == Fit.None ? keepZoom : FitZoom(keepFit)) : FitZoom(Fit.Width), keepPlace: false);
@@ -551,6 +551,8 @@ public sealed partial class PdfWindow : Window
         }
         // the page in the middle first
         near.Sort((a, b) => Math.Abs(a.Index - _current).CompareTo(Math.Abs(b.Index - _current)));
+        if (_editing && _tool is EditTool.Select or EditTool.Link)                         // (the links of the pages that come into view are outlined)
+            foreach (var p in near) if (_outlined.Add(p.Index)) RenderItems(p.Index);
         foreach (var p in near)
         {
             // the picture sits inside the page's 1 px frame, so it is exactly this many device pixels: drawn at that size it is shown 1:1 (no smoothing = sharp text)

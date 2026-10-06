@@ -46,7 +46,8 @@ internal readonly struct PageMapping
 }
 
 /// <summary>A link on a page: to another page of the PDF, or to a web address.</summary>
-public sealed record PdfLink(Rect Box, int Page, string? Uri);
+/// <remarks>Annotation = a real link of the PDF (it can be changed or deleted), not a web address found in the text.</remarks>
+public sealed record PdfLink(Rect Box, int Page, string? Uri, bool Annotation = false);
 
 /// <summary>A sticky note (or other comment with text) already in the PDF.</summary>
 /// <remarks>Index = its place in the page's list of annotations (to change or remove it), Subtype 1 = a sticky note, 9 / 10 / 12 = a comment on highlighted / underlined / struck-out text.</remarks>
@@ -209,7 +210,7 @@ internal static class PdfTextReader
                 IntPtr dest = Pdfium.FPDFLink_GetDest(doc, link);
                 IntPtr action = Pdfium.FPDFLink_GetAction(link);
                 if (dest == IntPtr.Zero && action != IntPtr.Zero && Pdfium.FPDFAction_GetType(action) == Pdfium.ActionGoTo) dest = Pdfium.FPDFAction_GetDest(doc, action);
-                if (dest != IntPtr.Zero) { int p = Pdfium.FPDFDest_GetDestPageIndex(doc, dest); if (p >= 0) links.Add(new PdfLink(box, p, null)); continue; }
+                if (dest != IntPtr.Zero) { int p = Pdfium.FPDFDest_GetDestPageIndex(doc, dest); if (p >= 0) links.Add(new PdfLink(box, p, null, true)); continue; }
                 if (action != IntPtr.Zero && Pdfium.FPDFAction_GetType(action) == Pdfium.ActionUri)
                 {
                     uint len = Pdfium.FPDFAction_GetURIPath(doc, action, null, 0);
@@ -217,7 +218,7 @@ internal static class PdfTextReader
                     {
                         var buf = new byte[len];
                         Pdfium.FPDFAction_GetURIPath(doc, action, buf, len);
-                        links.Add(new PdfLink(box, -1, Encoding.UTF8.GetString(buf, 0, (int)len - 1)));
+                        links.Add(new PdfLink(box, -1, Encoding.UTF8.GetString(buf, 0, (int)len - 1), true));
                     }
                 }
             }
