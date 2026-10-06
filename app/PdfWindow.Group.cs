@@ -79,6 +79,25 @@ public sealed partial class PdfWindow
         return true;
     }
 
+    /// <summary>The pointer is inside the frame round the chosen group (between its things).</summary>
+    private bool InGroupFrame(int page, Point p)
+    {
+        var frame = Rect.Empty;
+        foreach (var g in _group.Where(i => i.Page == page && !i.Bounds.IsEmpty)) frame.Union(g.Bounds);
+        return !frame.IsEmpty && Grow(frame, 3).Contains(p);
+    }
+
+    /// <summary>
+    /// Things already in the PDF are chosen and the pointer is on one of them (or between them, inside their frame): a drag moves the whole choice.
+    /// (Without this a click on one of two chosen things picked only that one.) False when the pointer is on some other thing: that click works as always.
+    /// </summary>
+    private bool SavedChoiceUnder(int page, Point p, PageObjectItem choice)
+    {
+        if (choice.Page != page || !Grow(choice.Box, 3).Contains(p)) return false;
+        var under = PageObjects(page).LastOrDefault(o => !IsBackdrop(o, page) && o.Box.Width + o.Box.Height > 1 && Grow(o.Box, 2).Contains(p));
+        return under == null || choice.Indices.Contains(under.Index);
+    }
+
     private void GroupChosen()
     {
         if (_selected is PageObjectItem po)

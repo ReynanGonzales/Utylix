@@ -1227,8 +1227,9 @@ public sealed partial class PdfWindow
             }
             case EditTool.Select:
                 if ((Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Control)) != 0 && ExtendChoice(pv, p)) { _dragPage = null; return; }       // (Shift / Ctrl + click: add to what is chosen)
-                if (_group.Count > 0 && _group.Any(g => g.Page == pv.Index && g.Hit(p))) { _drag = DragMode.GroupMove; _groupLast = p; break; }      // (several chosen: they all follow the mouse)
+                if (_group.Count > 0 && (_group.Any(g => g.Page == pv.Index && g.Hit(p)) || (ItemAt(pv.Index, p) == null && InGroupFrame(pv.Index, p)))) { _drag = DragMode.GroupMove; _groupLast = p; break; }      // (several chosen: they all follow the mouse, also when the pointer is between them)
                 if (OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
+                if (_selected is PageObjectItem chosenSaved && ItemAt(pv.Index, p) == null && SavedChoiceUnder(pv.Index, p, chosenSaved)) { _drag = DragMode.Move; _dragBox = chosenSaved.Bounds; break; }      // (things already in the PDF chosen: a drag on any of them, or between them, moves them all)
                 var item = ItemAt(pv.Index, p);
                 if (item != null && item.GroupId != 0 && e.ClickCount < 2) { ChooseItem(item); _drag = DragMode.GroupMove; _groupLast = p; break; }      // (a grouped thing: the whole group is chosen and follows the mouse)
                 Select(item);
