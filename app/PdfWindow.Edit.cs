@@ -1524,6 +1524,10 @@ public sealed partial class PdfWindow
         }
         switch (e.Key)
         {
+            case Key.C when ctrl && !shift && (_selected != null || _group.Count > 0) && !HasSelection: return CopyItems();
+            case Key.X when ctrl && !shift && (_selected != null || _group.Count > 0): CutItems(); return true;
+            case Key.V when ctrl && !shift && _itemClipboard.Count > 0: return PasteItems();
+            case Key.D when ctrl && !shift && (_selected != null || _group.Count > 0): if (CopyItems()) PasteItems(); return true;
             case Key.Z when ctrl && !shift: Undo(); return true;
             case Key.Y when ctrl: Redo(); return true;
             case Key.Z when ctrl && shift: Redo(); return true;

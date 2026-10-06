@@ -380,6 +380,7 @@ public sealed partial class PdfWindow
     private void PageMenu(PageView pv, MouseButtonEventArgs e)
     {
         var p = e.GetPosition(pv.Overlay);
+        if (_editing && ItemAt(pv.Index, p) is { } under && under != _selected && !_group.Contains(under)) Select(under);        // (right-click on something you added chooses it, so Copy / Cut apply to it)
         // right-click in a selection keeps it; elsewhere on a word, selects the word
         if (!(HasSelection && _selPage == pv.Index && Text(pv.Index) is { } t0 && t0.LineBoxes(SelectionRange.Start, SelectionRange.End).Any(r => r.Contains(p))))
         {
@@ -396,7 +397,14 @@ public sealed partial class PdfWindow
             menu.Items.Add(m);
         }
         bool sel = HasSelection;
-        Item("Copy", "Ctrl+C", sel, CopySelection);
+        bool itemChosen = _editing && ChosenItems().Any(Copyable);
+        if (!sel && itemChosen)
+        {
+            Item("Copy", "Ctrl+C", true, () => CopyItems());
+            Item("Cut", "Ctrl+X", true, CutItems);
+        }
+        else Item("Copy", "Ctrl+C", sel, CopySelection);
+        if (_editing && _itemClipboard.Count > 0) Item("Paste here", "Ctrl+V", true, () => PasteItems(p, pv.Index));
         Item("Select all text on this page", "Ctrl+A", true, () => { _current = pv.Index; SelectAllOnPage(); });
         menu.Items.Add(new Separator());
         Item("Highlight", "", sel, () => MarkSelection(Pdfium.AnnotHighlight));
