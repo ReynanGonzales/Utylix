@@ -353,6 +353,7 @@ public sealed partial class PdfWindow : Window
         Closing += (_, e) => { if (!ConfirmLeaveEdits()) e.Cancel = true; };
         Closed += (_, _) =>
         {
+            RememberPlace();
             Windows.Remove(this);
             _generation++;
             _thumbs.Clear();
@@ -418,6 +419,7 @@ public sealed partial class PdfWindow : Window
         double keepV = _scroll.VerticalOffset, keepH = _scroll.HorizontalOffset, keepZoom = _zoom;
         var keepFit = _fit;
         bool sameLook = keepEditing && _sizes.Length == sizes.Length && _rotation == 0;
+        if (!keepEditing) RememberPlace();                         // (where you stopped in the file that is being left)
         _pdf?.Dispose();
         _pdf = pdf; _path = path; _sizes = sizes; _rotation = 0; _current = keepEditing ? keepPage : 0;
         ResetEdits(keepEditing);
@@ -444,8 +446,28 @@ public sealed partial class PdfWindow : Window
         {
             _scroll.ScrollToTop();
             if (keepPage > 0) { UpdateLayout(); GoTo(keepPage); }
+            else RestorePlace(path);
         }
         _scroll.Focus();
+    }
+
+    /// <summary>Saves where you are (page and zoom) for the file that is open, so it opens there next time.</summary>
+    private void RememberPlace()
+    {
+        if (_pdf == null || _path == null || _pdf.PageCount == 0) return;
+        try { PdfPlaces.Set(_path, _current, _zoom, _fit == Fit.Width ? "width" : _fit == Fit.Page ? "page" : "none"); }
+        catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+    }
+
+    /// <summary>A file that was opened before comes back at the page and zoom where you stopped.</summary>
+    private void RestorePlace(string path)
+    {
+        if (PdfPlaces.Get(path) is not { } place || _pdf == null || place.Page >= _pdf.PageCount) return;
+        _fit = place.Fit == "page" ? Fit.Page : place.Fit == "none" ? Fit.None : Fit.Width;
+        UpdateLayout();
+        ApplyZoom(_fit == Fit.None ? Math.Clamp(place.Zoom, 0.1, 8) : FitZoom(_fit), keepPlace: false);
+        UpdateLayout();
+        if (place.Page > 0) { GoTo(place.Page); Toast($"Back at page {place.Page + 1}, where you stopped"); }
     }
 
     private void BuildPages()

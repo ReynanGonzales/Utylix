@@ -46,6 +46,8 @@ public sealed partial class PdfWindow
         Heading("COMPARE AND CONVERT");
         Item("Compare with another PDF…", ComparePdf, "PdfMenuCompare");
         Item("Save as Word or Excel…", () => ExportToOffice(), "PdfMenuExport");
+        Heading("MANY FILES");
+        Item("Do one job to many PDFs…", () => PdfBatchWindow.ShowFor(this, _path), "PdfMenuBatch");
         Themed(menu);
         menu.PlacementTarget = under ?? _morePages; menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; menu.IsOpen = true;
     }

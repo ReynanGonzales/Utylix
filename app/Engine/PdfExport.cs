@@ -170,11 +170,13 @@ public static class PdfExport
     }
 
     // ---------- tables (Word) ----------
-    private sealed class TCell { public int Col; public double Left, Right; public List<Piece> Pieces = new(); }
-    private sealed class TRow { public Line Line = null!; public List<TCell> Cells = new(); public double Pitch; }
+    /// <summary>Span = how many columns the cell covers (a merged cell); More = the next lines of a cell whose text wraps onto several lines.</summary>
+    private sealed class TCell { public int Col; public int Span = 1; public double Left, Right; public List<Piece> Pieces = new(); public List<List<Piece>> More = new(); }
+    private sealed class TRow { public Line Line = null!; public List<TCell> Cells = new(); public double Pitch, LastBaseline; public bool Centred; }
     private sealed class Table
     {
         public List<TRow> Rows = new();
+        public List<Line> Absorbed = new();                // lines that are the next line of a cell above (not rows of their own)
         public List<(double From, double To)> Columns = new();
         public bool[] Numeric = Array.Empty<bool>();
         public double Top => Rows[0].Line.Top;
@@ -210,13 +212,36 @@ public static class PdfExport
             int j = i, multi = 1;
             while (j + 1 < lines.Count)
             {
-                double limit = Math.Max(lines[j].Size, lines[j + 1].Size) * 2.6;
-                if (lines[j + 1].Baseline - lines[j].Baseline > limit) break;
-                if (cellsOf[j + 1].Count >= 2) { j++; multi++; continue; }
-                if (j + 2 < lines.Count && cellsOf[j + 2].Count >= 2 && lines[j + 2].Baseline - lines[j + 1].Baseline <= limit) { j += 2; multi++; continue; }
-                break;
+                // the next row: up to three lines with a single cell may lie between two rows (an empty-cells row, or the lines of a wrapped cell)
+                int n = 1; bool found = false;
+                while (j + n < lines.Count && n <= 4)
+                {
+                    int at = j + n;
+                    if (lines[at].Baseline - lines[at - 1].Baseline > Math.Max(lines[at].Size, lines[at - 1].Size) * 2.6) break;
+                    if (cellsOf[at].Count >= 2) { found = true; break; }
+                    n++;
+                }
+                if (!found) break;
+                j += n; multi++;
             }
-            if (multi >= 2 && TryBuildTable(lines, cellsOf, i, j, pageText) is Table table) { tables.Add(table); foreach (var r in table.Rows) inTable.Add(r.Line); i = j + 1; }
+            if (multi >= 2 && TryBuildTable(lines, cellsOf, i, j, pageText) is Table table)
+            {
+                // a line just above the table, alone, that sits on the middle of the table (or reaches over several columns) is its heading row: one cell across all the columns
+                if (i > 0 && cellsOf[i - 1].Count == 1 && !inTable.Contains(lines[i - 1]) && lines[i].Baseline - lines[i - 1].Baseline <= Math.Max(lines[i].Size, lines[i - 1].Size) * 2.6)
+                {
+                    var head = cellsOf[i - 1][0];
+                    double tableLeft = table.Columns[0].From, tableRight = Math.Max(table.Columns[^1].To, table.Rows.SelectMany(r => r.Cells).Max(c => c.Right));
+                    double mid = (head.Left + head.Right) / 2, tableMid = (tableLeft + tableRight) / 2;
+                    bool centred = Math.Abs(mid - tableMid) < (tableRight - tableLeft) * 0.2 && head.Left >= tableLeft - 2 && head.Right <= tableRight + 2;
+                    if (centred && head.Right - head.Left < (tableRight - tableLeft) * 0.95)
+                    {
+                        head.Col = 0; head.Span = table.Columns.Count;
+                        table.Rows.Insert(0, new TRow { Line = lines[i - 1], Cells = { head }, Pitch = lines[i].Baseline - lines[i - 1].Baseline, LastBaseline = lines[i - 1].Baseline, Centred = true });
+                        i--;
+                    }
+                }
+                tables.Add(table); foreach (var r in table.Rows) inTable.Add(r.Line); foreach (var l in table.Absorbed) inTable.Add(l); i = j + 1;
+            }
             else i++;
         }
         lines.RemoveAll(inTable.Contains);
@@ -241,9 +266,13 @@ public static class PdfExport
 
         var table = new Table { Columns = columns };
         int rowsWithSeveralColumns = 0;
+        // how far apart the rows of the table usually are (the baselines of lines that have several cells): a line much closer than that to the one above is the next line of a wrapped cell
+        var gaps = new List<double>();
+        for (int k = from + 1; k <= to; k++) if (cellsOf[k].Count >= 2 && cellsOf[k - 1].Count >= 2) gaps.Add(lines[k].Baseline - lines[k - 1].Baseline);
+        double rowGap = gaps.Count > 0 ? gaps.OrderBy(g => g).ElementAt(gaps.Count / 2) : typical * 1.5;
         for (int k = from; k <= to; k++)
         {
-            var row = new TRow { Line = lines[k], Pitch = k < to ? lines[k + 1].Baseline - lines[k].Baseline : 0 };
+            var row = new TRow { Line = lines[k] };
             int last = -1;
             foreach (var cell in cellsOf[k])
             {
@@ -253,10 +282,38 @@ public static class PdfExport
                 cell.Col = col; last = col;
                 row.Cells.Add(cell);
             }
+            // a cell that reaches over the start of the next column(s) is a merged cell
+            for (int ci = 0; ci < row.Cells.Count; ci++)
+            {
+                var cell = row.Cells[ci];
+                int end = cell.Col;
+                for (int c = cell.Col + 1; c < columns.Count; c++) if (columns[c].From < cell.Right - typical * 0.5) end = c;
+                int limit = ci + 1 < row.Cells.Count ? row.Cells[ci + 1].Col - 1 : columns.Count - 1;
+                cell.Span = Math.Max(1, Math.Min(end, limit) - cell.Col + 1);
+            }
+            // the next line of a cell: nothing in the first column, tight under the row above, and every cell sits under a cell of that row that either looks
+            // wrapped (its text reaches the edge of the column) or the lines are clearly closer together than the rows of the table are
+            if (table.Rows.Count > 0 && row.Cells.Count > 0 && row.Cells[0].Col > 0 && lines[k].Baseline - table.Rows[^1].LastBaseline <= typical * 1.45)
+            {
+                var above = table.Rows[^1];
+                bool closer = lines[k].Baseline - table.Rows[^1].LastBaseline < rowGap * 0.9;
+                var targets = row.Cells.Select(c => above.Cells.FirstOrDefault(a => a.Col <= c.Col && c.Col < a.Col + a.Span)).ToList();
+                bool wrapped = targets.All(t => t != null && Math.Max(t.Right, t.More.Count > 0 ? t.More.Max(m => m.Max(p => p.Right)) : 0) >= columns[Math.Min(columns.Count - 1, t.Col + t.Span - 1)].To - typical * 1.6);
+                if (targets.All(t => t != null) && targets.Distinct().Count() == targets.Count && (closer || wrapped))
+                {
+                    for (int ci = 0; ci < row.Cells.Count; ci++) targets[ci]!.More.Add(row.Cells[ci].Pieces);
+                    above.LastBaseline = lines[k].Baseline;
+                    table.Absorbed.Add(lines[k]);
+                    continue;
+                }
+            }
+            row.LastBaseline = lines[k].Baseline;
             if (row.Cells.Select(c => c.Col).Distinct().Count() >= 2) rowsWithSeveralColumns++;
             table.Rows.Add(row);
         }
         if (rowsWithSeveralColumns < 2) return null;
+        // the height of a row = from its first line to the first line of the next row
+        for (int r = 0; r + 1 < table.Rows.Count; r++) table.Rows[r].Pitch = table.Rows[r + 1].Line.Baseline - table.Rows[r].Line.Baseline;
         double avgPitch = table.Rows.Where(r => r.Pitch > 0).Select(r => r.Pitch).DefaultIfEmpty(typical * 1.2).Average();
         foreach (var r in table.Rows) if (r.Pitch <= 0) r.Pitch = avgPitch;
         // columns of numbers are written against the right edge of their cell
@@ -290,22 +347,28 @@ public static class PdfExport
             sb.Append($"<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val=\"{Tw(Math.Clamp(row.Pitch, 8, 80))}\" w:hRule=\"atLeast\"/></w:trPr>");
             for (int c = 0; c < cols.Count; c++)
             {
-                sb.Append($"<w:tc><w:tcPr><w:tcW w:w=\"{Tw(widths[c])}\" w:type=\"dxa\"/><w:vAlign w:val=\"center\"/></w:tcPr>");
                 var cell = row.Cells.FirstOrDefault(x => x.Col == c);
+                int span = cell == null ? 1 : Math.Max(1, Math.Min(cell.Span, cols.Count - c));
+                double cellWidth = 0;
+                for (int s = 0; s < span; s++) cellWidth += widths[c + s];
+                sb.Append($"<w:tc><w:tcPr><w:tcW w:w=\"{Tw(cellWidth)}\" w:type=\"dxa\"/>{(span > 1 ? $"<w:gridSpan w:val=\"{span}\"/>" : "")}<w:vAlign w:val=\"{(cell is { More.Count: > 0 } ? "top" : "center")}\"/></w:tcPr>");
                 double size = cell?.Pieces.Max(p => p.Size) ?? row.Line.Size;
-                sb.Append($"<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"{Tw(Math.Max(6, size * 1.2))}\" w:lineRule=\"atLeast\"/>{(table.Numeric[c] ? "<w:jc w:val=\"right\"/>" : "")}</w:pPr>");
+                sb.Append($"<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"{Tw(Math.Max(6, size * 1.2))}\" w:lineRule=\"atLeast\"/>{(row.Centred ? "<w:jc w:val=\"center\"/>" : span == 1 && table.Numeric[c] ? "<w:jc w:val=\"right\"/>" : "")}</w:pPr>");
                 if (cell != null)
                 {
+                    // the pieces of the cell, then the pieces of the lines that wrapped under it (one paragraph: Word wraps it again at the cell's edge)
                     Piece? prev = null;
-                    foreach (var piece in cell.Pieces)
+                    foreach (var piece in cell.Pieces.Concat(cell.More.SelectMany(m => m)))
                     {
                         string text = piece.Text;
-                        if (prev != null && piece.Left - prev.Right > row.Line.Size * 0.18 && !prev.Text.EndsWith(' ') && !text.StartsWith(' ')) text = " " + text;
+                        bool newLine = prev != null && !cell.Pieces.Contains(piece) && cell.Pieces.Contains(prev) || prev != null && piece.Left < prev.Left - 1;       // (the next line of the cell starts further left)
+                        if (prev != null && (newLine || piece.Left - prev.Right > row.Line.Size * 0.18) && !prev.Text.EndsWith(' ') && !text.StartsWith(' ')) text = " " + text;
                         sb.Append(RunXml(text, piece, false));
                         prev = piece;
                     }
                 }
                 sb.Append("</w:p></w:tc>");
+                c += span - 1;
             }
             sb.Append("</w:tr>");
         }

@@ -219,6 +219,7 @@ public partial class SettingsWindow : Window
         Row("Ctrl + Z", "Undo (also after saving)");
         Row("Drag a box with Select", "Choose several things: move or delete them together");
         Row("Ctrl + ]  /  Ctrl + [", "Bring forward / send backward (Shift: to the front / back)");
+        Row("Ctrl + Shift + G  /  Ctrl + Shift + U", "Group / ungroup the chosen things (a group moves, copies and deletes as one)");
         Heading("File");
         foreach (var (keys, what) in new[] { ("Ctrl + O", "Open a PDF"), ("Ctrl + S", "Save"), ("Ctrl + Shift + S", "Save as"), ("Ctrl + P", "Print"), ("Ctrl + W", "Close the window") }) Row(keys, what);
         Heading("Editing");

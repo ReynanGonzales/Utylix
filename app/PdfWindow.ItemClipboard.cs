@@ -109,10 +109,16 @@ public sealed partial class PdfWindow
         Snapshot();
         Select(null);
         var pasted = new List<EditItem>();
+        var newGroups = new Dictionary<int, int>();                          // (a pasted group is a NEW group, not linked to the one it was copied from)
         foreach (var source in _itemClipboard)
         {
             var copy = source.Clone();
             copy.Page = page;
+            if (copy.GroupId != 0)
+            {
+                if (!newGroups.TryGetValue(copy.GroupId, out int fresh)) newGroups[copy.GroupId] = fresh = NewGroupId() + newGroups.Count;
+                copy.GroupId = fresh;
+            }
             copy.MoveBy(shift);
             if (copy is FieldItem field)
             {

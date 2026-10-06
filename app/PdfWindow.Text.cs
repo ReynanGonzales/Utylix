@@ -380,7 +380,7 @@ public sealed partial class PdfWindow
     private void PageMenu(PageView pv, MouseButtonEventArgs e)
     {
         var p = e.GetPosition(pv.Overlay);
-        if (_editing && ItemAt(pv.Index, p) is { } under && under != _selected && !_group.Contains(under)) Select(under);        // (right-click on something you added chooses it, so Copy / Cut apply to it)
+        if (_editing && ItemAt(pv.Index, p) is { } under && under != _selected && !_group.Contains(under)) ChooseItem(under);        // (right-click on something you added chooses it, so Copy / Cut apply to it)
         // right-click in a selection keeps it; elsewhere on a word, selects the word
         if (!(HasSelection && _selPage == pv.Index && Text(pv.Index) is { } t0 && t0.LineBoxes(SelectionRange.Start, SelectionRange.End).Any(r => r.Contains(p))))
         {
@@ -409,6 +409,12 @@ public sealed partial class PdfWindow
         {
             menu.Items.Add(new Separator());
             Item("Field options…", "Enter", true, () => EditFieldOptions(optionsFor));
+        }
+        if (_editing && (CanGroup || CanUngroup))
+        {
+            menu.Items.Add(new Separator());
+            if (CanGroup) Item("Group", "Ctrl+Shift+G", true, GroupChosen);
+            if (CanUngroup) Item("Ungroup", "Ctrl+Shift+U", true, UngroupChosen);
         }
         if (_editing && CanArrange)
         {

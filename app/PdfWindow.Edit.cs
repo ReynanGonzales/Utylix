@@ -29,6 +29,7 @@ public sealed partial class PdfWindow
     {
         public int Page;
         public Color Color;
+        public int GroupId;                            // 0 = on its own; things with the same number are grouped (they are chosen, moved, copied and deleted together)
         public abstract Rect Bounds { get; }
         public abstract EditItem Clone();
         public abstract FrameworkElement Build();
@@ -1228,6 +1229,7 @@ public sealed partial class PdfWindow
                 if (_group.Count > 0 && _group.Any(g => g.Page == pv.Index && g.Hit(p))) { _drag = DragMode.GroupMove; _groupLast = p; break; }      // (several chosen: they all follow the mouse)
                 if (OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
                 var item = ItemAt(pv.Index, p);
+                if (item != null && item.GroupId != 0 && e.ClickCount < 2) { ChooseItem(item); _drag = DragMode.GroupMove; _groupLast = p; break; }      // (a grouped thing: the whole group is chosen and follows the mouse)
                 Select(item);
                 if (item == null)
                 {
@@ -1466,7 +1468,7 @@ public sealed partial class PdfWindow
         {
             var box = _marquee ?? Rect.Empty;
             _marquee = null;
-            var hit = box.Width < 3 && box.Height < 3 ? new List<EditItem>() : _items.Where(i => i.Page == pv.Index && !i.Bounds.IsEmpty && box.IntersectsWith(i.Bounds)).ToList();
+            var hit = box.Width < 3 && box.Height < 3 ? new List<EditItem>() : WithGroupMates(_items.Where(i => i.Page == pv.Index && !i.Bounds.IsEmpty && box.IntersectsWith(i.Bounds)));
             if (hit.Count == 1) Select(hit[0]);
             else if (hit.Count > 1) { _selected = null; _group.AddRange(hit); UpdateProperties(); }
             else if (box.Width >= 3 || box.Height >= 3) { if (PickPageObjectsIn(pv.Index, box) is { } many) Select(many); }       // (nothing of this session's: what is already drawn inside the box)
@@ -1652,6 +1654,8 @@ public sealed partial class PdfWindow
             case Key.X when ctrl && !shift && (_selected != null || _group.Count > 0): CutItems(); return true;
             case Key.V when ctrl && !shift && HasCopy: return PasteItems();
             case Key.D when ctrl && !shift && (_selected != null || _group.Count > 0): if (CopyItems()) PasteItems(); return true;
+            case Key.G when ctrl && shift && CanGroup: GroupChosen(); return true;
+            case Key.U when ctrl && shift && CanUngroup: UngroupChosen(); return true;
             case Key.OemCloseBrackets when ctrl && CanArrange: Arrange(shift ? ZMove.ToFront : ZMove.Forward); return true;
             case Key.OemOpenBrackets when ctrl && CanArrange: Arrange(shift ? ZMove.ToBack : ZMove.Backward); return true;
             case Key.Z when ctrl && !shift: Undo(); return true;
