@@ -349,7 +349,7 @@ public sealed partial class PdfWindow
     private EditItem? _selected;
     private readonly Dictionary<EditTool, Color> _toolColors = new()
     {
-        [EditTool.TextField] = Color.FromRgb(0x2E, 0x7D, 0x32), [EditTool.CheckField] = Color.FromRgb(0x2E, 0x7D, 0x32),
+        [EditTool.TextField] = Colors.Black, [EditTool.CheckField] = Colors.Black,
         [EditTool.Text] = Colors.Black, [EditTool.Stamp] = Color.FromRgb(0x2E, 0x7D, 0x32), [EditTool.Date] = Colors.Black, [EditTool.Signature] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Check] = Colors.Black, [EditTool.Cross] = Colors.Black,
         [EditTool.Highlight] = Color.FromRgb(0xFF, 0xE0, 0x30), [EditTool.Underline] = Color.FromRgb(0x1E, 0x63, 0xE9), [EditTool.Strike] = Color.FromRgb(0xD3, 0x2F, 0x2F),
         [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White, [EditTool.Redact] = Colors.Black,

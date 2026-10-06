@@ -149,7 +149,7 @@ public sealed partial class PdfFile
                         bool marked = AnnotString(annot, OwnFieldKey).Length > 0;
                         bool named = f.Name.StartsWith("Text ", StringComparison.Ordinal) || f.Name.StartsWith("Check box ", StringComparison.Ordinal);
                         if (!marked && !named) continue;
-                        var color = Color.FromRgb(0x2E, 0x7D, 0x32);
+                        var color = Colors.Black;                                       // (older fields have no colour of their own saved: they were drawn in the colour the person chose, black is the usual one)
                         string hex = AnnotString(annot, OwnColorKey);
                         if (hex.Length == 6 && int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out int rgb)) color = Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
                         string da = AnnotString(annot, "DA");                              // e.g. "/HeBo 12 Tf 0 g"
