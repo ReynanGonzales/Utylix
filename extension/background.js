@@ -357,24 +357,55 @@ async function tryCapture(item, browserName, source, release) {
   // Claim it. There is deliberately NO await between this check and claimed.set(), so two concurrent
   // calls can never both get past it.
   if (claimed.has(item.id)) return alreadyClaimed();
-  const cancelled = chrome.downloads.cancel(item.id).catch(() => {});  // cancel first ...
-  claimed.set(item.id, cancelled);
+  // The browser's own download is KEPT (it waits at the filename step) until Utylix has had its first look at the file: some sites (login, anti-bot
+  // checks such as Akamai) only let the real browser fetch the file, and asking for the same address again later does not work either. If Utylix can take
+  // it, the browser's download is cancelled (before the filename is released, so no Save dialog); if the site turns Utylix away, the browser simply goes on.
+  let decide;
+  claimed.set(item.id, new Promise(r => { decide = r; }));
   setTimeout(() => claimed.delete(item.id), 120_000);
-  await cancelled;
-  release?.();                                                         // ... then let the browser move on (no Save dialog)
-  await chrome.downloads.erase({ id: item.id });
-  try {
-    const id = await sendToServer(url, { referer: item.referrer, filename: browserName || undefined });
-    await note(item, source, 'captured -> sent to Utylix');
-    flashBadge('OK', '#16a34a');
-    if (id) watchHandoff(id, url);
-  } catch (e) {
+  let id;
+  try { id = await sendToServer(url, { referer: item.referrer, filename: browserName || undefined }); }
+  catch (e) {
     alive = { ok: false, at: 0 };
-    await note(item, source, 'Utylix refused it (' + e.message + ') -> given back to browser');
-    chrome.downloads.download({ url });                                // ... and hand it back if the app fails
+    await note(item, source, 'Utylix refused it (' + e.message + ') -> left to browser');
+    decide(); release?.();
+    return false;
   }
+  const look = id ? await firstLook(id) : { ok: true };
+  if (look.blocked) {                                                  // the site refuses Utylix: the browser's download goes on, the app's entry goes
+    try { await fetch(SERVER + '/api/discard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }); } catch { /* app gone */ }
+    await rememberHandedBack(url, item.url);
+    await note(item, source, 'the site refuses Utylix (' + look.blocked + ') -> the browser downloads it itself');
+    decide(); release?.();
+    return true;
+  }
+  const cancelled = chrome.downloads.cancel(item.id).catch(() => {});
+  await cancelled;
+  decide();
+  release?.();                                                         // (after the cancel: no Save dialog)
+  await chrome.downloads.erase({ id: item.id });
+  await note(item, source, 'captured -> sent to Utylix');
+  flashBadge('OK', '#16a34a');
+  if (id) watchHandoff(id, url);
   return true;
 }
+
+/** Waits (a few seconds at most) for the app's first look at the file. { ok: true } or { blocked: 'HTTP 403 Forbidden' } when the site turned it away. */
+async function firstLook(id) {
+  const until = Date.now() + 8000;
+  while (Date.now() < until) {
+    try {
+      const { downloads } = await (await fetch(SERVER + '/api/downloads')).json();
+      const d = downloads.find(x => x.id === id);
+      if (!d) return { ok: true };                                     // the person already closed the window
+      if (d.probeDone) return d.probeError && BLOCKED.test(d.probeError) ? { blocked: d.probeError } : { ok: true };
+      if (d.status !== 'awaiting') return { ok: true };
+    } catch { return { ok: true }; }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return { ok: true };                                                 // slow server: Utylix takes it as before
+}
+const BLOCKED = /\bHTTP (401|403|407|429|451)\b/;
 
 if (chrome.downloads.onDeterminingFilename) {                          // Chromium: browser waits for us here
   chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
@@ -384,7 +415,7 @@ if (chrome.downloads.onDeterminingFilename) {                          // Chromi
       released = true;
       try { suggest(); } catch { /* download already cancelled */ }
     };
-    const guard = setTimeout(release, 15000);                          // never stall the browser (starting a closed app takes a few seconds)
+    const guard = setTimeout(release, 20000);                          // never stall the browser (starting a closed app takes a few seconds, and Utylix looks at the file for up to 8)
     tryCapture(item, baseName(item.filename), 'filename step', release)
       .catch(e => console.warn('Utylix capture failed', e))
       .finally(() => { clearTimeout(guard); release(); });
