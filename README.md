@@ -358,6 +358,16 @@ screens together* adjusts them at the same time.
 - Nothing is saved or changed at startup: the monitor keeps the brightness you set, and the panel always shows what the
   monitor reports.
 
+## Drivers
+
+Dashboard → **Drivers**. Made for the day you format a PC and have no Wi-Fi driver to get online with. Nothing is downloaded and no driver is shipped inside Utylix: it saves and puts back the drivers *you already have*.
+
+- **This PC now** shows the network cards (Wi-Fi / Ethernet) and how many drivers that aren't part of Windows are installed.
+- **Save my drivers**: choose *Network and Bluetooth only* (small: Wi-Fi, Ethernet, Bluetooth; virtual adapters of VMware and the like are left out) or *Every driver that isn't part of Windows* (graphics, audio, chipset ...), and a folder. A USB drive is the default when one is plugged in. It uses Windows' own export, so no administrator rights are needed; every driver goes in its own subfolder and a `Utylix-drivers.txt` lists what is inside. Drivers that are part of Windows itself can't be saved (Windows already has them).
+- **Install drivers from a folder**: on the PC that needs them, run `Utylix-Setup.exe` from the USB drive, open Drivers, choose the folder. Windows asks for permission once, then Windows' own installer puts in every driver of the folder (all, or only network + Bluetooth). Windows still refuses a driver that isn't signed. Restart afterwards if a device still doesn't work.
+- **What this PC is missing**: devices Windows lists with a problem (mostly "no driver installed"), with their hardware IDs and a *Copy the hardware IDs* button, to search for on another PC.
+- Limits: it can't help during Windows' own setup screens (Utylix has to be installed first), a driver for a different card than the PC has simply won't attach, and drivers for hardware you never had on a PC can't be saved from it.
+
 ## Updates
 
 Utylix updates itself from the **Releases** of its GitHub repository (`ReynanGonzales/Utylix`).

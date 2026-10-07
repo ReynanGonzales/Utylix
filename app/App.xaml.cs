@@ -79,6 +79,9 @@ public partial class App : Application
         if (taskInstall >= 0 && taskInstall + 1 < e.Args.Length) { Shutdown(FanTask.Install(e.Args[taskInstall + 1])); return; }
         int taskRemove = Array.IndexOf(e.Args, "--fan-task-remove");
         if (taskRemove >= 0) { Shutdown(FanTask.Remove(taskRemove + 1 < e.Args.Length ? e.Args[taskRemove + 1] : null)); return; }
+        // "--drivers-install <folder> <1|0>": started with administrator rights by the Drivers tool, puts the drivers of a folder into Windows, then ends
+        int driversInstall = Array.IndexOf(e.Args, "--drivers-install");
+        if (driversInstall >= 0 && driversInstall + 2 < e.Args.Length) { Shutdown(DriverKit.RunInstall(e.Args[driversInstall + 1], e.Args[driversInstall + 2] == "1")); return; }
         int fanHelper = Array.IndexOf(e.Args, "--fan-helper");
         if (fanHelper >= 0 && fanHelper + 1 < e.Args.Length)
         {
