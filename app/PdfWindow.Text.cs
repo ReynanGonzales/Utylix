@@ -644,10 +644,20 @@ public sealed partial class PdfWindow
         _bookmarks.Resources[SystemColors.InactiveSelectionHighlightTextBrushKey] = Brushes.White;
         _bookmarks.SelectedItemChanged += (_, _) => { if (_bookmarks.SelectedItem is TreeViewItem { Tag: BmNode node } && node.Page >= 0) GoTo(node.Page); };
         System.Windows.Automation.AutomationProperties.SetAutomationId(_bookmarks, "PdfBookmarks");
-        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 6, 8, 2) };
-        tabs.Children.Add(_pagesTab); tabs.Children.Add(_marksTab);
+        _commentsTab = Tab("Comments", "PdfTabComments");
+        var commentsPanel = CommentsPanel();
+        var tabs = new WrapPanel { Margin = new Thickness(8, 6, 8, 2) };
+        tabs.Children.Add(_pagesTab); tabs.Children.Add(_marksTab); tabs.Children.Add(_commentsTab);
         var body = new Grid();
-        body.Children.Add(strip); body.Children.Add(_bookmarks);
+        body.Children.Add(strip); body.Children.Add(_bookmarks); body.Children.Add(commentsPanel);
+        // the Comments tab: only its list shows (the strip and the bookmarks go), and it is read when the tab is opened
+        _pagesTab.Checked += (_, _) => commentsPanel.Visibility = Visibility.Collapsed;
+        _marksTab.Checked += (_, _) => commentsPanel.Visibility = Visibility.Collapsed;
+        _commentsTab.Checked += (_, _) =>
+        {
+            strip.Visibility = Visibility.Collapsed; pageTools.Visibility = Visibility.Collapsed; _bookmarks.Visibility = Visibility.Collapsed; commentsPanel.Visibility = Visibility.Visible;
+            _ = RefreshCommentsAsync();
+        };
         var panel = new DockPanel { Background = Bar };
         DockPanel.SetDock(tabs, Dock.Top);
         panel.Children.Add(tabs);
@@ -655,6 +665,7 @@ public sealed partial class PdfWindow
         bookmarkBar.Visibility = Visibility.Collapsed;
         _pagesTab.Checked += (_, _) => bookmarkBar.Visibility = Visibility.Collapsed;
         _marksTab.Checked += (_, _) => bookmarkBar.Visibility = Visibility.Visible;
+        _commentsTab.Checked += (_, _) => bookmarkBar.Visibility = Visibility.Collapsed;
         DockPanel.SetDock(bookmarkBar, Dock.Top);
         panel.Children.Add(bookmarkBar);
         DockPanel.SetDock(pageTools, Dock.Top);
@@ -662,6 +673,7 @@ public sealed partial class PdfWindow
         var add = AddPageButton();
         _pagesTab.Checked += (_, _) => add.Visibility = Visibility.Visible;
         _marksTab.Checked += (_, _) => add.Visibility = Visibility.Collapsed;
+        _commentsTab.Checked += (_, _) => add.Visibility = Visibility.Collapsed;
         DockPanel.SetDock(add, Dock.Bottom);
         panel.Children.Add(add);
         panel.Children.Add(body);
@@ -726,7 +738,9 @@ public sealed partial class PdfWindow
         var selectPath = _bmSelectPath; _bmSelectPath = null;
         _marksTab.IsEnabled = _pdf != null;
         _marksTab.ToolTip = "The PDF's table of contents: you can add, rename, move and delete bookmarks here";
-        if (!stay) _pagesTab.IsChecked = true;
+        bool keepComments = sameDocument && _commentsTab.IsChecked == true;               // (a comment was changed: the list stays open and is read again)
+        if (!stay && !keepComments) _pagesTab.IsChecked = true;
+        if (keepComments) _ = RefreshCommentsAsync();
         var pdf = _pdf;
         if (pdf == null) return;
         _ = Task.Run(() => { try { return pdf.GetBookmarks(); } catch (Exception e) when (e is ObjectDisposedException or System.IO.IOException) { return new List<PdfBookmark>(); } })
