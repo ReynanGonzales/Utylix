@@ -44,6 +44,8 @@ public sealed partial class PdfWindow
         Item("Attached files…", EditAttachments, "PdfMenuAttachments");
         Heading("FORMS");
         Item("Make the fields permanent (flatten)…", FlattenForms, "PdfMenuFlatten");
+        Item("Save what is filled in as a CSV file…", ExportFormData, "PdfMenuFormExport");
+        Item("Fill the form from a CSV file…", ImportFormData, "PdfMenuFormImport");
         Heading("PICTURES");
         Item("Save all the pictures of this PDF…", SaveAllPictures, "PdfMenuSavePictures");
         Heading("PRIVACY");

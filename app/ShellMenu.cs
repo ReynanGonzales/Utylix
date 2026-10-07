@@ -322,15 +322,27 @@ public static class ShellMenu
     /// </summary>
     private static void RegisterBlankPdf(string dataDir, bool enabled, string exe)
     {
-        const string key = @"Software\Classes\.pdf\ShellNew";
-        if (!enabled) { Registry.CurrentUser.DeleteSubKeyTree(key, throwOnMissingSubKey: false); return; }
+        // two places, because Windows looks in both: under the extension itself, and under the extension's program (how Word does it: .docx\Word.Document.12\ShellNew).
+        // .pdf has no default program of its own on this kind of PC (the person's choice is kept apart by Windows), and an entry under the bare extension alone was not listed in
+        // the New menu there (reported 2026-10-07). Our own program name is used for the second one; nothing else under .pdf is touched.
+        const string key = @"Software\Classes\.pdf\ShellNew", progKey = @"Software\Classes\.pdf\" + PdfProgId + @"\ShellNew";
+        if (!enabled)
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(key, throwOnMissingSubKey: false);
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.pdf\" + PdfProgId, throwOnMissingSubKey: false);
+            return;
+        }
         byte[] pdf = BlankPdf();
         string template = Path.Combine(dataDir, "blank.pdf");
         if (!File.Exists(template) || new FileInfo(template).Length != pdf.Length) File.WriteAllBytes(template, pdf);
-        using var k = Registry.CurrentUser.CreateSubKey(key);
-        SetIfDifferent(k, "FileName", template);
-        SetIfDifferent(k, "ItemName", "Blank PDF");
-        SetIfDifferent(k, "IconPath", OwnIcon(dataDir, "pdf", IconOf(exe)));
+        string icon = OwnIcon(dataDir, "pdf", IconOf(exe));
+        foreach (string where in new[] { key, progKey })
+        {
+            using var k = Registry.CurrentUser.CreateSubKey(where);
+            SetIfDifferent(k, "FileName", template);
+            SetIfDifferent(k, "ItemName", "Blank PDF");
+            SetIfDifferent(k, "IconPath", icon);
+        }
     }
 
     /// <summary>A valid PDF with one empty A4 page (595 x 842 points).</summary>
