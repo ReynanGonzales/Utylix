@@ -556,7 +556,7 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
 chrome.tabs.onRemoved.addListener(tabId => chrome.storage.session.remove(mediaKey(tabId)));
 
 // ---------- right-click a video -> Picture in Picture (not on YouTube, which has its own) ----------
-const PIP_ID = 'utylix-pip';
+const PIP_ID = 'utylix-pip', PIP_SUBS_ID = 'utylix-pip-subs';
 const pipIsYouTube = url => /^https?:\/\/([^/]*\.)?(youtube\.com|youtube-nocookie\.com|youtu\.be)(\/|$)/i.test(url || '');
 const pipQuiet = () => void chrome.runtime.lastError;                       // (ignore "already exists" and "tab is gone")
 
@@ -570,7 +570,12 @@ function createPipMenu() {
     id: PIP_ID, title: 'Picture in Picture', contexts: ['video', 'page', 'frame'], visible: false,
     documentUrlPatterns: ['http://*/*', 'https://*/*'],
   }, pipQuiet);
+  chrome.contextMenus.create({                                             // the subtitle window with a subtitle file of your own (also where no subtitles were found)
+    id: PIP_SUBS_ID, title: 'Picture in Picture with a subtitle file…', contexts: ['video', 'page', 'frame'], visible: false,
+    documentUrlPatterns: ['http://*/*', 'https://*/*'],
+  }, pipQuiet);
 }
+const setPipMenu = visible => { chrome.contextMenus.update(PIP_ID, { visible }, pipQuiet); chrome.contextMenus.update(PIP_SUBS_ID, { visible }, pipQuiet); };
 createPipMenu();
 chrome.runtime.onInstalled.addListener(createPipMenu);
 
@@ -587,7 +592,7 @@ async function syncPipMenu() {
     await pipReady;
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab) return;
-    chrome.contextMenus.update(PIP_ID, { visible: pipOverIn(tab.id) && !pipIsYouTube(tab.url) }, pipQuiet);
+    setPipMenu(pipOverIn(tab.id) && !pipIsYouTube(tab.url));
   } catch { /* no window right now */ }
 }
 chrome.tabs.onActivated.addListener(syncPipMenu);
@@ -638,26 +643,26 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     const had = pipOver.has(key);
     if (msg.over) pipOver.set(key, true); else pipOver.delete(key);
     if (had !== !!msg.over) pipSave();
-    if (sender.tab.active) chrome.contextMenus.update(PIP_ID, { visible: pipOverIn(sender.tab.id) && !pipIsYouTube(sender.tab.url) }, pipQuiet);
+    if (sender.tab.active) setPipMenu(pipOverIn(sender.tab.id) && !pipIsYouTube(sender.tab.url));
   });
 });
 
 // Keyboard shortcut (Alt + P; change it in chrome://extensions/shortcuts): the same thing for the video that is playing on the page.
 // Works also where a site hides the browser's right-click menu.
 chrome.commands.onCommand.addListener(async (command, tab) => {
-  if (command !== 'toggle-pip') return;
+  if (command !== 'toggle-pip' && command !== 'toggle-pip-subs') return;
   tab = tab || (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
   if (tab?.id == null || pipIsYouTube(tab.url)) return;
   let result;
-  try { result = await chrome.tabs.sendMessage(tab.id, { type: 'pip', guess: true }, { frameId: 0 }); }
+  try { result = await chrome.tabs.sendMessage(tab.id, { type: 'pip', guess: true, subs: command === 'toggle-pip-subs' }, { frameId: 0 }); }
   catch { result = { error: 'reload this page once (the extension was updated)' }; }
   if (!result || !result.ok) { await note({ url: tab.url || '' }, 'shortcut', 'Picture in Picture: ' + ((result && result.error) || 'no answer')); flashBadge('!', '#dc2626'); }
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== PIP_ID || tab?.id == null) return;
+  if ((info.menuItemId !== PIP_ID && info.menuItemId !== PIP_SUBS_ID) || tab?.id == null) return;
   let result;
-  try { result = await chrome.tabs.sendMessage(tab.id, { type: 'pip' }, { frameId: info.frameId || 0 }); }
+  try { result = await chrome.tabs.sendMessage(tab.id, { type: 'pip', subs: info.menuItemId === PIP_SUBS_ID }, { frameId: info.frameId || 0 }); }
   catch { result = { error: 'this page has to be reloaded once (the extension was updated)' }; }
   if (!result || !result.ok) {
     await note({ url: tab.url || '' }, 'right-click', 'Picture in Picture: ' + ((result && result.error) || 'no answer'));

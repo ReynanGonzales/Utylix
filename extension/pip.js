@@ -226,6 +226,50 @@
 
   let doc = null;                                                    // the open subtitle window: { win, video, holder, ... }
 
+  // ---- a subtitle file of the person's own (.srt .vtt .ass .ssa): picked in the window or dropped on it; kept per video while the page stays ----
+  const loadedSubs = new WeakMap();                                   // video -> { cues: [{start, end, text}], name, offset }
+
+  /** SubRip, WebVTT and Advanced SubStation Alpha text -> cues (seconds), the tags taken out. */
+  function parseSubtitles(text) {
+    text = text.replace(/^﻿/, '').replace(/\r/g, '');
+    const cues = [];
+    const ts = s => {
+      const m = String(s).trim().match(/^(?:(\d+):)?(\d{1,2}):(\d{1,2})(?:[.,](\d{1,3}))?$/);
+      return m ? (+(m[1] || 0)) * 3600 + (+m[2]) * 60 + (+m[3]) + (m[4] ? +('0.' + m[4]) : 0) : NaN;
+    };
+    const clean = t => t.replace(/<[^>]*>/g, '').replace(/\{\\[^}]*\}/g, '').replace(/\\N/g, '\n').replace(/\\n/g, '\n').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim();
+    if (/^\s*\[Script Info\]/im.test(text) || /^Dialogue:/m.test(text)) {
+      let fmt = null;
+      for (const line of text.split('\n')) {
+        if (/^Format:/i.test(line) && /\bstart\b/i.test(line)) fmt = line.slice(7).split(',').map(x => x.trim().toLowerCase());
+        else if (/^Dialogue:/i.test(line) && fmt) {
+          const parts = line.slice(9).split(',');
+          const iS = fmt.indexOf('start'), iE = fmt.indexOf('end'), iT = fmt.indexOf('text');
+          if (iS < 0 || iE < 0 || iT < 0) continue;
+          const start = ts(parts[iS]), end = ts(parts[iE]), body = clean(parts.slice(iT).join(','));
+          if (isFinite(start) && isFinite(end) && body) cues.push({ start, end, text: body });
+        }
+      }
+    } else {
+      for (const block of text.split(/\n{2,}/)) {
+        const lines = block.split('\n');
+        const i = lines.findIndex(l => l.includes('-->'));
+        if (i < 0) continue;
+        const [a, b] = lines[i].split('-->');
+        const start = ts(a), end = ts(b.trim().split(/\s+/)[0]), body = clean(lines.slice(i + 1).join('\n'));
+        if (isFinite(start) && isFinite(end) && body) cues.push({ start, end, text: body });
+      }
+    }
+    return cues.sort((x, y) => x.start - y.start);
+  }
+
+  /** A subtitle file's text: UTF-8, else the Windows code page many older files use. */
+  async function readSubtitleFile(file) {
+    const bytes = await file.arrayBuffer();
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch { return new TextDecoder('windows-1252').decode(bytes); }
+  }
+
   const fmtTime = s => { s = Math.max(0, Math.floor(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
 
   /**
@@ -256,7 +300,12 @@
       #bar button{all:unset;cursor:pointer;width:30px;height:28px;text-align:center;border-radius:5px;font-size:15px;line-height:28px}
       #bar button:hover{background:rgba(255,255,255,.18)}
       #seek{flex:1;accent-color:#5b8def;height:4px}
-      #time{font-size:12px;min-width:84px;text-align:right;opacity:.9}`;
+      #time{font-size:12px;min-width:84px;text-align:right;opacity:.9}
+      #bar button.on{background:rgba(91,141,239,.55)}
+      #bar button.wide{width:auto;padding:0 6px;font-size:12px}
+      #msg{position:absolute;z-index:5;left:10px;top:10px;max-width:80%;background:rgba(0,0,0,.75);border-radius:6px;padding:6px 10px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none}
+      #msg.show{opacity:1}
+      body.drop::after{content:"Drop the subtitle file here";position:absolute;inset:8px;border:2px dashed #5b8def;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;background:rgba(0,0,0,.55)}`;
     d.head.append(style);
     d.title = 'Utylix video';
     const cap = d.createElement('div'); cap.id = 'cap';
@@ -264,7 +313,13 @@
     const play = d.createElement('button'), seek = d.createElement('input'), time = d.createElement('span'), mute = d.createElement('button'), smaller = d.createElement('button'), bigger = d.createElement('button');
     seek.type = 'range'; seek.id = 'seek'; seek.min = 0; seek.max = 1000; seek.value = 0; time.id = 'time';
     smaller.textContent = 'A−'; bigger.textContent = 'A+'; smaller.title = 'Smaller subtitles'; bigger.title = 'Bigger subtitles';
-    bar.append(play, seek, time, mute, smaller, bigger);
+    const choose = d.createElement('button'), earlier = d.createElement('button'), later = d.createElement('button'), msg = d.createElement('div'), picker = d.createElement('input');
+    choose.textContent = 'CC'; choose.title = 'Load a subtitle file (.srt  .vtt  .ass), or drop one on this window';
+    earlier.textContent = '−.5s'; later.textContent = '+.5s'; earlier.className = later.className = 'wide';
+    earlier.title = 'Subtitles show earlier'; later.title = 'Subtitles show later';
+    msg.id = 'msg'; picker.type = 'file'; picker.accept = '.srt,.vtt,.ass,.ssa,.txt,text/vtt'; picker.style.display = 'none';
+    bar.append(play, seek, time, mute, choose, earlier, later, smaller, bigger);
+    d.body.append(msg, picker);
 
     // the video moves over; the empty box takes its place on the page
     video.replaceWith(holder);
@@ -304,10 +359,32 @@
     for (const type of ['play', 'pause', 'timeupdate', 'volumechange', 'durationchange']) video.addEventListener(type, sync);
     sync();
 
-    // the words: a text track of the video, else the page's own layer
+    // the words: the person's own subtitle file if one was loaded, else a text track of the video, else the page's own layer
+    let sub = loadedSubs.get(video) || null;
     let shown = null;
+    let msgTimer = 0;
+    const tell = text => { msg.textContent = text; msg.classList.add('show'); clearTimeout(msgTimer); msgTimer = setTimeout(() => msg.classList.remove('show'), 3500); };
+    const showOffset = () => { later.title = 'Subtitles show later (now ' + (sub ? (sub.offset >= 0 ? '+' : '') + sub.offset.toFixed(1) + ' s' : '0') + ')'; };
+    const refreshSub = () => { choose.classList.toggle('on', !!sub); earlier.style.display = later.style.display = sub ? '' : 'none'; showOffset(); shown = null; draw(); };
+    const loadFile = async (file) => {
+      if (!file) return;
+      try {
+        const cues = parseSubtitles(await readSubtitleFile(file));
+        if (!cues.length) { tell('No subtitles found in ' + file.name); return; }
+        sub = { cues, name: file.name, offset: 0 }; loadedSubs.set(video, sub);
+        refreshSub(); tell(file.name + ': ' + cues.length + ' lines');
+      } catch (e) { tell("Couldn't read that file"); }
+    };
+    choose.onclick = () => picker.click();
+    picker.onchange = () => { loadFile(picker.files && picker.files[0]); picker.value = ''; };
+    const nudge = by => { if (!sub) return; sub.offset = Math.round((sub.offset + by) * 10) / 10; showOffset(); tell('Subtitles ' + (sub.offset >= 0 ? '+' : '') + sub.offset.toFixed(1) + ' s'); shown = null; draw(); };
+    earlier.onclick = () => nudge(-0.5); later.onclick = () => nudge(0.5);
+    d.addEventListener('dragover', e => { e.preventDefault(); d.body.classList.add('drop'); });
+    d.addEventListener('dragleave', e => { if (!e.relatedTarget) d.body.classList.remove('drop'); });
+    d.addEventListener('drop', e => { e.preventDefault(); d.body.classList.remove('drop'); loadFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]); });
     const words = () => {
       let text = '';
+      if (sub) { const t = video.currentTime - sub.offset; text = sub.cues.filter(c => t >= c.start && t < c.end).map(c => c.text).join('\n'); return text.trim(); }
       for (const t of tracks) { const cues = [...(t.activeCues || [])]; if (cues.length) { text = cues.map(c => (c.text || '').replace(/<[^>]+>/g, '')).join('\n'); break; } }
       if (!text && !tracks.length) { try { text = captionText(holder); } catch { /* the page changed under us */ } }
       return text.trim();
@@ -322,12 +399,12 @@
     const tick = setInterval(draw, 200);
     const observer = new MutationObserver(() => { setTimeout(draw, 60); });
     if (!tracks.length) observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'hidden'] });
-    draw();
+    refreshSub();                                                        // (also draws; the buttons for a loaded file show only when there is one)
 
     let closed = false;
     const close = () => {
       if (closed) return; closed = true;
-      clearInterval(tick); clearTimeout(idle); observer.disconnect();
+      clearInterval(tick); clearTimeout(idle); clearTimeout(msgTimer); observer.disconnect();
       for (const type of ['play', 'pause', 'timeupdate', 'volumechange', 'durationchange']) video.removeEventListener(type, sync);
       video.removeEventListener('click', play.onclick);
       const resume = !video.paused && !video.ended;
@@ -344,14 +421,15 @@
     log('subtitle window: ' + (tracks.length ? 'from the video\'s own track' : 'from the page\'s subtitle layer'));
   }
 
-  if (window.__utylixPipTest) Object.assign(window.__utylixPipTest, { openSubtitleWindow, hasCaptions, captionText, closeSubtitleWindow: () => doc && doc.close() });       // (only a test page asks for this)
+  if (window.__utylixPipTest) Object.assign(window.__utylixPipTest, { openSubtitleWindow, hasCaptions, captionText, parseSubtitles, closeSubtitleWindow: () => doc && doc.close() });       // (only a test page asks for this)
 
   const subtitleWindow = video => openSubtitleWindow(video, opts => window.documentPictureInPicture.requestWindow(opts));
 
-  async function toggle(video) {
+  async function toggle(video, forceSubtitleWindow = false) {
     if (!video) return { error: 'There is no video here.' };
     if (doc) { doc.close(); return { ok: true }; }                         // the subtitle window is open: put the video back
-    if (document.pictureInPictureElement !== video && hasCaptions(video)) {
+    if (forceSubtitleWindow && !window.documentPictureInPicture) { say("This browser can't open the subtitle window (it needs a recent Chrome / Brave)"); return { error: 'no document Picture in Picture here' }; }
+    if (document.pictureInPictureElement !== video && (forceSubtitleWindow || loadedSubs.has(video) || hasCaptions(video))) {
       if (window.documentPictureInPicture) {
         try { await subtitleWindow(video); return { ok: true, subtitles: true }; }
         catch (e) {
@@ -382,7 +460,7 @@
     if (msg && msg.type === 'pip-step' && (msg.dir === 1 || msg.dir === -1)) { step(msg.dir); return; }
     if (!msg || msg.type !== 'pip') return;
     // from the keyboard shortcut there is no right click: use the video that plays (else the biggest)
-    toggle(!msg.guess && target && document.contains(target) ? target : guess()).then(respond);
+    toggle(!msg.guess && target && document.contains(target) ? target : guess(), !!msg.subs).then(respond);
     return true;                                                         // answer asynchronously
   });
 })();
