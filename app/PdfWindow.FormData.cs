@@ -87,7 +87,7 @@ public sealed partial class PdfWindow
         if (values.Count == 0) { Toast("That file has no \"Field, Value\" lines"); return; }
         var pdf = _pdf;
         var yes = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "yes", "true", "1", "x", "on", "checked", "y" };
-        int filled = 0; var pages = new HashSet<int>(); var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int filled = 0, rejected = 0; var pages = new HashSet<int>(); var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             await Task.Run(() =>
@@ -100,7 +100,18 @@ public sealed partial class PdfWindow
                         seen.Add(f.Name);
                         switch (f.Kind)
                         {
-                            case PdfFieldKind.Text when value != f.Value: pdf.SetFieldText(f, value); filled++; pages.Add(page); break;
+                            case PdfFieldKind.Text when f.Calc == null:
+                            {
+                                string typed = value;
+                                if (f.Format is { Kind: not FieldFormatKind.None } fmt)
+                                {
+                                    string? shown = PdfFormLogic.Format(fmt, typed);
+                                    if (shown == null) { rejected++; break; }              // (not a number / date / time: left as it was)
+                                    typed = shown;
+                                }
+                                if (typed != f.Value) { pdf.SetFieldText(f, typed); filled++; pages.Add(page); }
+                                break;
+                            }
                             case PdfFieldKind.CheckBox when yes.Contains(value.Trim()) != f.Checked: pdf.ClickField(f); filled++; pages.Add(page); break;
                             case PdfFieldKind.Combo or PdfFieldKind.List:
                             {
@@ -116,8 +127,9 @@ public sealed partial class PdfWindow
         }
         catch (Exception e) when (e is IOException or ObjectDisposedException) { Toast("Couldn't fill it in: " + e.Message); return; }
         foreach (int page in pages) { _fields.Remove(page); RefreshPage(page); }
-        if (filled > 0) { _dirty = true; UpdateTitle(); }
+        if (filled > 0) { _dirty = true; UpdateTitle(); RecalculateForm(); }
         int missing = values.Keys.Count(k => !seen.Contains(k));
-        Toast(filled == 0 ? "Nothing needed changing" + (missing > 0 ? $" ({missing} name{(missing == 1 ? "" : "s")} in the file are not fields of this PDF)" : "") : $"Filled in {filled} field{(filled == 1 ? "" : "s")}" + (missing > 0 ? $"; {missing} name{(missing == 1 ? "" : "s")} in the file are not fields of this PDF" : "") + ". Save keeps them.");
+        string odd = (missing > 0 ? $"{missing} name{(missing == 1 ? "" : "s")} in the file are not fields of this PDF" : "") + (missing > 0 && rejected > 0 ? "; " : "") + (rejected > 0 ? $"{rejected} value{(rejected == 1 ? "" : "s")} didn't fit the box's number / date / time format and {(rejected == 1 ? "was" : "were")} left out" : "");
+        Toast(filled == 0 ? "Nothing needed changing" + (odd.Length > 0 ? $" ({odd})" : "") : $"Filled in {filled} field{(filled == 1 ? "" : "s")}" + (odd.Length > 0 ? "; " + odd : "") + ". Save keeps them.");
     }
 }

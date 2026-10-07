@@ -31,7 +31,10 @@ public sealed partial class PdfWindow
         public string DefaultText = "";
         public List<string> Choices = new();
 
-        public PdfFieldExtra Extra => new(Required, Multiline, MaxLength, DefaultText, Choices.Count > 0 ? Choices.ToList() : null, Ticked);
+        public FieldFormat? Format;                     // text box: shows a number / date / time in a fixed form
+        public FieldCalc? Calc;                         // text box: worked out from other boxes
+
+        public PdfFieldExtra Extra => new(Required, Multiline, MaxLength, DefaultText, Choices.Count > 0 ? Choices.ToList() : null, Ticked, Format, Calc);
         public override EditItem Clone() { var c = (FieldItem)MemberwiseClone(); c.Choices = Choices.ToList(); return c; }
 
         public bool Square => Kind is PdfNewFieldKind.CheckBox or PdfNewFieldKind.Radio;

@@ -41,6 +41,8 @@ public sealed partial class PdfWindow
             var b = item.Bounds;
             if (!b.IsEmpty && b.Width + b.Height > 1) list.Add(b);
         }
+        foreach (var f in Fields(page))                                                      // (form fields already saved in the PDF are not page objects: they are lined up with too)
+            if (f.Box.Width + f.Box.Height > 1) list.Add(f.Box);
         foreach (var o in PageObjects(page))
         {
             if (movingObjects != null && movingObjects.Contains(o.Index)) continue;
@@ -81,6 +83,46 @@ public sealed partial class PdfWindow
                 if (Math.Abs(ty - my) < 0.4 * k + 0.05) AddGuide(new Guide(page, false, ty, Math.Min(snapped.Left, t.Left), Math.Max(snapped.Right, t.Right)));
         }
         return offset;
+    }
+
+    /// <summary>
+    /// The same lining up while a thing is made bigger or smaller by its corner (not for turned things): the right and bottom edge snap to the edges / middles of the others.
+    /// A thing that keeps its shape follows whichever edge is closer and the other side is worked out from it.
+    /// </summary>
+    private Rect SnapSize(int page, Rect size, bool keepAspect, IReadOnlyCollection<EditItem> movingItems, IReadOnlyCollection<int>? movingObjects)
+    {
+        _guides.Clear();
+        if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0 || size.IsEmpty) return size;
+        _snapTargets ??= SnapTargetsFor(page, movingItems, movingObjects);
+        double k = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX), threshold = 6 * k;
+        double dx = double.MaxValue, dy = double.MaxValue;
+        foreach (var t in _snapTargets)
+        {
+            foreach (double tx in new[] { t.Left, t.Left + t.Width / 2, t.Right }) if (Math.Abs(tx - size.Right) <= threshold && Math.Abs(tx - size.Right) < Math.Abs(dx)) dx = tx - size.Right;
+            foreach (double ty in new[] { t.Top, t.Top + t.Height / 2, t.Bottom }) if (Math.Abs(ty - size.Bottom) <= threshold && Math.Abs(ty - size.Bottom) < Math.Abs(dy)) dy = ty - size.Bottom;
+        }
+        double w = size.Width, h = size.Height;
+        if (keepAspect && size.Width > 0 && size.Height > 0)
+        {
+            double ratio = size.Height / size.Width;
+            if (dx != double.MaxValue && (dy == double.MaxValue || Math.Abs(dx) <= Math.Abs(dy))) { w += dx; h = w * ratio; }
+            else if (dy != double.MaxValue) { h += dy; w = h / ratio; }
+        }
+        else
+        {
+            if (dx != double.MaxValue) w += dx;
+            if (dy != double.MaxValue) h += dy;
+        }
+        w = Math.Max(4, w); h = Math.Max(4, h);
+        var snapped = new Rect(size.X, size.Y, w, h);
+        foreach (var t in _snapTargets)
+        {
+            foreach (double tx in new[] { t.Left, t.Left + t.Width / 2, t.Right })
+                if (Math.Abs(tx - snapped.Right) < 0.4 * k + 0.05) AddGuide(new Guide(page, true, tx, Math.Min(snapped.Top, t.Top), Math.Max(snapped.Bottom, t.Bottom)));
+            foreach (double ty in new[] { t.Top, t.Top + t.Height / 2, t.Bottom })
+                if (Math.Abs(ty - snapped.Bottom) < 0.4 * k + 0.05) AddGuide(new Guide(page, false, ty, Math.Min(snapped.Left, t.Left), Math.Max(snapped.Right, t.Right)));
+        }
+        return snapped;
     }
 
     private void AddGuide(Guide g)

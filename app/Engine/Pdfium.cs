@@ -183,6 +183,8 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern uint FPDFAttachment_GetName(IntPtr attachment, byte[]? buffer, uint length);
     [DllImport(Dll)] public static extern int FPDFAttachment_SetFile(IntPtr attachment, IntPtr doc, byte[] contents, uint length);
     [DllImport(Dll)] public static extern int FPDFAttachment_GetFile(IntPtr attachment, byte[]? buffer, uint length, out uint outLength);
+    /// <summary>The script of a field's "additional action" (12 = keystroke, 13 = format, 14 = validate, 15 = calculate), as UTF-16 (a wide buffer: byte[], never char[]).</summary>
+    [DllImport(Dll)] public static extern uint FPDFAnnot_GetFormAdditionalActionJavaScript(IntPtr hHandle, IntPtr annot, int actionEvent, byte[]? buffer, uint length);
     [DllImport(Dll)] public static extern uint FPDFAnnot_GetStringValue(IntPtr annot, [MarshalAs(UnmanagedType.LPStr)] string key, byte[]? buffer, uint length);
     /// <summary>The look of a comment: a PDF content stream (in page coordinates, inside the annotation's rectangle). mode 0 = normal.</summary>
     [DllImport(Dll)] public static extern int FPDFAnnot_SetAP(IntPtr annot, int mode, [MarshalAs(UnmanagedType.LPWStr)] string value);

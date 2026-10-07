@@ -326,7 +326,7 @@ public sealed partial class PdfFile
                         }
                         var newKind = f.Kind switch { PdfFieldKind.Text => PdfNewFieldKind.Text, PdfFieldKind.Radio => PdfNewFieldKind.Radio, PdfFieldKind.Signature => PdfNewFieldKind.Signature, PdfFieldKind.Combo => PdfNewFieldKind.Dropdown, _ => PdfNewFieldKind.CheckBox };
                         int maxLength = Pdfium.FPDFAnnot_GetNumberValue(annot, "MaxLen", out float ml) != 0 ? (int)ml : 0;
-                        var extra = new PdfFieldExtra(f.Required, f.Multiline, maxLength, newKind is PdfNewFieldKind.Text or PdfNewFieldKind.Dropdown ? f.Value : "", f.Options.Count > 0 ? f.Options.ToList() : null, f.Checked);
+                        var extra = new PdfFieldExtra(f.Required, f.Multiline, maxLength, newKind is PdfNewFieldKind.Text or PdfNewFieldKind.Dropdown ? f.Value : "", f.Options.Count > 0 ? f.Options.ToList() : null, f.Checked, f.Format, f.Calc);
                         result.Add(new PdfOwnField(f.AnnotIndex, newKind, f.Box, f.Name, f.FontSize > 0 ? f.FontSize : 12, kind, bold, color, value, extra));
                     }
                     finally { Pdfium.FPDFPage_CloseAnnot(annot); }

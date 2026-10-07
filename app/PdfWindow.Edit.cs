@@ -1440,6 +1440,11 @@ public sealed partial class PdfWindow
                 var along = angle == 0 ? p - corner : Rot(p, corner, -angle) - corner;
                 double w = Math.Max(4, along.X), h = Math.Max(4, along.Y);
                 if (_selected.KeepAspect && _dragBox.Width > 0) h = w * _dragBox.Height / _dragBox.Width;
+                if (angle == 0)
+                {
+                    var snapped = SnapSize(pv.Index, new Rect(corner.X, corner.Y, w, h), _selected.KeepAspect && _dragBox.Width > 0, new[] { _selected }, _selected is PageObjectItem sizingSaved ? sizingSaved.Indices : null);
+                    w = snapped.Width; h = snapped.Height;
+                }
                 var half = angle == 0 ? new Vector(w / 2, h / 2) : Rot(new Point(w / 2, h / 2), new Point(0, 0), angle) - new Point(0, 0);
                 var centre = corner + half;
                 _selected.ResizeTo(new Rect(centre.X - w / 2, centre.Y - h / 2, w, h));

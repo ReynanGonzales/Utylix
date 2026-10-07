@@ -71,7 +71,7 @@ public sealed partial class PdfWindow
     private void OnFormLoaded()
     {
         CloseFieldEditor(commit: false);
-        _fields.Clear(); _ownFields.Clear();
+        _fields.Clear(); _ownFields.Clear(); _formHasCalc = null;
         if (_pdf?.HasForm == true)
         {
             _formBarText.Text = "This PDF has fields to fill in. Click a field to type in it; Tab goes to the next one.";
@@ -113,6 +113,7 @@ public sealed partial class PdfWindow
     private void OpenField(PdfField field)
     {
         if (field.ReadOnly) { Toast("This field can't be changed"); return; }
+        if (field.Calc != null) { Toast("This box works itself out from other boxes"); return; }
         switch (field.Kind)
         {
             case PdfFieldKind.CheckBox or PdfFieldKind.Radio:
@@ -139,6 +140,7 @@ public sealed partial class PdfWindow
         _dirty = true;
         UpdateTitle();
         RefreshPage(field.Page);
+        RecalculateForm();                                  // (boxes that are worked out from this one)
     }
 
     /// <summary>Draws one page again (its picture and its small picture), keeping the old picture until the new one is ready.</summary>
@@ -241,7 +243,7 @@ public sealed partial class PdfWindow
         if (commit && editor is TextBox t)
         {
             string text = t.Text.Replace("\r\n", "\n");
-            if (text != field.Value.Replace("\r\n", "\n").Replace('\r', '\n')) Change(field, () => _pdf!.SetFieldText(field, text));
+            if (text != field.Value.Replace("\r\n", "\n").Replace('\r', '\n') && AcceptFieldText(field, ref text)) Change(field, () => _pdf!.SetFieldText(field, text));
         }
         _scroll.Focus();
     }

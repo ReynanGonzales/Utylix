@@ -747,6 +747,7 @@ public sealed partial class PdfWindow : Window
             case Key.S when ctrl: if (_editing || _dirty) _ = SaveEditsAsync(saveAs: false); else SaveCopy(); break;      // (a filled-in form saves too)
             case Key.E when ctrl: if (_pdf != null) { if (_editing) ExitEditing(); else EnterEditing(); } break;           // (Edit on / off)
             case Key.G when ctrl: _pageBox.Focus(); _pageBox.SelectAll(); break;                                        // (go to a page)
+            case Key.H when ctrl: FindAndReplace(); break;
             case Key.P when ctrl: Print(); break;
             case Key.R when ctrl: Rotate(); break;
             case Key.OemPlus or Key.Add when ctrl: ZoomBy(1.2); break;

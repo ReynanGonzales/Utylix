@@ -112,6 +112,7 @@ public sealed partial class PdfWindow
         {
             Page = page, Kind = f.Kind, Box = f.Box, Name = f.Name, Value = f.Value, FontSize = f.FontSize, Font = f.Font, Bold = f.Bold, Color = f.Color,
             Required = x.Required, Multiline = x.Multiline, MaxLength = x.MaxLength, DefaultText = x.DefaultText, Choices = x.Choices?.ToList() ?? new List<string>(), Ticked = x.Ticked,
+            Format = x.Format, Calc = x.Calc,
         };
         _items.Add(item);                                                // (no step of its own: Undo goes back to the page as it was, with the field on it)
         Select(item);

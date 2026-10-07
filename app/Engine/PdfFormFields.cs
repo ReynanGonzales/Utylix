@@ -13,7 +13,8 @@ namespace IdmClone.Engine;
 public enum PdfNewFieldKind { Text, CheckBox, Radio, Signature, Dropdown }
 
 /// <summary>What can be set on a field besides its look: must be filled in, several lines, longest text, starting text, the choices of a drop-down list, ticked at the start.</summary>
-public sealed record PdfFieldExtra(bool Required = false, bool Multiline = false, int MaxLength = 0, string DefaultText = "", IReadOnlyList<string>? Choices = null, bool Ticked = false);
+public sealed record PdfFieldExtra(bool Required = false, bool Multiline = false, int MaxLength = 0, string DefaultText = "", IReadOnlyList<string>? Choices = null, bool Ticked = false,
+                                   FieldFormat? Format = null, FieldCalc? Calc = null);
 
 /// <summary>A new fillable field to put on a page. Box is in points from the top-left of the page as shown. A radio button's Name is its GROUP (one choice out of the group) and Value is what this button stands for.</summary>
 public sealed record PdfFieldMark(int Page, Rect Box, PdfNewFieldKind Kind, string Name, double FontSize, System.Windows.Media.Color Color, PdfFontKind Font = PdfFontKind.Sans, bool Bold = false, string Value = "", PdfFieldExtra? Extra = null) : PdfMark(Page);
@@ -86,6 +87,9 @@ public static class PdfFormFields
                 if (kids.Elements.Count == 0) all.Elements.RemoveAt(k);
             }
         }
+        if (Resolve(acro.Elements["/CO"]) is PdfArray calcOrder)                           // (the calculation order loses the fields that are gone, too)
+            for (int k = calcOrder.Elements.Count - 1; k >= 0; k--)
+                if (calcOrder.Elements[k] is PdfReference cr && !live.Contains(cr.ObjectID)) calcOrder.Elements.RemoveAt(k);
         if (fields.Count == 0) { using var tidied = new MemoryStream(); doc.Save(tidied, false); return tidied.ToArray(); }
         EnsureFont(doc, acro);
         acro.Elements.SetBoolean("/NeedAppearances", true);
@@ -145,6 +149,7 @@ public static class PdfFormFields
 
             var normal = new PdfDictionary(doc);
             var x = f.Extra ?? new PdfFieldExtra();
+            bool calculated = false;
             int flags = x.Required ? 1 << 1 : 0;                                                 // (field flags: bit 2 = required, bit 13 = several lines, bit 18 = drop-down list)
             if (f.Kind == PdfNewFieldKind.Text)
             {
@@ -159,6 +164,14 @@ public static class PdfFormFields
                 var ap = new PdfDictionary(doc);
                 ap.Elements["/N"] = Form(doc, w, h, Frame(w, h, edge, ""));
                 widget.Elements["/AP"] = ap;
+                // number / date / time format and calculation: the standard Acrobat scripts (run by Acrobat, Edge, Chrome; Utylix reads them back and applies them itself)
+                if (x.Format is { Kind: not FieldFormatKind.None } || x.Calc != null)
+                {
+                    var aa = new PdfDictionary(doc);
+                    if (x.Format is { Kind: not FieldFormatKind.None } fmt) { aa.Elements["/F"] = Script(doc, PdfFormLogic.FormatScript(fmt)); aa.Elements["/K"] = Script(doc, PdfFormLogic.KeystrokeScript(fmt)); }
+                    if (x.Calc != null) { aa.Elements["/C"] = Script(doc, PdfFormLogic.CalcScript(x.Calc)); calculated = true; }
+                    widget.Elements["/AA"] = aa;
+                }
             }
             else if (f.Kind == PdfNewFieldKind.Dropdown)
             {
@@ -223,11 +236,26 @@ public static class PdfFormFields
             if (annots == null) { annots = new PdfArray(doc); page.Elements["/Annots"] = annots; }
             annots.Elements.Add(widget.Reference!);
             if (f.Kind != PdfNewFieldKind.Radio) all.Elements.Add(widget.Reference!);       // (the group is in the form's list, not each of its buttons)
+            if (calculated)                                                                // (the order readers work the calculations out in)
+            {
+                var order = Resolve(acro.Elements["/CO"]) as PdfArray;
+                if (order == null) { order = new PdfArray(doc); acro.Elements["/CO"] = order; }
+                order.Elements.Add(widget.Reference!);
+            }
         }
 
         using var output = new MemoryStream();
         doc.Save(output, false);
         return output.ToArray();
+    }
+
+    /// <summary>A JavaScript action (what a field runs on format / keystroke / calculate).</summary>
+    private static PdfDictionary Script(PdfDocument doc, string js)
+    {
+        var action = new PdfDictionary(doc);
+        action.Elements.SetName("/S", "/JavaScript");
+        action.Elements.SetString("/JS", js);
+        return action;
     }
 
     private static PdfArray Box(PdfDocument doc, double l, double b, double r, double t) => new(doc, new PdfReal(l), new PdfReal(b), new PdfReal(r), new PdfReal(t));

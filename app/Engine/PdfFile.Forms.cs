@@ -11,7 +11,8 @@ public enum PdfFieldKind { Text, CheckBox, Radio, Combo, List, Button, Signature
 
 /// <summary>A fillable box of a PDF form (where it is, in points from the top-left of the page as shown, and what is in it).</summary>
 public sealed record PdfField(int Page, int AnnotIndex, string Name, string Hint, PdfFieldKind Kind, Rect Box, string Value, bool Checked,
-                              bool ReadOnly, bool Required, bool Multiline, bool Password, bool EditableCombo, IReadOnlyList<string> Options, int Selected, double FontSize);
+                              bool ReadOnly, bool Required, bool Multiline, bool Password, bool EditableCombo, IReadOnlyList<string> Options, int Selected, double FontSize,
+                              FieldFormat? Format = null, FieldCalc? Calc = null);
 
 /// <summary>The fillable forms of a PDF, through PDFium's form engine (the one in Chrome): values are kept in the document and saved with it.</summary>
 public sealed partial class PdfFile
@@ -120,7 +121,9 @@ public sealed partial class PdfFile
                             ReadOnly: (flags & 1) != 0, Required: (flags & 2) != 0,
                             Multiline: kind == PdfFieldKind.Text && (flags & (1 << 12)) != 0, Password: kind == PdfFieldKind.Text && (flags & (1 << 13)) != 0,
                             EditableCombo: kind == PdfFieldKind.Combo && (flags & (1 << 18)) != 0,
-                            options, selected, fs));
+                            options, selected, fs,
+                            Format: kind is PdfFieldKind.Text ? PdfFormLogic.ParseFormat(Utf16((b, l) => Pdfium.FPDFAnnot_GetFormAdditionalActionJavaScript(_form, a, 13, b, l))) : null,
+                            Calc: kind is PdfFieldKind.Text ? PdfFormLogic.ParseCalc(Utf16((b, l) => Pdfium.FPDFAnnot_GetFormAdditionalActionJavaScript(_form, a, 15, b, l))) : null));
                     }
                     finally { Pdfium.FPDFPage_CloseAnnot(a); }
                 }

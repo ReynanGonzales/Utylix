@@ -42,6 +42,17 @@ public sealed partial class PdfWindow
         var multiline = new CheckBox { Content = "Several lines (Enter makes a new line)", IsChecked = field.Multiline, Margin = new Thickness(0, 12, 0, 0) };
         var maxBox = new TextBox { Text = field.MaxLength > 0 ? field.MaxLength.ToString() : "", Width = 90, HorizontalAlignment = HorizontalAlignment.Left };
         var startBox = new TextBox { Text = field.DefaultText };
+        var formatKind = new ComboBox(); var decimalsBox = new TextBox { Width = 50 }; var commaBox = new CheckBox { Content = "Decimal comma (1234,50)" };
+        var datePattern = new ComboBox { Margin = new Thickness(0, 6, 0, 0) }; var timePattern = new ComboBox { Margin = new Thickness(0, 6, 0, 0) };
+        var numberRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        var calcOp = new ComboBox(); var calcNames = new TextBox();
+        System.Windows.Automation.AutomationProperties.SetAutomationId(formatKind, "PdfFieldFormat");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(decimalsBox, "PdfFieldDecimals");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(commaBox, "PdfFieldComma");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(datePattern, "PdfFieldDatePattern");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(timePattern, "PdfFieldTimePattern");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(calcOp, "PdfFieldCalcOp");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(calcNames, "PdfFieldCalcNames");
         System.Windows.Automation.AutomationProperties.SetAutomationId(multiline, "PdfFieldMultiline");
         System.Windows.Automation.AutomationProperties.SetAutomationId(maxBox, "PdfFieldMax");
         if (field.Kind == PdfNewFieldKind.Text)
@@ -51,6 +62,42 @@ public sealed partial class PdfWindow
             root.Children.Add(maxBox);
             root.Children.Add(Label("Text to start with (empty = nothing)"));
             root.Children.Add(startBox);
+
+            // how it shows what is typed (a number, a date, a time) and whether it is worked out from other boxes
+            formatKind.ItemsSource = new[] { "Plain text", "Number", "Date", "Time" };
+            formatKind.SelectedIndex = field.Format?.Kind switch { FieldFormatKind.Number => 1, FieldFormatKind.Date => 2, FieldFormatKind.Time => 3, _ => 0 };
+            decimalsBox.Text = (field.Format is { Kind: FieldFormatKind.Number } nf ? nf.Decimals : 2).ToString();
+            commaBox.IsChecked = field.Format is { Kind: FieldFormatKind.Number, CommaDecimal: true };
+            datePattern.ItemsSource = PdfFormLogic.DatePatterns; datePattern.SelectedItem = field.Format is { Kind: FieldFormatKind.Date } df && PdfFormLogic.DatePatterns.Contains(df.Pattern) ? df.Pattern : PdfFormLogic.DatePatterns[0];
+            timePattern.ItemsSource = PdfFormLogic.TimePatterns; timePattern.SelectedItem = field.Format is { Kind: FieldFormatKind.Time } tf && PdfFormLogic.TimePatterns.Contains(tf.Pattern) ? tf.Pattern : PdfFormLogic.TimePatterns[0];
+            root.Children.Add(Label("Shows what is typed as"));
+            root.Children.Add(formatKind);
+            numberRow.Children.Add(new TextBlock { Text = "Decimal places", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            numberRow.Children.Add(decimalsBox);
+            commaBox.Margin = new Thickness(14, 0, 0, 0); commaBox.VerticalAlignment = VerticalAlignment.Center;
+            numberRow.Children.Add(commaBox);
+            root.Children.Add(numberRow); root.Children.Add(datePattern); root.Children.Add(timePattern);
+            void ShowFormat()
+            {
+                numberRow.Visibility = formatKind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+                datePattern.Visibility = formatKind.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+                timePattern.Visibility = formatKind.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed;
+            }
+            formatKind.SelectionChanged += (_, _) => ShowFormat();
+            ShowFormat();
+            root.Children.Add(Hint("Something typed that doesn't fit (letters in a number, say) is not accepted. No thousands separator, on purpose: readers read the box again to calculate."));
+
+            calcOp.ItemsSource = new[] { "Typed by hand", "The sum of", "The product of", "The average of", "The smallest of", "The largest of" };
+            calcOp.SelectedIndex = field.Calc == null ? 0 : (int)field.Calc.Op + 1;
+            calcNames.Text = field.Calc == null ? "" : string.Join("; ", field.Calc.Fields);
+            root.Children.Add(Label("Worked out"));
+            root.Children.Add(calcOp);
+            calcNames.Margin = new Thickness(0, 6, 0, 0);
+            root.Children.Add(calcNames);
+            void ShowCalc() => calcNames.Visibility = calcOp.SelectedIndex > 0 ? Visibility.Visible : Visibility.Collapsed;
+            calcOp.SelectionChanged += (_, _) => ShowCalc();
+            ShowCalc();
+            root.Children.Add(Hint("The names of the other boxes, separated by ; (for example  Price 1; Price 2). It works itself out whenever one of them changes."));
         }
 
         var choicesBox = new TextBox { Text = string.Join("\n", field.Choices), AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, Height = 120, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top };
@@ -79,7 +126,8 @@ public sealed partial class PdfWindow
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
         buttons.Children.Add(ok); buttons.Children.Add(cancel);
         root.Children.Add(buttons);
-        dlg.Content = root;
+        dlg.MaxHeight = SystemParameters.WorkArea.Height - 40;
+        dlg.Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         dlg.Loaded += (_, _) => { if (field.Kind == PdfNewFieldKind.Dropdown && firstTime) { choicesBox.Focus(); choicesBox.SelectAll(); } else { nameBox.Focus(); nameBox.SelectAll(); } };
         dlg.ShowDialog();
         if (!accepted)
@@ -97,6 +145,28 @@ public sealed partial class PdfWindow
             field.Multiline = multiline.IsChecked == true;
             field.MaxLength = int.TryParse(maxBox.Text.Trim(), out int max) && max > 0 ? Math.Min(max, 100000) : 0;
             field.DefaultText = startBox.Text;
+            field.Format = formatKind.SelectedIndex switch
+            {
+                1 => new FieldFormat(FieldFormatKind.Number, int.TryParse(decimalsBox.Text.Trim(), out int dec) ? Math.Clamp(dec, 0, 6) : 2, commaBox.IsChecked == true),
+                2 => new FieldFormat(FieldFormatKind.Date, Pattern: (string)datePattern.SelectedItem),
+                3 => new FieldFormat(FieldFormatKind.Time, Pattern: (string)timePattern.SelectedItem),
+                _ => null,
+            };
+            if (field.Format != null && field.DefaultText.Trim().Length > 0)
+            {
+                string? shown = PdfFormLogic.Format(field.Format, field.DefaultText);
+                if (shown == null) { Toast("The starting text is not " + PdfFormLogic.Describe(field.Format) + ", so it was left out"); field.DefaultText = ""; }
+                else field.DefaultText = shown;
+            }
+            var names = calcNames.Text.Split(';', '\n').Select(s => s.Trim()).Where(s => s.Length > 0 && !string.Equals(s, field.Name, StringComparison.Ordinal)).Distinct().ToList();
+            field.Calc = calcOp.SelectedIndex > 0 && names.Count > 0 ? new FieldCalc((FieldCalcOp)(calcOp.SelectedIndex - 1), names) : null;
+            if (field.Calc != null)
+            {
+                var known = new HashSet<string>(_items.OfType<FieldItem>().Where(i => i != field).Select(i => i.Name));
+                for (int p = 0; p < (_pdf?.PageCount ?? 0); p++) foreach (var f in Fields(p)) known.Add(f.Name);
+                var unknown = field.Calc.Fields.Where(n => !known.Contains(n)).ToList();
+                if (unknown.Count > 0) Toast("No field called " + string.Join(", ", unknown.Select(n => "\"" + n + "\"")) + " (yet): check the names");
+            }
         }
         if (field.Kind == PdfNewFieldKind.Dropdown)
         {
