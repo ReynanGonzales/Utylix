@@ -15,7 +15,7 @@ public enum PdfFontKind { Sans, Serif, Mono }
 public abstract record PdfMark(int Page);
 
 /// <summary>Lines of text. Baseline of line i = Top + i * LineSpacing * Size + Baseline * Size (the font's own numbers, as WPF shows them).</summary>
-public sealed record PdfTextMark(int Page, Point TopLeft, string Text, PdfFontKind Font, bool Bold, double Size, Color Color, double LineSpacing, double Baseline, string? FontName = null, double Angle = 0, Point? Pivot = null, bool Invisible = false, double Stretch = 1, bool Watermark = false) : PdfMark(Page);
+public sealed record PdfTextMark(int Page, Point TopLeft, string Text, PdfFontKind Font, bool Bold, double Size, Color Color, double LineSpacing, double Baseline, string? FontName = null, double Angle = 0, Point? Pivot = null, bool Invisible = false, double Stretch = 1, bool Watermark = false, bool Italic = false) : PdfMark(Page);
 
 /// <summary>One figure of a path: a start, then lines (Curve = false, only To) or curves (C1, C2, To).</summary>
 public sealed record PdfFigure(Point Start, IReadOnlyList<PdfSegment> Segments, bool Closed);
@@ -99,7 +99,8 @@ public static class PdfMarkWriter
     private static void WriteText(IntPtr doc, IntPtr page, PageMapping map, PdfTextMark t, Dictionary<string, IntPtr> fonts)
     {
         string[] lines = t.Text.Replace("\r\n", "\n").Split('\n');
-        IntPtr font = Font(doc, t.Font, t.Bold, !lines.All(StandardFontCanShow), fonts, t.FontName);
+        IntPtr font = Font(doc, t.Font, t.Bold, !lines.All(StandardFontCanShow), fonts, t.FontName, t.Italic);
+        double lean = t.Italic && t.FontName != null ? 0.2 : 0;                         // (a font chosen by name has no italic file here: its letters are slanted instead)
         var (r, g, b, a) = Rgba(t.Color);
         for (int i = 0; i < lines.Length; i++)
         {
@@ -118,7 +119,8 @@ public static class PdfMarkWriter
             var baseline = map.ToPage(shown);
             // the text's own right / up directions, turned: shown right = (cos, sin), shown up = (sin, -cos); Stretch widens or narrows the letters
             double k = t.Stretch;
-            Pdfium.FPDFPageObj_Transform(obj, (map.Right.X * cos - map.Up.X * sin) * k, (map.Right.Y * cos - map.Up.Y * sin) * k, map.Right.X * sin + map.Up.X * cos, map.Right.Y * sin + map.Up.Y * cos, baseline.X, baseline.Y);
+            double ra = (map.Right.X * cos - map.Up.X * sin) * k, rb = (map.Right.Y * cos - map.Up.Y * sin) * k, uc = map.Right.X * sin + map.Up.X * cos, ud = map.Right.Y * sin + map.Up.Y * cos;
+            Pdfium.FPDFPageObj_Transform(obj, ra, rb, uc + lean * ra, ud + lean * rb, baseline.X, baseline.Y);
             if (t.Invisible) Pdfium.FPDFTextObj_SetTextRenderMode(obj, Pdfium.TextInvisible);        // (text that is there for searching and copying only)
             if (t.Watermark) TagWatermark(doc, obj);
             Pdfium.FPDFPage_InsertObject(page, obj);
@@ -129,11 +131,11 @@ public static class PdfMarkWriter
     private static bool StandardFontCanShow(string s) =>
         s.All(c => (c >= 0x20 && c <= 0x7E) || (c >= 0xA0 && c <= 0xFF) || "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".IndexOf(c) >= 0);
 
-    private static IntPtr Font(IntPtr doc, PdfFontKind kind, bool bold, bool unicode, Dictionary<string, IntPtr> fonts, string? family = null)
+    private static IntPtr Font(IntPtr doc, PdfFontKind kind, bool bold, bool unicode, Dictionary<string, IntPtr> fonts, string? family = null, bool italic = false)
     {
         // a font chosen by name: the Windows font is embedded (when it can't be found, the plain kind is used)
         string? file = family == null ? null : PdfFonts.FileFor(family, bold);
-        string key = file != null ? "file:" + file : $"{kind}{bold}{unicode}";
+        string key = file != null ? "file:" + file : $"{kind}{bold}{unicode}{italic}";
         if (fonts.TryGetValue(key, out var f)) return f;
         if (file != null)
         {
@@ -144,16 +146,21 @@ public static class PdfMarkWriter
         {
             string name = kind switch
             {
-                PdfFontKind.Serif => bold ? "Times-Bold" : "Times-Roman",
-                PdfFontKind.Mono => bold ? "Courier-Bold" : "Courier",
-                _ => bold ? "Helvetica-Bold" : "Helvetica",
+                PdfFontKind.Serif => bold ? (italic ? "Times-BoldItalic" : "Times-Bold") : (italic ? "Times-Italic" : "Times-Roman"),
+                PdfFontKind.Mono => bold ? (italic ? "Courier-BoldOblique" : "Courier-Bold") : (italic ? "Courier-Oblique" : "Courier"),
+                _ => bold ? (italic ? "Helvetica-BoldOblique" : "Helvetica-Bold") : (italic ? "Helvetica-Oblique" : "Helvetica"),
             };
             f = Pdfium.FPDFText_LoadStandardFont(doc, name);                  // (nothing is embedded: every PDF reader has these)
         }
         else
         {
             // letters the standard fonts lack (₱, Greek, ...): the matching Windows font is embedded
-            string plain = kind switch { PdfFontKind.Serif => bold ? "timesbd.ttf" : "times.ttf", PdfFontKind.Mono => bold ? "courbd.ttf" : "cour.ttf", _ => bold ? "arialbd.ttf" : "arial.ttf" };
+            string plain = kind switch
+            {
+                PdfFontKind.Serif => bold ? (italic ? "timesbi.ttf" : "timesbd.ttf") : (italic ? "timesi.ttf" : "times.ttf"),
+                PdfFontKind.Mono => bold ? (italic ? "courbi.ttf" : "courbd.ttf") : (italic ? "couri.ttf" : "cour.ttf"),
+                _ => bold ? (italic ? "arialbi.ttf" : "arialbd.ttf") : (italic ? "ariali.ttf" : "arial.ttf"),
+            };
             byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), plain));
             f = Pdfium.FPDFText_LoadFont(doc, data, (uint)data.Length, Pdfium.FontTrueType, 1);
         }

@@ -64,6 +64,16 @@ public sealed partial class PdfWindow
         public string? FontName;                       // a font chosen by name (any installed one); null = the kind above
         public double AngleDeg;                        // turned clockwise around the middle of the text
 
+        public bool Italic, Underline;
+        public int Align;                              // 0 left, 1 middle, 2 right (inside the box width, or inside the longest line)
+        public double BoxWidth;                        // 0 = the box fits the longest line; otherwise the text wraps at this width (points)
+        public Color? Fill;                            // background of the box (null = none)
+        public double BorderWidth;                     // frame of the box in the text's colour (0 = none)
+
+        public const double Pad = 3;                   // room between the frame and the words
+        public bool HasBox => Fill != null || BorderWidth > 0;
+        public double Inset => HasBox ? Pad : 0;
+
         public override bool CanRotate => true;
         public override double Angle => AngleDeg;
         public override void SetAngle(double degrees) => AngleDeg = degrees;
@@ -72,42 +82,115 @@ public sealed partial class PdfWindow
 
         public static FontFamily Family(PdfFontKind k, string? name = null) => new(name ?? k switch { PdfFontKind.Serif => "Times New Roman", PdfFontKind.Mono => "Courier New", _ => "Arial" });
 
+        Typeface Face => new(Family(Font, FontName), Italic ? FontStyles.Italic : FontStyles.Normal, Bold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
+        double Measure(string s) => new FormattedText(s.Length == 0 ? " " : s, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Face, FontSize, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace;
+        public double LineHeight => Family(Font, FontName).LineSpacing * FontSize;
+
+        /// <summary>The lines as they are shown and written: the text's own lines, broken at the box width when there is one (words are never cut, except one longer than the whole line).</summary>
+        public List<string> Lines()
+        {
+            var raw = (Text.Length == 0 ? " " : Text).Replace("\r\n", "\n").Split('\n');
+            if (BoxWidth <= 0) return raw.ToList();
+            double room = Math.Max(10, BoxWidth - 2 * Inset);
+            var result = new List<string>();
+            foreach (string paragraph in raw)
+            {
+                if (paragraph.Length == 0 || Measure(paragraph) <= room) { result.Add(paragraph); continue; }
+                string line = "";
+                foreach (string word in paragraph.Split(' '))
+                {
+                    string tryLine = line.Length == 0 ? word : line + " " + word;
+                    if (line.Length > 0 && Measure(tryLine) > room) { result.Add(line); line = word; }
+                    else line = tryLine;
+                    while (line.Length > 1 && Measure(line) > room)                            // (one long word: cut where it no longer fits)
+                    {
+                        int cut = line.Length - 1;
+                        while (cut > 1 && Measure(line[..cut]) > room) cut--;
+                        result.Add(line[..cut]); line = line[cut..];
+                    }
+                }
+                result.Add(line);
+            }
+            return result;
+        }
+
         public override Rect Bounds
         {
             get
             {
-                var family = Family(Font, FontName);
-                var face = new Typeface(family, FontStyles.Normal, Bold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
-                var lines = (Text.Length == 0 ? " " : Text).Replace("\r\n", "\n").Split('\n');
-                double w = lines.Max(l => new FormattedText(l.Length == 0 ? " " : l, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, face, FontSize, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace);
-                return new Rect(TopLeft, new Size(Math.Max(4, w), lines.Length * family.LineSpacing * FontSize));
+                var lines = Lines();
+                double w = BoxWidth > 0 ? BoxWidth : lines.Max(Measure) + 2 * Inset;
+                return new Rect(TopLeft, new Size(Math.Max(4, w), lines.Count * LineHeight + 2 * Inset));
             }
         }
+
+        /// <summary>Where a line starts (x, relative to the box's left edge).</summary>
+        double LineX(string line, double boxWidth) => Inset + Align switch { 1 => (boxWidth - 2 * Inset - Measure(line)) / 2, 2 => boxWidth - 2 * Inset - Measure(line), _ => 0 };
+
         public override EditItem Clone() => (TextItem)MemberwiseClone();
         public override FrameworkElement Build()
         {
-            var t = new TextBlock { Text = Text, FontFamily = Family(Font, FontName), FontSize = FontSize, FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, Foreground = new SolidColorBrush(Color) };
-            Canvas.SetLeft(t, TopLeft.X); Canvas.SetTop(t, TopLeft.Y);
-            if (AngleDeg != 0) { var b = Bounds; t.RenderTransform = new RotateTransform(AngleDeg, b.Width / 2, b.Height / 2); }
-            return t;
+            var b = Bounds; var lines = Lines();
+            var canvas = new Canvas { Width = b.Width, Height = b.Height };
+            if (HasBox)
+            {
+                var frame = new Rectangle { Width = b.Width, Height = b.Height, Fill = Fill is Color f ? new SolidColorBrush(f) : null };
+                if (BorderWidth > 0) { frame.Stroke = new SolidColorBrush(Color); frame.StrokeThickness = BorderWidth; }
+                canvas.Children.Add(frame);
+            }
+            double lineH = LineHeight;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var t = new TextBlock { Text = lines[i].Length == 0 ? " " : lines[i], FontFamily = Family(Font, FontName), FontSize = FontSize, FontStyle = Italic ? FontStyles.Italic : FontStyles.Normal, FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, Foreground = new SolidColorBrush(Color), TextWrapping = TextWrapping.NoWrap };
+                if (Underline) t.TextDecorations = System.Windows.TextDecorations.Underline;
+                Canvas.SetLeft(t, LineX(lines[i], b.Width)); Canvas.SetTop(t, Inset + i * lineH);
+                canvas.Children.Add(t);
+            }
+            Canvas.SetLeft(canvas, b.X); Canvas.SetTop(canvas, b.Y);
+            if (AngleDeg != 0) canvas.RenderTransform = new RotateTransform(AngleDeg, b.Width / 2, b.Height / 2);
+            return canvas;
         }
+
         public override IEnumerable<PdfMark> Marks()
         {
             if (Text.Trim().Length == 0) yield break;
             var f = Family(Font, FontName);
-            yield return new PdfTextMark(Page, TopLeft, Text, Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName, AngleDeg, AngleDeg != 0 ? Centre : null);
+            var b = Bounds; var pivot = AngleDeg != 0 ? (Point?)Centre : null;
+            Point Turn(Point p) => AngleDeg == 0 ? p : Rot(p, Centre, AngleDeg);
+            if (HasBox)
+            {
+                var corners = new[] { b.TopLeft, new Point(b.Right, b.Top), b.BottomRight, new Point(b.Left, b.Bottom) };
+                var fig = new PdfFigure(Turn(corners[0]), corners.Skip(1).Select(c => PdfSegment.Line(Turn(c))).ToList(), true);
+                yield return new PdfPathMark(Page, new[] { fig }, BorderWidth > 0 ? Color : null, BorderWidth, Fill, false);
+            }
+            var lines = Lines(); double lineH = LineHeight;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].Trim().Length == 0) continue;
+                double x = b.X + LineX(lines[i], b.Width), y = b.Y + Inset + i * lineH;
+                yield return new PdfTextMark(Page, new Point(x, y), lines[i], Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName, AngleDeg, pivot, Italic: Italic);
+                if (Underline)
+                {
+                    double ly = y + (f.Baseline + 0.1) * FontSize, w = Measure(lines[i]);
+                    var line = new PdfFigure(Turn(new Point(x, ly)), new[] { PdfSegment.Line(Turn(new Point(x + w, ly))) }, false);
+                    yield return new PdfPathMark(Page, new[] { line }, Color, Math.Max(0.5, FontSize / 15), null, false);
+                }
+            }
         }
         public override void MoveBy(Vector d) => TopLeft += d;
         public override void ResizeTo(Rect r)
         {
             var corner = AngleDeg == 0 ? r.TopLeft : Rot(Bounds.TopLeft, Centre, AngleDeg);        // (a turned text keeps its turned top-left corner where it is)
-            double h = Bounds.Height;
-            if (h > 0) FontSize = Math.Clamp(FontSize * r.Height / h, 4, 200);
+            if (BoxWidth > 0) BoxWidth = Math.Max(24, r.Width);                                       // (a box with a width: the corner changes the width, the words wrap again)
+            else
+            {
+                double h = Bounds.Height;
+                if (h > 0) FontSize = Math.Clamp(FontSize * r.Height / h, 4, 200);
+            }
             TopLeft = AngleDeg == 0 ? r.TopLeft : TopLeftFor(corner, Bounds.Size, AngleDeg);
         }
-        public override bool KeepAspect => true;
+        public override bool KeepAspect => BoxWidth <= 0;
     }
-
     public enum ShapeKind { Rectangle, Ellipse, Line, Arrow, Highlight, WhiteOut, Check, Cross, Redact }
 
     private sealed class ShapeItem : EditItem
@@ -646,6 +729,7 @@ public sealed partial class PdfWindow
         _boldButton.Click += (_, _) => SetFont(null, _boldButton.IsChecked == true);
         _fontRow.Children.Add(_boldButton);
         _fontRow.Children.Add(FontPickerButton());
+        _fontRow.Children.Add(StyleButton());
         _fontButtons[PdfFontKind.Sans].IsChecked = true;
 
         // undo, delete, save
@@ -869,6 +953,7 @@ public sealed partial class PdfWindow
         bool line = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.Line or ShapeKind.Arrow } || item is InkItem { Signature: false } || item is TableItem
                     || (item == null && _tool is EditTool.Pen or EditTool.Shapes or EditTool.Table);
         _fontRow.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
+        if (_styleButton != null) _styleButton.Visibility = item is TextItem || _typing != null || (item == null && _tool is EditTool.Text) ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)_sizeLabel.Parent).Visibility = text || line ? Visibility.Visible : Visibility.Collapsed;
         _sizeLabel.Text = text ? "Size" : "Line";
         double size = typingRun != null ? typingRun.EffSize : item switch { TextItem t => t.FontSize, FieldItem f => f.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, TableItem tb => tb.Width, _ => text ? _textSize : _lineWidth };
@@ -1263,7 +1348,7 @@ public sealed partial class PdfWindow
             case EditTool.Text:
                 if (ItemAt(pv.Index, p) is TextItem existing) { EditText(existing, isNew: false); return; }
                 if (wasTyping) return;                                                 // (a click outside just finishes the text)
-                var text = new TextItem { Page = pv.Index, TopLeft = new Point(p.X - 1, p.Y - _textSize * 0.6), Font = _font, FontName = _fontName, Bold = _bold, FontSize = _textSize, Color = _toolColors[EditTool.Text] };
+                var text = new TextItem { Page = pv.Index, TopLeft = new Point(p.X - 1, p.Y - _textSize * 0.6), Font = _font, FontName = _fontName, Bold = _bold, Italic = _italic, Underline = _underline, Align = _align, FontSize = _textSize, Color = _toolColors[EditTool.Text] };
                 EditText(text, isNew: true);
                 return;
             case EditTool.Check or EditTool.Cross:
@@ -1549,10 +1634,15 @@ public sealed partial class PdfWindow
         box.FontFamily = TextItem.Family(item.Font, item.FontName);
         box.FontSize = item.FontSize;
         box.FontWeight = item.Bold ? FontWeights.Bold : FontWeights.Normal;
+        box.FontStyle = item.Italic ? FontStyles.Italic : FontStyles.Normal;
+        box.TextDecorations = item.Underline ? System.Windows.TextDecorations.Underline : null;
+        box.TextAlignment = item.Align switch { 1 => TextAlignment.Center, 2 => TextAlignment.Right, _ => TextAlignment.Left };
+        if (item.BoxWidth > 0) { box.TextWrapping = TextWrapping.Wrap; box.Width = Math.Max(10, item.BoxWidth - 2 * item.Inset); }
+        else { box.TextWrapping = TextWrapping.NoWrap; box.Width = double.NaN; }
         box.Foreground = new SolidColorBrush(item.Color);
         box.CaretBrush = new SolidColorBrush(item.Color.R + item.Color.G + item.Color.B > 600 ? Colors.Black : item.Color);
         // (a WPF text box draws its text 2 units in from its left edge)
-        Canvas.SetLeft(box, item.TopLeft.X - 2); Canvas.SetTop(box, item.TopLeft.Y);
+        Canvas.SetLeft(box, item.TopLeft.X + item.Inset - 2); Canvas.SetTop(box, item.TopLeft.Y + item.Inset);
         box.RenderTransformOrigin = new Point(0.5, 0.5);
         box.RenderTransform = item.AngleDeg != 0 ? new RotateTransform(item.AngleDeg) : Transform.Identity;
     }
