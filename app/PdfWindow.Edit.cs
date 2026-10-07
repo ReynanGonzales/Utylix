@@ -903,6 +903,7 @@ public sealed partial class PdfWindow
     // ---------- tools and their settings ----------
     private void SetTool(EditTool tool)
     {
+        HideGhost();
         CloseTextBox(commit: true);
         _tool = tool;
         OutlinesChanged();
@@ -1274,7 +1275,7 @@ public sealed partial class PdfWindow
         pv.Overlay.MouseMove += (_, e) => { if (!_editing || _textDrag) TextMove(pv, e); else OverlayMove(pv, e); };
         pv.Overlay.MouseLeftButtonUp += (_, e) => { if (!_editing || _textDrag) TextUp(pv, e); else OverlayUp(pv, e); };
         pv.Overlay.MouseRightButtonUp += (_, e) => PageMenu(pv, e);
-        pv.Overlay.MouseLeave += (_, _) => { _hoverTip = null; ShowHoverTip(pv, null); };
+        pv.Overlay.MouseLeave += (_, _) => { _hoverTip = null; ShowHoverTip(pv, null); if (_ghostPage == pv.Index) { HideGhost(); } };
         pv.Overlay.PreviewMouseLeftButtonDown += (_, _) => { _hoverTip = null; ShowHoverTip(pv, null); };
         if (_editing) pv.Overlay.Cursor = CursorFor(_tool);
     }
@@ -1284,6 +1285,8 @@ public sealed partial class PdfWindow
     {
         if (!_editing || e.OriginalSource is DependencyObject d && IsInside(d, _textBox)) return;
         var p = e.GetPosition(pv.Overlay);
+        if (_ghost != null && _ghostPage == pv.Index && PlacesOnClick(_tool) && _ghostSnap != default && (Keyboard.Modifiers & ModifierKeys.Alt) == 0) p += _ghostSnap;      // (the click lands where the guide showed)
+        HideGhost();
         bool wasTyping = _typing != null || _runTyping != null;
         CloseTextBox(commit: true);
         e.Handled = true;
@@ -1413,6 +1416,7 @@ public sealed partial class PdfWindow
 
     private void OverlayMove(PageView pv, MouseEventArgs e)
     {
+        if (_drag == DragMode.None && _editing) UpdateGhost(pv, e.GetPosition(pv.Overlay));               // (the placing guide)
         if (_drag == DragMode.None && _editing && _tool == EditTool.EditText) { HoverRun(pv, e.GetPosition(pv.Overlay)); return; }
         if (_drag == DragMode.None || _dragPage != pv) return;
         var p = e.GetPosition(pv.Overlay);
