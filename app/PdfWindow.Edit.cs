@@ -1308,6 +1308,7 @@ public sealed partial class PdfWindow
                 // a line: pressed and let go = change it; pressed and dragged = move it
                 var existingRun = _items.OfType<RunEditItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
                 var runUnder = existingRun == null ? RunAt(pv.Index, p) : null;
+                if (runUnder != null && (Keyboard.Modifiers & ModifierKeys.Alt) != 0) { _dragPage = null; EditParagraphAt(pv, p); return; }       // (Alt + click: the whole paragraph)
                 if (existingRun == null && runUnder == null)
                 {
                     _dragPage = null;

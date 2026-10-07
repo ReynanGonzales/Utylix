@@ -45,8 +45,9 @@ public sealed partial class PdfWindow
         public Color EffColor => ColorOverride ?? (Run.Color.A == 0 ? Colors.Black : Run.Color);
 
         public Vector Offset;                                   // how far the person moved the line (points, as shown)
-        /// <summary>One line down, as the font spaces its lines (points).</summary>
-        public double LineAdvance => EffFamily.LineSpacing * EffSize;
+        /// <summary>One line down, as the font spaces its lines (points), or as the paragraph this line was part of spaced them.</summary>
+        public double? AdvanceOverride;
+        public double LineAdvance => AdvanceOverride ?? EffFamily.LineSpacing * EffSize;
         private int LineCount => Math.Max(1, NewText.Replace("\r\n", "\n").Split('\n').Length);
 
         public double Top => Run.Baseline.Y - EffFamily.Baseline * EffSize;
@@ -66,7 +67,13 @@ public sealed partial class PdfWindow
                 Text = NewText, FontFamily = EffFamily, FontSize = EffSize, Foreground = new SolidColorBrush(EffColor),
                 FontWeight = EffBold ? FontWeights.Bold : FontWeights.Normal, FontStyle = Run.Italic && FontOverride == null ? FontStyles.Italic : FontStyles.Normal,
             };
-            Canvas.SetLeft(text, Run.Baseline.X + Offset.X); Canvas.SetTop(text, Top + Offset.Y);
+            double lift = 0;
+            if (AdvanceOverride is double advance && LineCount > 1)             // (lines spaced like the paragraph they came from; the first line stays on its baseline)
+            {
+                text.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; text.LineHeight = advance;
+                lift = (advance - EffFamily.LineSpacing * EffSize) / 2;
+            }
+            Canvas.SetLeft(text, Run.Baseline.X + Offset.X); Canvas.SetTop(text, Top + Offset.Y - lift);
             canvas.Children.Add(text);
             return canvas;
         }

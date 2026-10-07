@@ -405,6 +405,12 @@ public sealed partial class PdfWindow
         }
         else Item("Copy", "Ctrl+C", sel, CopySelection);
         if (_editing && HasCopy) Item("Paste here", "Ctrl+V", true, () => PasteItems(p, pv.Index));
+        if (_editing && RunAt(pv.Index, p) is { } lineUnder)
+        {
+            menu.Items.Add(new Separator());
+            Item("Edit this line", "", true, () => EditTextAt(pv, p));
+            if (FindParagraph(pv.Index, lineUnder) != null) Item("Edit the whole paragraph (the words re-flow)…", "Alt+click", true, () => EditParagraphAt(pv, p));
+        }
         if (_editing && _selected is FieldItem optionsFor)
         {
             menu.Items.Add(new Separator());
