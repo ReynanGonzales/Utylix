@@ -740,6 +740,7 @@ public sealed partial class PdfWindow
         _toolButtons[_tool].IsChecked = true;
         SetTool(_tool);
         UpdateEditButtons();
+        SyncDark();                                                    // (dark reading is off while editing)
         Toast("Editing: pick a tool, then click or drag on the page");
     }
 
@@ -786,6 +787,7 @@ public sealed partial class PdfWindow
         foreach (var p in _pages) { p.Overlay.Children.Clear(); p.Overlay.Cursor = _editing ? CursorFor(_tool) : null; }
         UpdateTitle();
         if (_undoButton != null) UpdateEditButtons();
+        SyncDark();
     }
 
     /// <summary>Unsaved changes: asks to save them first. False = stay.</summary>
@@ -1105,6 +1107,7 @@ public sealed partial class PdfWindow
         if (_textBox != null && _typing?.Page == page) overlay.Children.Add(_textBox);
         RenderRunExtras(page, overlay);
         DrawLinkOutlines(page, overlay);
+        DrawGuides(page, overlay);
         if (_group.Count > 0)
         {
             double gk = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);
@@ -1196,6 +1199,7 @@ public sealed partial class PdfWindow
         CloseTextBox(commit: true);
         e.Handled = true;
         _dragPage = pv; _dragStart = p; _dragSnapshotTaken = false;
+        ResetSnap();
         // the handles of the selected item (it can be turned and resized while the tool that placed it is still on)
         if (_tool is EditTool.Select or EditTool.Stamp or EditTool.Text or EditTool.Date or EditTool.Signature or EditTool.Image or EditTool.TextField or EditTool.CheckField && _selected != null)
         {
@@ -1329,8 +1333,9 @@ public sealed partial class PdfWindow
             case DragMode.Move when _selected != null:
             {
                 var target = _dragBox.TopLeft + (p - _dragStart);
+                target += SnapOffset(pv.Index, new Rect(target, _dragBox.Size), new[] { _selected }, _selected is PageObjectItem movingSaved ? movingSaved.Indices : null);       // (lines up with the other things on the page)
                 var delta = target - _selected.Bounds.TopLeft;
-                if (delta.Length < 0.01) return;
+                if (delta.Length < 0.01) { if (_guides.Count > 0) RenderItems(pv.Index); return; }
                 if (!_dragSnapshotTaken) { if ((p - _dragStart).Length < 1.5) return; if (_selected is not PageObjectItem) Snapshot(); _dragSnapshotTaken = true; }
                 _selected.MoveBy(delta);
                 RenderItems(pv.Index);
@@ -1392,10 +1397,18 @@ public sealed partial class PdfWindow
                 break;
             case DragMode.GroupMove:
             {
-                var step = p - _groupLast;
-                if (step.Length < 0.01) return;
-                if (!_dragSnapshotTaken) { if ((p - _dragStart).Length < 1.5) return; Snapshot(); _dragSnapshotTaken = true; step = p - _dragStart; }
-                _groupLast = p;
+                if (!_dragSnapshotTaken) { if ((p - _dragStart).Length < 1.5) return; Snapshot(); _dragSnapshotTaken = true; }
+                if (_groupStartBox == null)
+                {
+                    var all = Rect.Empty;
+                    foreach (var g in _group.Where(i => i.Page == pv.Index && !i.Bounds.IsEmpty)) all.Union(g.Bounds);
+                    _groupStartBox = all;
+                }
+                var want = p - _dragStart;
+                if (!_groupStartBox.Value.IsEmpty) want += SnapOffset(pv.Index, new Rect(_groupStartBox.Value.TopLeft + want, _groupStartBox.Value.Size), _group, null);
+                var step = want - _groupApplied;
+                if (step.Length < 0.01) { if (_guides.Count > 0) RenderItems(pv.Index); return; }
+                _groupApplied = want;
                 foreach (var g in _group) g.MoveBy(step);
                 RenderItems(pv.Index);
                 break;
@@ -1448,6 +1461,7 @@ public sealed partial class PdfWindow
     {
         if (_dragPage != pv) return;
         pv.Overlay.ReleaseMouseCapture();
+        if (_guides.Count > 0) { ResetSnap(); RenderItems(pv.Index); } else ResetSnap();          // (the alignment lines go when the mouse is let go)
         var drawn = _drawing;
         _drawing = null;
         var mode = _drag;

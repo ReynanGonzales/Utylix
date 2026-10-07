@@ -222,6 +222,11 @@ public sealed partial class PdfWindow : Window
         Tool("↔", "Fit the width (Ctrl+2)", () => SetFit(Fit.Width), "PdfFitWidth", font: "Segoe UI Symbol");
         Tool("", "Whole page (Ctrl+0)", () => SetFit(Fit.Page), "PdfFitPage");
         Tool("", "Turn the pages (Ctrl+R) - for viewing only", Rotate, "PdfRotate");
+        _darkGlyph = (TextBlock)Tool("", "Dark reading mode (for looking only: the file is not changed)", ToggleDark, "PdfDark").Content;
+        Button? readButton = null;
+        readButton = Tool("", "Read aloud (Windows' own voice)", () => ReadMenu(readButton!), "PdfRead");
+        _readGlyph = (TextBlock)readButton.Content;
+        SyncDark();
         Gap(tools);
         Tool("", "Show in its folder", ShowInFolder, "PdfFolder");
 
@@ -354,6 +359,7 @@ public sealed partial class PdfWindow : Window
         Closed += (_, _) =>
         {
             RememberPlace();
+            StopReading();
             Windows.Remove(this);
             _generation++;
             _thumbs.Clear();
@@ -419,7 +425,7 @@ public sealed partial class PdfWindow : Window
         double keepV = _scroll.VerticalOffset, keepH = _scroll.HorizontalOffset, keepZoom = _zoom;
         var keepFit = _fit;
         bool sameLook = keepEditing && _sizes.Length == sizes.Length && _rotation == 0;
-        if (!keepEditing) RememberPlace();                         // (where you stopped in the file that is being left)
+        if (!keepEditing) { RememberPlace(); StopReading(); }       // (where you stopped in the file that is being left)
         _pdf?.Dispose();
         _pdf = pdf; _path = path; _sizes = sizes; _rotation = 0; _current = keepEditing ? keepPage : 0;
         ResetEdits(keepEditing);
@@ -595,9 +601,10 @@ public sealed partial class PdfWindow : Window
             var pdf = _pdf;
             if (pdf == null || generation != _generation || p.WantedWidth != w) return;
             int index = p.Index, rotation = _rotation;
+            bool dark = ReadingDark;
             var picture = await Task.Run(() =>
             {
-                try { return pdf.Render(index, w, h, rotation); }
+                try { var drawn = pdf.Render(index, w, h, rotation); return dark ? DarkPicture(drawn) : drawn; }
                 catch (Exception e) when (e is ObjectDisposedException or IOException or OutOfMemoryException) { return null; }
             });
             if (picture == null || generation != _generation) { if (p.WantedWidth == w) p.WantedWidth = 0; return; }
