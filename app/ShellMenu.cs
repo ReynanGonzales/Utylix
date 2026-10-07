@@ -322,27 +322,42 @@ public static class ShellMenu
     /// </summary>
     private static void RegisterBlankPdf(string dataDir, bool enabled, string exe)
     {
-        // two places, because Windows looks in both: under the extension itself, and under the extension's program (how Word does it: .docx\Word.Document.12\ShellNew).
-        // .pdf has no default program of its own on this kind of PC (the person's choice is kept apart by Windows), and an entry under the bare extension alone was not listed in
-        // the New menu there (reported 2026-10-07). Our own program name is used for the second one; nothing else under .pdf is touched.
-        const string key = @"Software\Classes\.pdf\ShellNew", progKey = @"Software\Classes\.pdf\" + PdfProgId + @"\ShellNew";
+        // FOUND 2026-10-07 by loading Windows' own New-menu handler in a test process (scratchpad newmenu.ps1): Explorer lists a ShellNew entry ONLY when the extension's default
+        // program (the "(Default)" value of .pdf) has a type name. On this kind of PC .pdf has no default at all (the person's choice lives in UserChoice) and our own program
+        // (Utylix.PdfFile) deliberately has no name, so the entry was silently skipped, however it was written. The New menu then shows that program's name, and Explorer's Type column
+        // keeps saying "PDF File" (the column follows UserChoice) - both checked with the same probe. So: when NOTHING names .pdf (machine-wide default empty), .pdf gets a default
+        // that points to a small program of ours whose only job is the name "Blank PDF". It has no "open" verb, so it never opens anything. When another program already names
+        // .pdf (Acrobat, Edge ...) we write nothing there and take our own default away again: a default under HKCU would hide theirs.
+        const string key = @"Software\Classes\.pdf\ShellNew", ext = @"Software\Classes\.pdf", nameId = "Utylix.BlankPdf";
+        Registry.CurrentUser.DeleteSubKeyTree(ext + @"\" + PdfProgId, throwOnMissingSubKey: false);   // an earlier build wrote a ShellNew here (it did not help)
+        static string? Default(RegistryKey root) { using var k = root.OpenSubKey(@"Software\Classes\.pdf"); return k?.GetValue("") as string; }
+        void RemoveOwnDefault()
+        {
+            using (var k = Registry.CurrentUser.OpenSubKey(ext, writable: true))
+                if (k != null && string.Equals(k.GetValue("") as string, nameId, StringComparison.OrdinalIgnoreCase)) k.DeleteValue("", throwOnMissingValue: false);
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + nameId, throwOnMissingSubKey: false);
+        }
         if (!enabled)
         {
             Registry.CurrentUser.DeleteSubKeyTree(key, throwOnMissingSubKey: false);
-            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.pdf\" + PdfProgId, throwOnMissingSubKey: false);
+            RemoveOwnDefault();
             return;
         }
         byte[] pdf = BlankPdf();
         string template = Path.Combine(dataDir, "blank.pdf");
         if (!File.Exists(template) || new FileInfo(template).Length != pdf.Length) File.WriteAllBytes(template, pdf);
-        string icon = OwnIcon(dataDir, "pdf", IconOf(exe));
-        foreach (string where in new[] { key, progKey })
+        using (var k = Registry.CurrentUser.CreateSubKey(key))
         {
-            using var k = Registry.CurrentUser.CreateSubKey(where);
             SetIfDifferent(k, "FileName", template);
             SetIfDifferent(k, "ItemName", "Blank PDF");
-            SetIfDifferent(k, "IconPath", icon);
+            SetIfDifferent(k, "IconPath", OwnIcon(dataDir, "pdf", IconOf(exe)));
         }
+        string? machine = Default(Registry.LocalMachine), mine = Default(Registry.CurrentUser);
+        if (!string.IsNullOrEmpty(machine)) { RemoveOwnDefault(); return; }
+        if (!string.IsNullOrEmpty(mine) && !string.Equals(mine, nameId, StringComparison.OrdinalIgnoreCase)) return;   // somebody else's default under the user's own classes: leave it
+        using (var p = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + nameId)) SetIfDifferent(p, "", "Blank PDF");
+        using (var k = Registry.CurrentUser.CreateSubKey(ext)) SetIfDifferent(k, "", nameId);
+        if (!string.Equals(mine, nameId, StringComparison.OrdinalIgnoreCase)) SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);   // Explorer keeps its New-menu list until told
     }
 
     /// <summary>A valid PDF with one empty A4 page (595 x 842 points).</summary>
