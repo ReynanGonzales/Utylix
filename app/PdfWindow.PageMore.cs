@@ -44,6 +44,8 @@ public sealed partial class PdfWindow
         Item("Attached files…", EditAttachments, "PdfMenuAttachments");
         Heading("FORMS");
         Item("Make the fields permanent (flatten)…", FlattenForms, "PdfMenuFlatten");
+        Heading("PRIVACY");
+        Item("Find personal details to black out…", FindPersonalDetails, "PdfMenuPersonal");
         Heading("CLEAN UP");
         Item("Remove a watermark…", RemoveWatermark, "PdfMenuWatermark");
         Item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");

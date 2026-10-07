@@ -214,6 +214,19 @@ public sealed partial class PdfWindow
         PageOp(p => p.SetPageLabels(ranges), new[] { _current }, ranges.Count == 0 ? "Page numbering back to 1, 2, 3. Undo takes it back until you save" : "Page labels set. Undo takes them back until you save", keepView: true);
     }
 
+    // ---------- personal details ----------
+    private void FindPersonalDetails()
+    {
+        if (_pdf == null || _path == null) return;
+        var dlg = new PdfPersonalDialog(this, _pdf, page => GoTo(page));
+        if (dlg.ShowDialog() != true || dlg.Chosen.Count == 0) return;
+        var areas = new List<(int Page, Rect Box)>();
+        foreach (var hit in dlg.Chosen)
+            if (Text(hit.Page) is { } t) foreach (var r in t.LineBoxes(hit.Start, hit.End)) if (!r.IsEmpty) areas.Add((hit.Page, r));
+        if (areas.Count == 0) { Toast("Those matches have no place on the page to black out"); return; }
+        RedactAreas(areas, dlg.Chosen.Count);
+    }
+
     // ---------- attachments ----------
     private void EditAttachments()
     {

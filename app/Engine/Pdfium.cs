@@ -148,7 +148,9 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern int FPDFDest_GetDestPageIndex(IntPtr doc, IntPtr dest);
     [DllImport(Dll)] public static extern IntPtr FPDFLink_LoadWebLinks(IntPtr textPage);
     [DllImport(Dll)] public static extern int FPDFLink_CountWebLinks(IntPtr links);
-    [DllImport(Dll)] public static extern int FPDFLink_GetURL(IntPtr links, int index, char[]? buffer, int count);
+    // (the buffer is UTF-16: a ushort[] is passed as it is. A char[] would be converted to ONE byte per letter, and PDFium would write two bytes per letter into it: a heap overflow
+    //  that crashed the program at random on pages that have a web address in their text)
+    [DllImport(Dll)] public static extern int FPDFLink_GetURL(IntPtr links, int index, ushort[]? buffer, int count);
     [DllImport(Dll)] public static extern int FPDFLink_CountRects(IntPtr links, int index);
     [DllImport(Dll)] public static extern int FPDFLink_GetRect(IntPtr links, int index, int rect, out double left, out double top, out double right, out double bottom);
     [DllImport(Dll)] public static extern void FPDFLink_CloseWebLinks(IntPtr links);

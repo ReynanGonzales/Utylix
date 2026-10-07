@@ -234,9 +234,9 @@ internal static class PdfTextReader
                         {
                             int chars = Pdfium.FPDFLink_GetURL(web, i, null, 0);
                             if (chars <= 1 || chars > 8192) continue;
-                            var buf = new char[chars];
+                            var buf = new ushort[chars];
                             Pdfium.FPDFLink_GetURL(web, i, buf, chars);
-                            string url = new string(buf, 0, chars - 1);
+                            string url = new string(Array.ConvertAll(buf, u => (char)u), 0, chars - 1);
                             for (int k = 0; k < Pdfium.FPDFLink_CountRects(web, i); k++)
                                 if (Pdfium.FPDFLink_GetRect(web, i, k, out double l, out double t, out double r, out double b) != 0)
                                 {
