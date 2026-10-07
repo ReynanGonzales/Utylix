@@ -11,7 +11,7 @@
     <RootNamespace>IdmClone</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <StartupObject>IdmClone.Program</StartupObject>
-    <Version>1.8.0</Version>
+    <Version>1.8.1</Version>
     <Authors>Reynan Gonzales</Authors>
     <Company>Reynan Gonzales</Company>
     <Product>Utylix</Product>
