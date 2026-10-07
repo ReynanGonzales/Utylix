@@ -46,6 +46,16 @@ public static class Net
                 ["User-Agent"] = UA, ["Accept"] = "*/*", ["Accept-Encoding"] = "identity",
             };
             foreach (var kv in headers) h[kv.Key] = kv.Value;
+            // what a browser adds to a click on a download link (some sites turn a request without them away)
+            h.TryAdd("Accept-Language", "en-US,en;q=0.9");
+            h.TryAdd("Sec-Fetch-Dest", "document"); h.TryAdd("Sec-Fetch-Mode", "navigate"); h.TryAdd("Sec-Fetch-User", "?1"); h.TryAdd("Upgrade-Insecure-Requests", "1");
+            if (!h.ContainsKey("Sec-Fetch-Site"))
+            {
+                string site = "none";
+                if (h.TryGetValue("Referer", out var rf) && Uri.TryCreate(rf, UriKind.Absolute, out var from))
+                    site = string.Equals(from.Host, uri.Host, StringComparison.OrdinalIgnoreCase) ? "same-origin" : "cross-site";
+                h["Sec-Fetch-Site"] = site;
+            }
             if (dropAuth) { h.Remove("Cookie"); h.Remove("Authorization"); }
             if (range != null) h["Range"] = range;
 

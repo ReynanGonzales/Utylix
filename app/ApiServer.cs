@@ -124,7 +124,7 @@ public sealed class ApiServer
                     tools = new { ytdlp = Tools.HasYtDlp, ffmpeg = Tools.HasFfmpeg },   // is video-site support installed?
                 }, null);
             else if (method == "GET" && path == "/api/downloads")
-                Send(ctx, 200, new { downloads = _manager.All().Select(d => ToApi(d.Info())).ToList() }, null);
+                Send(ctx, 200, new { downloads = _manager.All().Select(d => ToApi(d.Info(), d.ProbeError)).ToList() }, null);
             else if (method == "POST" && path == "/api/show")
             {
                 string? which = null;                               // {"window": "downloads"} or "hub" (default)
@@ -398,8 +398,16 @@ public sealed class ApiServer
                      doc.RootElement.TryGetProperty("id", out var p) && p.ValueKind == JsonValueKind.String
             ? p.GetString() : null;
         var d = id == null ? null : _manager.Get(id);
-        bool ok = d != null && d.Status == DlStatus.Error && d.Info().Downloaded == 0;
-        if (ok) _manager.Remove(id!, false);
+        // an error before anything arrived, or a download still waiting in the "New download" window whose first look at the file was refused (then that window goes too)
+        bool ok = d != null && d.Info().Downloaded == 0 && (d.Status == DlStatus.Error || (d.Status == DlStatus.Awaiting && d.ProbeError != null));
+        if (ok)
+        {
+            _manager.Remove(id!, false);
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                foreach (var w in System.Windows.Application.Current.Windows.OfType<CaptureWindow>().Where(x => x.DownloadId == id).ToList()) w.CloseForHandoff();
+            }));
+        }
         Send(ctx, 200, new { discarded = ok }, null);
     }
 
@@ -407,8 +415,9 @@ public sealed class ApiServer
         TorrentSource.IsMagnet(url) || url.Length <= 8192 && Uri.TryCreate(url, UriKind.Absolute, out var u) &&
         (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
 
-    private static object ToApi(DownloadInfo i) => new
+    private static object ToApi(DownloadInfo i, string? probeError = null) => new
     {
+        probeError,
         id = i.Id, url = i.Url, filename = i.FileName, size = i.Size, downloaded = i.Downloaded,
         status = i.Status.ToString().ToLowerInvariant(), error = i.Error, speed = i.Speed, eta = i.Eta,
         resumable = i.Resumable, connections = i.Connections,

@@ -241,7 +241,18 @@ async function watchHandoff(id, url) {
       const { downloads } = await (await fetch(SERVER + '/api/downloads')).json();
       const d = downloads.find(x => x.id === id);
       if (!d || d.downloaded > 0 || d.status === 'completed') return;   // cancelled by user, or working
-      if (d.status === 'awaiting') continue;
+      if (d.status === 'awaiting') {
+        // the site turns Utylix away at the first look (login / cookies / anti-bot, HTTP 401 / 403 ...): don't make the person press Start just to see it fail, the browser takes it back at once
+        if (d.probeError && /\bHTTP (401|403|407|429|451)\b/.test(d.probeError)) {
+          await fetch(SERVER + '/api/discard', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+          });
+          await note({ url }, 'capture', 'the site refuses Utylix (' + d.probeError + ') -> given back to the browser');
+          chrome.downloads.download({ url });
+          return;
+        }
+        continue;
+      }
       tries++;
       if (d.status === 'error') {
         await fetch(SERVER + '/api/discard', {

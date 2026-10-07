@@ -344,6 +344,11 @@ public partial class CaptureWindow : Window
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
 
+    public string DownloadId => _download.Id;
+
+    /// <summary>The site refused Utylix and the browser takes the download back: the window just goes (the entry is already removed).</summary>
+    public void CloseForHandoff() { _finished = true; Close(); }
+
     protected override void OnClosed(EventArgs e)
     {
         _timer.Stop();

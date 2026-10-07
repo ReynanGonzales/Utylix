@@ -296,8 +296,8 @@ public sealed partial class Download
         var resp = await Net.SendAsync(Url, _headers, ranged ? "bytes=0-0" : null, ct);
         using (resp)
         {
-            if (resp.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable && ranged)
-            {
+            if (ranged && resp.StatusCode is HttpStatusCode.RequestedRangeNotSatisfiable or HttpStatusCode.Forbidden or HttpStatusCode.MethodNotAllowed or HttpStatusCode.BadRequest)
+            {                                                    // (some servers turn a Range request away: look again without it)
                 resp.Dispose();
                 await ProbeAsync(ct, false);
                 return;
