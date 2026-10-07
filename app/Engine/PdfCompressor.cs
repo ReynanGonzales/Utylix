@@ -274,7 +274,7 @@ public static class PdfCompressor
         }
     }
 
-    private static BitmapSource? ToBitmapSource(IntPtr bmp)
+    internal static BitmapSource? ToBitmapSource(IntPtr bmp)
     {
         int w = Pdfium.FPDFBitmap_GetWidth(bmp), h = Pdfium.FPDFBitmap_GetHeight(bmp), stride = Pdfium.FPDFBitmap_GetStride(bmp);
         PixelFormat? format = Pdfium.FPDFBitmap_GetFormat(bmp) switch

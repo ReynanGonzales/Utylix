@@ -44,6 +44,8 @@ public sealed partial class PdfWindow
         Item("Attached files…", EditAttachments, "PdfMenuAttachments");
         Heading("FORMS");
         Item("Make the fields permanent (flatten)…", FlattenForms, "PdfMenuFlatten");
+        Heading("PICTURES");
+        Item("Save all the pictures of this PDF…", SaveAllPictures, "PdfMenuSavePictures");
         Heading("PRIVACY");
         Item("Find personal details to black out…", FindPersonalDetails, "PdfMenuPersonal");
         Heading("CLEAN UP");

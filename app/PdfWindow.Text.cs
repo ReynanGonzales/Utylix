@@ -410,6 +410,13 @@ public sealed partial class PdfWindow
             menu.Items.Add(new Separator());
             Item("Field options…", "Enter", true, () => EditFieldOptions(optionsFor));
         }
+        if (_editing && TryChosenPicture(out _, out _))
+        {
+            menu.Items.Add(new Separator());
+            Item("Replace this picture…", "", true, ReplaceChosenPicture);
+            Item("Crop this picture…", "", true, CropChosenPicture);
+            Item("Save this picture…", "", true, SaveChosenPicture);
+        }
         if (_editing && (CanGroup || CanUngroup))
         {
             menu.Items.Add(new Separator());
