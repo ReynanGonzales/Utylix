@@ -198,6 +198,7 @@ public sealed partial class PdfWindow
         public ShapeKind Kind;
         public Point A, B;                       // corners, or the two ends of a line
         public double Width = 2;
+        public Color? Fill;                      // the inside of a box or circle (null = see-through)
         public double AngleDeg;                  // box, circle, check and cross can be turned (clockwise, around the middle)
 
         public override bool CanRotate => Kind is ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.Check or ShapeKind.Cross;
@@ -265,6 +266,7 @@ public sealed partial class PdfWindow
             ShapeKind.WhiteOut => (null, 0, Color, false, 1),
             ShapeKind.Redact => (null, 0, Colors.Black, false, 1),
             ShapeKind.Check or ShapeKind.Cross => (Color, StampWidth, null, false, 1),
+            ShapeKind.Rectangle or ShapeKind.Ellipse => (Color, Width, Fill, false, 1),
             _ => (Color, Width, null, false, 1),
         };
 
@@ -716,6 +718,7 @@ public sealed partial class PdfWindow
         var plus = SmallBar("", "Bigger", () => ChangeSize(+1));
         var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         sizeRow.Children.Add(_sizeLabel); sizeRow.Children.Add(minus); sizeRow.Children.Add(_sizeText); sizeRow.Children.Add(plus);
+        sizeRow.Children.Add(FillButton());
         System.Windows.Automation.AutomationProperties.SetAutomationId(_sizeText, "PdfEditSize");
 
         foreach (var (kind, label, family) in new[] { (PdfFontKind.Sans, "Sans", "Arial"), (PdfFontKind.Serif, "Serif", "Times New Roman"), (PdfFontKind.Mono, "Mono", "Courier New") })
@@ -954,6 +957,7 @@ public sealed partial class PdfWindow
                     || (item == null && _tool is EditTool.Pen or EditTool.Shapes or EditTool.Table);
         _fontRow.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
         if (_styleButton != null) _styleButton.Visibility = item is TextItem || _typing != null || (item == null && _tool is EditTool.Text) ? Visibility.Visible : Visibility.Collapsed;
+        if (_fillButton != null) _fillButton.Visibility = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse } || (item == null && _tool is EditTool.Shapes && _shapeKind is ShapeKind.Rectangle or ShapeKind.Ellipse) ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)_sizeLabel.Parent).Visibility = text || line ? Visibility.Visible : Visibility.Collapsed;
         _sizeLabel.Text = text ? "Size" : "Line";
         double size = typingRun != null ? typingRun.EffSize : item switch { TextItem t => t.FontSize, FieldItem f => f.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, TableItem tb => tb.Width, _ => text ? _textSize : _lineWidth };
@@ -1399,7 +1403,7 @@ public sealed partial class PdfWindow
                 return;
             default:
                 var kind = _tool switch { EditTool.Highlight => ShapeKind.Highlight, EditTool.WhiteOut => ShapeKind.WhiteOut, EditTool.Redact => ShapeKind.Redact, _ => _shapeKind };
-                _drawing = new ShapeItem { Page = pv.Index, Kind = kind, A = p, B = p, Color = _toolColors[_tool], Width = _lineWidth };
+                _drawing = new ShapeItem { Page = pv.Index, Kind = kind, A = p, B = p, Color = _toolColors[_tool], Width = _lineWidth, Fill = kind is ShapeKind.Rectangle or ShapeKind.Ellipse ? _shapeFill : null };
                 _drag = DragMode.Draw;
                 break;
         }

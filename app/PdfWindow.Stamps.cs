@@ -15,6 +15,7 @@ namespace IdmClone;
 internal sealed class PdfStampSettings
 {
     public List<string> Recent { get; set; } = new();              // custom stamps typed before, newest first
+    public List<string> Pictures { get; set; } = new();            // picture stamps (a logo, a seal, a scan of a signature): the files, newest first
     public string DateFormat { get; set; } = "yyyy-MM-dd";
     public bool StampWithDate { get; set; }
 
@@ -207,6 +208,7 @@ public sealed partial class PdfWindow
     // ---------- placing ----------
     private void PlaceStamp(PageView pv, Point at)
     {
+        if (_stampPicture != null && PlacePictureStamp(pv, at)) return;
         var settings = PdfStampSettings.Current;
         string? date = settings.StampWithDate ? PdfStampSettings.Today(settings.DateFormat) : null;
         var size = StampItem.NaturalSize(_stampLabel, date != null);
@@ -235,6 +237,7 @@ public sealed partial class PdfWindow
 
     private void ChooseStamp(string label, Color? color)
     {
+        _stampPicture = null;                                                       // (a word stamp, not a picture)
         _stampLabel = label;
         if (color is Color c) _toolColors[EditTool.Stamp] = c;
         _toolButtons[EditTool.Stamp].ToolTip = "Click on the page to put the stamp \"" + label + "\" (click this button again to choose another)";
@@ -261,6 +264,17 @@ public sealed partial class PdfWindow
                 menu.Items.Add(item);
             }
         }
+        menu.Items.Add(new Separator());
+        foreach (string picture in settings.Pictures.Where(File.Exists))
+        {
+            var item = new MenuItem { Header = "Picture: " + System.IO.Path.GetFileNameWithoutExtension(picture), IsChecked = _stampPicture == picture };
+            item.Click += (_, _) => { _stampPicture = picture; _toolButtons[EditTool.Stamp].ToolTip = "Click on the page to put the picture " + System.IO.Path.GetFileName(picture) + " (click this button again to choose another)"; PickStampTool(); };
+            menu.Items.Add(item);
+        }
+        var pictureStamp = new MenuItem { Header = "Your own picture (logo, seal, signature)…" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(pictureStamp, "PdfStampPicture");
+        pictureStamp.Click += (_, _) => ChoosePictureStamp();
+        menu.Items.Add(pictureStamp);
         menu.Items.Add(new Separator());
         var custom = new MenuItem { Header = "Your own words…" };
         custom.Click += (_, _) =>
