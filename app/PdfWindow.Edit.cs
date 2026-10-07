@@ -823,7 +823,7 @@ public sealed partial class PdfWindow
         _editBar.Visibility = Visibility.Visible;
         _editButton.Background = new SolidColorBrush(Color.FromArgb(60, 91, 141, 239));
         ClearTextSelection();
-        if (TabOf(_tool) is string toolTab && toolTab != _editTab) _tool = EditTool.Select;          // (the tab you were last on stays: the tool of another tab would switch it)
+        _tool = EditTool.Select;                                       // (Edit always starts on Select: no tool is armed, so a click or the placing guide never surprises; the tab you were last on stays)
         _toolButtons[_tool].IsChecked = true;
         SetTool(_tool);
         UpdateEditButtons();

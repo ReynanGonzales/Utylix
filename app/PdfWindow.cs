@@ -195,6 +195,7 @@ public sealed partial class PdfWindow : Window
         Title = "Utylix Editor";
         Width = 1100; Height = 800; MinWidth = 560; MinHeight = 400;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        RestoreWindowState();
         Background = Desk;
         Foreground = Brushes.White;
         AllowDrop = true;
@@ -367,7 +368,7 @@ public sealed partial class PdfWindow : Window
             if (pdfs.Count > 0) Open(pdfs);
         };
         _toastTimer.Tick += (_, _) => { _toastTimer.Stop(); _toastBox.Visibility = Visibility.Collapsed; };
-        Closing += (_, e) => { if (!ConfirmLeaveEdits()) e.Cancel = true; };
+        Closing += (_, e) => { if (!ConfirmLeaveEdits()) e.Cancel = true; else RememberWindowState(); };
         Closed += (_, _) =>
         {
             RememberPlace();
