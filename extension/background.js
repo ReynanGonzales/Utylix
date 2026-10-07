@@ -234,6 +234,19 @@ function flashBadge(text, color) {
  * to the browser so a download is never silently lost. While the confirmation window is open the
  * download is "awaiting", which doesn't count against the time limit.
  */
+// Addresses the site refused Utylix for and that the browser took back: never captured again for a while (else the browser's download would be
+// captured, refused and handed back for ever). Kept in session storage too, because the browser puts this script to sleep between events.
+const HANDED_KEY = 'handed_back', HANDED_FOR = 5 * 60_000;
+async function handedBackList() {
+  try { const v = (await chrome.storage.session.get(HANDED_KEY))[HANDED_KEY] || {}; const now = Date.now(); return Object.fromEntries(Object.entries(v).filter(([, t]) => now - t < HANDED_FOR)); }
+  catch { return {}; }
+}
+async function rememberHandedBack(...urls) {
+  const list = await handedBackList();
+  for (const u of urls) if (u) list[u] = Date.now();
+  try { await chrome.storage.session.set({ [HANDED_KEY]: list }); } catch { /* no storage */ }
+}
+
 async function watchHandoff(id, url) {
   for (let i = 0, tries = 0; i < 120 && tries < 10; i++) {
     await new Promise(r => setTimeout(r, 1500));
@@ -248,6 +261,7 @@ async function watchHandoff(id, url) {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
           });
           await note({ url }, 'capture', 'the site refuses Utylix (' + d.probeError + ') -> given back to the browser');
+          await rememberHandedBack(url, d.url);
           chrome.downloads.download({ url });
           return;
         }
@@ -258,6 +272,7 @@ async function watchHandoff(id, url) {
         await fetch(SERVER + '/api/discard', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
         });
+        await rememberHandedBack(url, d.url);
         chrome.downloads.download({ url });
         return;
       }
@@ -326,6 +341,7 @@ async function tryCapture(item, browserName, source, release) {
   if (item.state !== 'in_progress') return skip('download not in progress (' + item.state + ')');
   const url = item.finalUrl || item.url;
   if (!/^https?:/i.test(url)) return skip('not a normal web link (blob:/data:)');   // stays in the browser
+  { const back = await handedBackList(); if (back[url] || back[item.url]) return skip('the site refused Utylix, the browser has it'); }
   if (!(await ensureApp())) {                                          // closed? try to start it (silently) first
     flashBadge('!', '#dc2626');                                         // make "app not running" visible instead of silent
     return skip('Utylix is not running / not reachable');
