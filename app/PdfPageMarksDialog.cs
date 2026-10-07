@@ -91,14 +91,14 @@ public sealed class PdfPageMarksDialog : Window
         line.Margin = new Thickness(0, 8, 0, 0);
         line.Children.Add(_text);
         var insert = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
-        foreach (var (label, token) in new[] { ("Page number", "{n}"), ("Number of pages", "{total}"), ("Date", "{date}"), ("File name", "{file}") })
+        foreach (var (label, token) in new[] { ("Page number", "{n}"), ("Number of pages", "{total}"), ("Date", "{date}"), ("File name", "{file}"), ("Bates number", "{n:000000}") })
         {
             var b = new Button { Content = label, Style = (Style)Application.Current.FindResource("DialogButton"), Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 4), FontSize = 12 };
             b.Click += (_, _) => { int at = _text.SelectionStart; _text.Text = _text.Text.Remove(at, _text.SelectionLength).Insert(at, token); _text.SelectionStart = at + token.Length; _text.Focus(); };
             insert.Children.Add(b);
         }
         line.Children.Add(insert);
-        line.Children.Add(new TextBlock { Text = "{n} = page number, {total} = how many pages, {date} = today, {file} = this file's name", Opacity = 0.6, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
+        line.Children.Add(new TextBlock { Text = "{n} = page number, {total} = how many pages, {date} = today, {file} = this file's name, {n:000000} = the number with zeros in front (for example CASE-{n:000000}: CASE-000001, CASE-000002 ...)", Opacity = 0.6, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
         line.Children.Add(new TextBlock { Text = "Where", Margin = new Thickness(0, 10, 0, 4) });
         var grid = new UniformGrid3();
         foreach (var (label, spot) in new[] { ("Top left", PdfSpot.TopLeft), ("Top middle", PdfSpot.TopCenter), ("Top right", PdfSpot.TopRight), ("Bottom left", PdfSpot.BottomLeft), ("Bottom middle", PdfSpot.BottomCenter), ("Bottom right", PdfSpot.BottomRight) })

@@ -171,6 +171,16 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern int FPDFAnnot_SetColor(IntPtr annot, int type, uint r, uint g, uint b, uint a);
     [DllImport(Dll)] public static extern int FPDFAnnot_AppendAttachmentPoints(IntPtr annot, ref QuadF quad);
     [DllImport(Dll)] public static extern int FPDFAnnot_SetStringValue(IntPtr annot, [MarshalAs(UnmanagedType.LPStr)] string key, [MarshalAs(UnmanagedType.LPWStr)] string value);
+    // document: properties, page labels, attachments
+    [DllImport(Dll)] public static extern uint FPDF_GetMetaText(IntPtr doc, [MarshalAs(UnmanagedType.LPStr)] string tag, byte[]? buffer, uint length);
+    [DllImport(Dll)] public static extern uint FPDF_GetPageLabel(IntPtr doc, int pageIndex, byte[]? buffer, uint length);
+    [DllImport(Dll)] public static extern int FPDFDoc_GetAttachmentCount(IntPtr doc);
+    [DllImport(Dll)] public static extern IntPtr FPDFDoc_AddAttachment(IntPtr doc, [MarshalAs(UnmanagedType.LPWStr)] string name);
+    [DllImport(Dll)] public static extern IntPtr FPDFDoc_GetAttachment(IntPtr doc, int index);
+    [DllImport(Dll)] public static extern int FPDFDoc_DeleteAttachment(IntPtr doc, int index);
+    [DllImport(Dll)] public static extern uint FPDFAttachment_GetName(IntPtr attachment, byte[]? buffer, uint length);
+    [DllImport(Dll)] public static extern int FPDFAttachment_SetFile(IntPtr attachment, IntPtr doc, byte[] contents, uint length);
+    [DllImport(Dll)] public static extern int FPDFAttachment_GetFile(IntPtr attachment, byte[]? buffer, uint length, out uint outLength);
     [DllImport(Dll)] public static extern uint FPDFAnnot_GetStringValue(IntPtr annot, [MarshalAs(UnmanagedType.LPStr)] string key, byte[]? buffer, uint length);
     /// <summary>The look of a comment: a PDF content stream (in page coordinates, inside the annotation's rectangle). mode 0 = normal.</summary>
     [DllImport(Dll)] public static extern int FPDFAnnot_SetAP(IntPtr annot, int mode, [MarshalAs(UnmanagedType.LPWStr)] string value);

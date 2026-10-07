@@ -38,6 +38,10 @@ public sealed partial class PdfWindow
         Item("Remove the password…", RemovePassword, "PdfMenuRemovePassword");
         Item("Sign with a certificate…", SignWithCertificate, "PdfMenuSign");
         Item("Check the signatures…", CheckSignatures, "PdfMenuCheckSign");
+        Heading("DOCUMENT");
+        Item("Properties (title, author, keywords)…", EditProperties, "PdfMenuProperties");
+        Item("Page labels (i, ii, iii … then 1, 2, 3)…", EditPageLabels, "PdfMenuPageLabels");
+        Item("Attached files…", EditAttachments, "PdfMenuAttachments");
         Heading("FORMS");
         Item("Make the fields permanent (flatten)…", FlattenForms, "PdfMenuFlatten");
         Heading("CLEAN UP");

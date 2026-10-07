@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -51,7 +52,14 @@ public static class PdfPageMarks
     public static FontFamily Family(PdfFontKind kind) => kind switch { PdfFontKind.Serif => Serif, PdfFontKind.Mono => Mono, _ => Sans };
 
     /// <summary>The text with {n}, {total}, {date} and {file} filled in.</summary>
-    public static string Expand(string text, int number, int total, string file) =>
+    public static string Expand(string text, int number, int total, string file)
+    {
+        // {n:000000} = the number padded with zeros to that many digits (Bates numbering: "CASE-{n:000000}" gives CASE-000001, CASE-000002 ...)
+        text = Regex.Replace(text, @"\{(n|total):(0{1,12})\}", m => (m.Groups[1].Value.Equals("n", StringComparison.OrdinalIgnoreCase) ? number : total).ToString(new string('0', m.Groups[2].Length), CultureInfo.InvariantCulture), RegexOptions.IgnoreCase);
+        return ExpandPlain(text, number, total, file);
+    }
+
+    private static string ExpandPlain(string text, int number, int total, string file) =>
         text.Replace("{n}", number.ToString(CultureInfo.CurrentCulture), StringComparison.OrdinalIgnoreCase)
             .Replace("{total}", total.ToString(CultureInfo.CurrentCulture), StringComparison.OrdinalIgnoreCase)
             .Replace("{date}", DateTime.Today.ToString("d MMM yyyy", CultureInfo.CurrentCulture), StringComparison.OrdinalIgnoreCase)

@@ -28,7 +28,19 @@ public sealed class PdfThumb : INotifyPropertyChanged
     public PdfFile? Pdf { get; init; }
     public int Index { get; init; }
     public int Rotation { get; init; }
-    public string Label => (Index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    private string? _label;
+    /// <summary>The page number; when the PDF numbers its pages differently (i, ii, A-3 ...) that label comes first.</summary>
+    public string Label => _label ??= MakeLabel();
+    private string MakeLabel()
+    {
+        string number = (Index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        try
+        {
+            string label = Pdf?.GetPageLabel(Index) ?? "";
+            return label.Length == 0 || label == number ? number : label + "  (" + number + ")";
+        }
+        catch (Exception e) when (e is ObjectDisposedException or IOException) { return number; }
+    }
 
     // the blue line above / below while a page is dragged to a new place
     private Brush _topLine = Brushes.Transparent, _bottomLine = Brushes.Transparent;
