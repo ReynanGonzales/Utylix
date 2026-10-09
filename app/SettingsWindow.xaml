@@ -299,6 +299,19 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="JavaScript helper" FontWeight="SemiBold" />
+                                <TextBlock Text="for age / sign-in restricted YouTube videos (about 43 MB)" FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <TextBlock x:Name="JsStatus" Grid.Column="1" VerticalAlignment="Center" Text="Checking…" TextWrapping="Wrap" Margin="0,0,10,0" />
+                            <Button x:Name="JsBtn" Grid.Column="2" Content="Install" Style="{StaticResource DialogButton}" Click="JsBtn_Click" />
+                        </Grid>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="290" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="PawnIO" FontWeight="SemiBold" />
                                 <TextBlock Text="driver for fan control and RAM lighting" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
                             </StackPanel>

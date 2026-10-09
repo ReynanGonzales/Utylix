@@ -165,6 +165,7 @@ public sealed partial class Download
             int attempt = 0;
             bool addedImpersonation = false;
             string? blocked = null;
+            bool jsNeeded = false, jsAsked = false;                // a YouTube video that only gave "format not available" because no JavaScript engine is installed
             while (true)
             {
                 var (useCookies, impersonate) = plan[attempt];
@@ -231,9 +232,22 @@ public sealed partial class Download
 
                 string message = MediaService.ErrorFrom(errLines.ToArray());
                 if (MediaService.IsBlockMessage(message)) blocked ??= message;
+                string rawErrors; lock (errLines) rawErrors = string.Join(" ", errLines);
+                if (!Tools.HasJsRuntime && MediaService.LooksLikeNeedsJs(Url, rawErrors)) jsNeeded = true;
                 attempt++;
                 if (attempt >= plan.Count)
                 {
+                    if (jsNeeded && !jsAsked && !Tools.HasJsRuntime && MediaService.OfferJsHelper != null)
+                    {
+                        jsAsked = true;
+                        bool got = false;
+                        try { got = await MediaService.OfferJsHelper(s => { lock (_lock) _mediaPhase = s; }, cts.Token); }
+                        catch (Exception) { got = false; }
+                        if (cts.IsCancellationRequested) return;
+                        if (got) { attempt = 0; continue; }          // the helper is there now: the same plan again, with it
+                    }
+                    if (jsNeeded && !Tools.HasJsRuntime)
+                        throw new InvalidOperationException("This YouTube video needs the JavaScript helper. Get it in Settings → Video sites (about 43 MB), then try again.");
                     if (blocked == null || addedImpersonation) throw new InvalidOperationException(blocked ?? message);
                     addedImpersonation = true;                       // plain attempts are used up and the site blocks scripts
                     if (hasCookies) plan.Add((true, true));

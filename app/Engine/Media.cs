@@ -152,8 +152,22 @@ public static class MediaService
         };
         psi.Environment["PYTHONUTF8"] = "1";
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
+        if (Tools.HasJsRuntime) { psi.ArgumentList.Add("--js-runtimes"); psi.ArgumentList.Add("deno:" + Tools.Deno); }     // (solves YouTube's player-script puzzle)
         return psi;
     }
+
+    /// <summary>
+    /// Set by the app: asks the person (once) whether to get the JavaScript helper, which some YouTube videos need, and installs it while the download shows its progress.
+    /// Returns true when the helper is there afterwards.
+    /// </summary>
+    public static Func<Action<string>, CancellationToken, Task<bool>>? OfferJsHelper { get; set; }
+
+    /// <summary>yt-dlp could not get the video's streams out of YouTube's player script: what is missing is a JavaScript engine (then YouTube lists pictures only).</summary>
+    public static bool LooksLikeNeedsJs(string url, string message) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Host.EndsWith("youtube.com", StringComparison.OrdinalIgnoreCase) &&
+        (message.Contains("Requested format is not available", StringComparison.OrdinalIgnoreCase) || message.Contains("Signature solving", StringComparison.OrdinalIgnoreCase) ||
+         message.Contains("n challenge", StringComparison.OrdinalIgnoreCase) || message.Contains("Only images", StringComparison.OrdinalIgnoreCase) ||
+         message.Contains("JavaScript runtime", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// A short explanation of a failed yt-dlp run. yt-dlp's message can span several lines and often ends with a
@@ -169,7 +183,7 @@ public static class MediaService
         bool Has(string s) => full.Contains(s, StringComparison.OrdinalIgnoreCase);
         if (Has("needs to be reloaded"))
             return "YouTube refused the request. Try again in a moment; if it keeps happening, click Update on yt-dlp in Settings.";
-        if (Has("Sign in to confirm"))
+        if (Has("Sign in to confirm") || Has("Please sign in"))
             return "YouTube wants a login for this video: be signed in to YouTube in your browser and try again.";
         if (Has("Unsupported URL"))
             return "This page's video isn't in a form yt-dlp can read. If the player loads a stream, play the video for a few seconds first, then try again.";

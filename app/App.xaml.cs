@@ -70,6 +70,16 @@ public partial class App : Application
         if (!customData) MigrateLegacyData(Path.Combine(appData, "IDMClone"), dataDir);
         Tools.Dir = toolsDir ?? Path.Combine(dataDir, "tools");
         DataDir = dataDir;
+        // some YouTube videos can only be read with a JavaScript engine: the first time one needs it, a download asks (once) and gets the helper
+        MediaService.OfferJsHelper = async (status, ct) =>
+        {
+            var answer = await Current.Dispatcher.InvokeAsync(() => UMessage.Ask(null,
+                "This YouTube video can only be read with one more small helper: a JavaScript engine (Deno, about 43 MB, the official release from github.com/denoland/deno, checked against the checksum published with it).\n\nGet it now? It is needed only once.",
+                "Utylix - one more helper", MessageBoxImage.Question, MessageBoxResult.Yes, MessageBoxResult.No, ("Get it", MessageBoxResult.Yes), ("Not now", MessageBoxResult.No)));
+            if (answer != MessageBoxResult.Yes) return false;
+            try { await Tools.InstallJsRuntimeAsync(status, ct); return true; }
+            catch (Exception ex) when (ex is not OperationCanceledException) { status("Couldn't get the JavaScript helper: " + ex.Message); return false; }
+        };
 
         int fanSuffix = Array.IndexOf(e.Args, "--fan-suffix");
         if (fanSuffix >= 0 && fanSuffix + 1 < e.Args.Length) FanJson.Suffix = new string(e.Args[fanSuffix + 1].Where(char.IsLetterOrDigit).ToArray());

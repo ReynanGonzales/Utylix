@@ -25,6 +25,15 @@ public static class Tools
     private const string FfmpegUrl = "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/" + FfmpegZipName;
     private const string FfmpegSums = "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/checksums.sha256";
 
+    // The JavaScript helper (Deno): YouTube hides some videos (age / sign-in restricted ones, and anything fetched with login cookies) behind a small
+    // puzzle in its player script that yt-dlp can only solve with a JavaScript engine. Official release; the zip holds the one file deno.exe.
+    private const string DenoZipName = "deno-x86_64-pc-windows-msvc.zip";
+    private const string DenoUrl = "https://github.com/denoland/deno/releases/latest/download/" + DenoZipName;
+    private const string DenoSums = DenoUrl + ".sha256sum";
+    public static string DenoDir => Path.Combine(Dir, "deno");
+    public static string Deno => Path.Combine(DenoDir, "deno.exe");
+    public static bool HasJsRuntime => File.Exists(Deno);
+
     public static string Dir { get; set; } = "";
     public static string YtDlp => Path.Combine(Dir, "yt-dlp.exe");
     public static string FfmpegDir => Path.Combine(Dir, "ffmpeg");
@@ -128,6 +137,33 @@ public static class Tools
             }
             if (!HasFfmpeg) throw new IOException("ffmpeg.exe was not found in the downloaded package.");
             status("ffmpeg installed.");
+        }
+        finally { TryDelete(tmp); }
+    }
+
+    /// <summary>Installs the JavaScript helper (about 43 MB, from the official Deno release, checked against the checksum published next to it).</summary>
+    public static async Task InstallJsRuntimeAsync(Action<string> status, CancellationToken ct)
+    {
+        Directory.CreateDirectory(Dir);
+        string tmp = Path.Combine(Dir, DenoZipName + ".download");
+        try
+        {
+            status("Getting the checksum…");
+            var m = System.Text.RegularExpressions.Regex.Match(await Http.GetStringAsync(DenoSums, ct), @"\b[0-9a-fA-F]{64}\b");
+            if (!m.Success) throw new InvalidDataException("No checksum for the JavaScript helper in the published list.");
+            await DownloadAsync(DenoUrl, tmp, "Downloading the JavaScript helper", status, ct);
+            status("Verifying…");
+            VerifySha256(tmp, m.Value.ToLowerInvariant());
+
+            status("Unpacking…");
+            Directory.CreateDirectory(DenoDir);
+            using (var zip = ZipFile.OpenRead(tmp))
+            {
+                var entry = zip.Entries.FirstOrDefault(e => string.Equals(Path.GetFileName(e.FullName), "deno.exe", StringComparison.OrdinalIgnoreCase));
+                if (entry == null) throw new IOException("deno.exe was not found in the downloaded package.");
+                entry.ExtractToFile(Deno, true);                                  // the file name only: never a path from the zip
+            }
+            status("JavaScript helper installed.");
         }
         finally { TryDelete(tmp); }
     }
