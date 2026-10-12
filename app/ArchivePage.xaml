@@ -40,6 +40,8 @@
                         <Button x:Name="ExtractSelBtn" Content="Extract selected" Style="{StaticResource DialogButton}" Margin="10,0,0,0" Click="ExtractSelected_Click" />
                         <Button x:Name="ExtractAllBtn" Content="Extract all" Style="{StaticResource DialogPrimary}" Margin="10,0,0,0" MinWidth="110" Click="ExtractAll_Click" />
                     </StackPanel>
+                    <CheckBox x:Name="CloseWhenDone" Content="Close when done" Margin="0,0,16,0" VerticalAlignment="Center" Visibility="Collapsed" IsChecked="True"
+                              ToolTip="Close this window once the archive has been created" AutomationProperties.AutomationId="CloseWhenDone" />
                     <Button x:Name="CreateBtn" Content="Create archive" Style="{StaticResource DialogPrimary}" MinWidth="130" Visibility="Collapsed" Click="Create_Click" />
                 </StackPanel>
                 <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">

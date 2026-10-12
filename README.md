@@ -461,6 +461,7 @@ appears, one per archive, and if Utylix wasn't running it quits again when you c
   locked with AES-256 encryption and open in 7-Zip, WinRAR, WinZip and Utylix. File names stay visible in a ZIP, a password
   can't be recovered, and a password-protected ZIP can't hold files over 4 GB. RAR is a closed format that only WinRAR can
   write, and 7z can be opened but not yet created.
+- **Close when done** – next to *Create archive* a tick box (on by default) closes the window a moment after the archive has been made, so *Add to archive…* from Explorer is one click and gone. Untick it to keep the window open; Utylix remembers.
 - **Right-click, like WinRAR** – one **Utylix Archive** submenu. On an archive: *Open with Utylix*, *Extract files…* (asks for a folder), *Extract here*, *Extract to folder*, and also *Add to archive…* / *Add to ZIP*. On any other file or folder: *Add to archive…* and *Add to ZIP* (several
   selected files become one ZIP named after their folder). Utylix is also listed under *Open with* for archives. Switch off
   in Settings (with the other Explorer options); nothing is changed for other users, and no admin rights are needed. The logo in the menu is read from Utylix.exe itself.

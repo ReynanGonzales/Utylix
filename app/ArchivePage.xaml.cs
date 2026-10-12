@@ -84,6 +84,14 @@ public partial class ArchivePage : UserControl
         InitializeComponent();
         CreateList.ItemsSource = _adds;
         InitPreview();
+        // "Close when done" is on unless the person switched it off (remembered by a marker file in the data folder, like the editor's small settings)
+        try { CloseWhenDone.IsChecked = !File.Exists(Path.Combine(App.DataDir, "archive-keep-open")); } catch (IOException) { }
+        RoutedEventHandler remember = (_, _) =>
+        {
+            string marker = Path.Combine(App.DataDir, "archive-keep-open");
+            try { if (CloseWhenDone.IsChecked == true) File.Delete(marker); else File.WriteAllText(marker, "1"); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        };
+        CloseWhenDone.Checked += remember; CloseWhenDone.Unchecked += remember;
 
         AddChip(ModeChips, "Extract", "mode", () => SetMode(Mode.Extract), true);
         AddChip(ModeChips, "Create", "mode", () => SetMode(Mode.Create));
@@ -114,6 +122,7 @@ public partial class ArchivePage : UserControl
         CreatePanel.Visibility = mode == Mode.Create ? Visibility.Visible : Visibility.Collapsed;
         ExtractActions.Visibility = mode == Mode.Extract ? Visibility.Visible : Visibility.Collapsed;
         CreateBtn.Visibility = mode == Mode.Create ? Visibility.Visible : Visibility.Collapsed;
+        CloseWhenDone.Visibility = CreateBtn.Visibility;
         ShowBtn.Visibility = Visibility.Collapsed;
         SetStatus("", false);
         UpdateState();
@@ -714,6 +723,7 @@ public partial class ArchivePage : UserControl
         SetBusy(true, indeterminate: true);
         ShowBtn.Visibility = Visibility.Collapsed;
         _cts = new CancellationTokenSource();
+        bool created = false;
         try
         {
             await ArchiveService.CreateAsync(_adds.Select(a => a.FullPath).ToList(), output, _format, _level, ProgressReporter("Adding"), _cts.Token, password);
@@ -723,9 +733,17 @@ public partial class ArchivePage : UserControl
             long size = new FileInfo(output).Length;
             long original = _adds.Sum(a => a.Bytes);
             SetStatus($"Created {Path.GetFileName(output)}{(password != null ? " (password protected)" : "")} ({Format.Bytes(size)}" + (original > 0 ? $", {100.0 * size / original:0}% of the original" : "") + ")", false);
+            created = true;
         }
         catch (OperationCanceledException) { SetStatus("Cancelled. Nothing was left behind.", false); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { SetStatus(ex.Message, true); }
         finally { SetBusy(false); _cts?.Dispose(); _cts = null; }
+
+        // "Close when done": a moment to read what was created, then the window goes (only after a success: a failure stays open to be read)
+        if (created && CloseWhenDone.IsChecked == true)
+        {
+            await Task.Delay(1100);
+            if (!_busy) Window.GetWindow(this)?.Close();
+        }
     }
 }
