@@ -13,7 +13,8 @@ fresh Windows install you just copy it back and run it. No admin rights needed.
   browser can still hand it downloads and the capture shortcuts keep working); *Exit* in the tray menu quits it.
   Light/dark theme follows Windows.
 - **Downloads** – up to 8 parallel connections per file (1–32 in Settings), pause/resume, survives restarts,
-  auto-retries; captures downloads from your browser; YouTube/Facebook and other video sites.
+  keeps retrying and continues from where it stopped when the connection lags or drops (it only gives up after
+  15 minutes with nothing arriving); captures downloads from your browser; YouTube/Facebook and other video sites.
 - **Multi Convert** – pictures (PNG, JPG, WebP, BMP, GIF, TIFF, ICO), videos (MP4, MKV, WebM, MOV, AVI, animated GIF)
   and music (MP3, M4A, WAV, FLAC, OGG); also from the Explorer right-click menu and while downloading a picture.
 - **Screen Capture** – like the Snipping Tool: rectangle, window or full screen, with a delay, pen/highlighter marks,

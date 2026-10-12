@@ -69,7 +69,11 @@ public sealed partial class Download
     private const long MinSegment = 1024 * 1024;
     private const long MinSteal = 2 * 1024 * 1024;
     private const int MaxRetries = 6;
-    private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(30);              // no data for this long on a connection: drop it and continue from where it stopped
+    private static readonly TimeSpan ReadTimeoutNoResume = TimeSpan.FromSeconds(90);      // (a server that can't continue would start again from 0: wait longer)
+    private static readonly TimeSpan GiveUpAfter = TimeSpan.FromMinutes(15);              // nothing at all arrived for this long: the download has really failed
+    private long _lastByteTick = Environment.TickCount64;                                 // when the last bytes arrived (any connection)
+    private volatile bool _gotBytes;                                                       // any byte at all since this run started
     private const long UnknownEnd = 1L << 62;
 
     private readonly Manager _mgr;
@@ -214,6 +218,8 @@ public sealed partial class Download
             _sessionSeconds = 0;
             _sessionBytes = 0;
             _sessionDone0 = _segments.Sum(s => s.Pos - s.Start);
+            Interlocked.Exchange(ref _lastByteTick, Environment.TickCount64);
+            _gotBytes = false;
             _task = Task.Run(() => RunAsync(cts));
         }
     }
@@ -259,7 +265,7 @@ public sealed partial class Download
         var ct = _cts.Token;
         _probeTask = Task.Run(async () =>
         {
-            try { await ProbeAsync(ct); }
+            try { await ProbeWithRetryAsync(ct, attempts: 3); }
             catch (Exception e) { ProbeError = Net.Describe(e); }
         });
     }
@@ -294,6 +300,20 @@ public sealed partial class Download
     private static void TryDelete(string path) { try { File.Delete(path); } catch (Exception) { } }
 
     // ---------- probing / preparing ----------
+    /// <summary>The first look at the file, tried again (with a growing pause) when the connection is merely slow or dropped; a real refusal (404, 403 ...) is not retried.</summary>
+    private async Task ProbeWithRetryAsync(CancellationToken ct, int attempts)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try { await ProbeAsync(ct); return; }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception e) when (attempt < attempts && !Net.IsFatal(e) && e is not HttpStatusException { Code: 401 or 403 or 407 or 429 or 451 })
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Min(2 * attempt, 12)), ct);
+            }
+        }
+    }
+
     private async Task ProbeAsync(CancellationToken ct, bool ranged = true)
     {
         var resp = await Net.SendAsync(Url, _headers, ranged ? "bytes=0-0" : null, ct);
@@ -433,10 +453,12 @@ public sealed partial class Download
                 int n;
                 using (var rc = CancellationTokenSource.CreateLinkedTokenSource(ct))
                 {
-                    rc.CancelAfter(ReadTimeout);
+                    rc.CancelAfter(ranged ? ReadTimeout : ReadTimeoutNoResume);
                     n = await stream.ReadAsync(buf.AsMemory(0, want), rc.Token);
                 }
                 if (n == 0) break;
+                Interlocked.Exchange(ref _lastByteTick, Environment.TickCount64);
+                _gotBytes = true;
                 lock (_lock)
                 {
                     int len = n;
@@ -499,12 +521,19 @@ public sealed partial class Download
         }
     }
 
+    /// <summary>
+    /// A lagging or dropping connection must not fail a download that keeps moving forward: the count of failures starts again whenever bytes arrived (from this
+    /// connection or any other), and the download is only given up when nothing at all has arrived for <see cref="GiveUpAfter"/> (an outage of a few
+    /// minutes is simply waited out). A refusal that retrying can't fix (404 ...) still fails at once.
+    /// </summary>
     private async Task WorkerAsync(Segment? seg, CancellationTokenSource cts)
     {
         var ct = cts.Token;
         int fails = 0;
         while (seg != null && !ct.IsCancellationRequested)
         {
+            long before;
+            lock (_lock) before = seg.Pos;
             try
             {
                 await FetchAsync(seg, ct);
@@ -513,15 +542,21 @@ public sealed partial class Download
             catch (Exception e)
             {
                 if (e is HttpStatusException { Code: 403 or 429 or 503 } && TryShed(seg)) return;
+                long after;
+                lock (_lock) after = seg.Pos;
+                if (after > before) fails = 0;                                  // it did move: this is not "failing", just a connection that dropped
                 fails++;
                 Interlocked.Increment(ref _retries);
-                if (Net.IsFatal(e) || fails > MaxRetries)
+                long quiet = Environment.TickCount64 - Interlocked.Read(ref _lastByteTick);
+                // a download that has been moving waits out a long hiccup; one that never got a single byte this time is a dead address and fails sooner
+                bool stalled = quiet > (_gotBytes ? GiveUpAfter.TotalMilliseconds : 3 * 60_000);
+                if (Net.IsFatal(e) || stalled)
                 {
                     _failed = Net.Describe(e);
                     cts.Cancel();
                     return;
                 }
-                try { await Task.Delay(TimeSpan.FromSeconds(Math.Min(1 << fails, 15)), ct); }
+                try { await Task.Delay(TimeSpan.FromSeconds(Math.Min(1 << Math.Min(fails, 5), 30)), ct); }
                 catch (OperationCanceledException) { return; }
                 continue;
             }
@@ -541,7 +576,7 @@ public sealed partial class Download
         {
             if (_size == null)
             {
-                await ProbeAsync(cts.Token);
+                await ProbeWithRetryAsync(cts.Token, attempts: 8);              // (a laggy connection often needs more than one look at the file)
                 _mgr.Save();
             }
             if (_size == 0)

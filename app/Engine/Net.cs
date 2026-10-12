@@ -28,7 +28,7 @@ public static class Net
         AllowAutoRedirect = false,               // redirects are followed by hand (see SendAsync)
         AutomaticDecompression = DecompressionMethods.None,
         UseCookies = false,
-        ConnectTimeout = TimeSpan.FromSeconds(15),
+        ConnectTimeout = TimeSpan.FromSeconds(30),            // (a laggy line needs longer than 15 s to connect)
         MaxConnectionsPerServer = 64,
     })
     { Timeout = Timeout.InfiniteTimeSpan };
@@ -63,7 +63,7 @@ public static class Net
             foreach (var kv in h) req.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            timeout.CancelAfter(TimeSpan.FromSeconds(60));       // waiting for the answer's headers
             var resp = await Client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, timeout.Token)
                 .ConfigureAwait(false);
 
