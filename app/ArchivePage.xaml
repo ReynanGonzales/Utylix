@@ -89,9 +89,9 @@
                     <DockPanel>
                         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                             <Button x:Name="UpBtn" DockPanel.Dock="Left" Content="↑  Up" Style="{StaticResource DialogButton}" Click="Up_Click" IsEnabled="False" />
+                            <Button x:Name="SelectAllBtn" DockPanel.Dock="Left" Margin="8,0,0,0" Content="☑  Select all" Style="{StaticResource DialogButton}" Click="SelectAll_Click" IsEnabled="False" ToolTip="Select everything in this folder (Ctrl+A)" AutomationProperties.AutomationId="SelectAll" />
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Name="DragHint" Text="Drag a box around files to select them, then drag them into a folder to extract them there" FontSize="12" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,12,0" />
-                                <Button x:Name="SelectAllBtn" Content="☑  Select all" Style="{StaticResource DialogButton}" Click="SelectAll_Click" IsEnabled="False" ToolTip="Select everything in this folder (Ctrl+A)" AutomationProperties.AutomationId="SelectAll" />
+                                <TextBlock x:Name="DragHint" Text="Drag a box around files to select them, then drag them into a folder to extract them there" FontSize="12" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
                                 <Image x:Name="PathIcon" Source="{StaticResource FolderIcon}" Width="18" Height="18" Margin="0,0,8,0" Visibility="Collapsed" />

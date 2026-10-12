@@ -124,7 +124,7 @@ public sealed class ApiServer
                     tools = new { ytdlp = Tools.HasYtDlp, ffmpeg = Tools.HasFfmpeg },   // is video-site support installed?
                 }, null);
             else if (method == "GET" && path == "/api/downloads")
-                Send(ctx, 200, new { downloads = _manager.All().Select(d => ToApi(d.Info(), d.ProbeError, d.ProbeDone)).ToList() }, null);
+                Send(ctx, 200, new { downloads = _manager.All().Select(d => ToApi(d.Info(), d.ProbeError, d.ProbeDone, d.HandBackRequested)).ToList() }, null);
             else if (method == "POST" && path == "/api/show")
             {
                 string? which = null;                               // {"window": "downloads"} or "hub" (default)
@@ -399,7 +399,7 @@ public sealed class ApiServer
             ? p.GetString() : null;
         var d = id == null ? null : _manager.Get(id);
         // an error before anything arrived, or a download still waiting in the "New download" window whose first look at the file was refused (then that window goes too)
-        bool ok = d != null && d.Info().Downloaded == 0 && (d.Status == DlStatus.Error || (d.Status == DlStatus.Awaiting && d.ProbeError != null));
+        bool ok = d != null && d.Info().Downloaded == 0 && (d.Status == DlStatus.Error || (d.Status == DlStatus.Awaiting && (d.ProbeError != null || d.HandBackRequested)));
         if (ok)
         {
             _manager.Remove(id!, false);
@@ -415,9 +415,9 @@ public sealed class ApiServer
         TorrentSource.IsMagnet(url) || url.Length <= 8192 && Uri.TryCreate(url, UriKind.Absolute, out var u) &&
         (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
 
-    private static object ToApi(DownloadInfo i, string? probeError = null, bool probeDone = true) => new
+    private static object ToApi(DownloadInfo i, string? probeError = null, bool probeDone = true, bool handBack = false) => new
     {
-        probeError, probeDone,
+        probeError, probeDone, handBack,
         id = i.Id, url = i.Url, filename = i.FileName, size = i.Size, downloaded = i.Downloaded,
         status = i.Status.ToString().ToLowerInvariant(), error = i.Error, speed = i.Speed, eta = i.Eta,
         resumable = i.Resumable, connections = i.Connections,

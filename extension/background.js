@@ -248,12 +248,19 @@ async function rememberHandedBack(...urls) {
 }
 
 async function watchHandoff(id, url) {
-  for (let i = 0, tries = 0; i < 120 && tries < 10; i++) {
+  for (let i = 0, tries = 0; i < 1200 && tries < 10; i++) {            // (up to 30 minutes while the New-download window stays open)
     await new Promise(r => setTimeout(r, 1500));
     try {
       const { downloads } = await (await fetch(SERVER + '/api/downloads')).json();
       const d = downloads.find(x => x.id === id);
       if (!d || d.downloaded > 0 || d.status === 'completed') return;   // cancelled by user, or working
+      if (d.handBack) {                                                  // "Use the browser" in the New-download window
+        await fetch(SERVER + '/api/discard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+        await rememberHandedBack(url, d.url);
+        await note({ url }, 'capture', 'you chose the browser -> the browser downloads it');
+        chrome.downloads.download({ url });
+        return;
+      }
       if (d.status === 'awaiting') {
         // the site turns Utylix away at the first look (login / cookies / anti-bot, HTTP 401 / 403 ...): don't make the person press Start just to see it fail, the browser takes it back at once
         if (d.probeError && /\bHTTP (401|403|407|429|451)\b/.test(d.probeError)) {

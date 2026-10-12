@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -71,6 +73,7 @@ public partial class CaptureWindow : Window
         ApplyCategory(Categories.Of(NameBox.Text), fromUser: false);
         SetDir(download.Dir);
 
+        if (download.IsMedia || download.IsTorrent) BrowserBtn.Visibility = Visibility.Collapsed;      // (a video-site page or a torrent is not a file the browser could fetch)
         _timer.Tick += (_, _) => CheckProbe();
         _timer.Start();
         SourceInitialized += (_, _) =>
@@ -343,6 +346,26 @@ public partial class CaptureWindow : Window
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
+
+    /// <summary>
+    /// "Use the browser": the extension (which is watching this entry) cancels it and starts the browser's own download of the same address. If nothing
+    /// takes the entry within a few seconds (no extension, as when a link was pasted in Utylix), the address is opened in the default browser instead.
+    /// </summary>
+    private void Browser_Click(object sender, RoutedEventArgs e)
+    {
+        string id = _download.Id, url = _download.Url;
+        var manager = _manager;
+        _download.HandBackRequested = true;
+        _finished = true;                                  // (the entry stays until the extension takes it, see OnClosed)
+        Close();
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(9000);
+            if (manager.Get(id) == null) return;           // the extension took it: the browser is downloading
+            manager.Remove(id, false);
+            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception) { /* no default browser */ }
+        });
+    }
 
     public string DownloadId => _download.Id;
 

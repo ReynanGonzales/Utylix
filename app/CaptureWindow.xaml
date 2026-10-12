@@ -75,12 +75,16 @@
         <TextBlock x:Name="ErrorText" Foreground="{DynamicResource ErrBrush}" TextWrapping="Wrap" Margin="2,10,0,0"
                    Visibility="Collapsed" />
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button Content="Cancel" Style="{StaticResource DialogButton}" IsCancel="True" Margin="0,0,10,0" Click="Cancel_Click" />
-            <Button x:Name="LaterBtn" Content="Download later" Style="{StaticResource DialogButton}" Margin="0,0,10,0"
-                    IsEnabled="False" Click="Later_Click" />
-            <Button x:Name="StartBtn" Content="Start download" Style="{StaticResource DialogPrimary}"
-                    IsDefault="True" IsEnabled="False" Click="Start_Click" />
-        </StackPanel>
+        <DockPanel Margin="0,14,0,0" LastChildFill="False">
+            <Button x:Name="BrowserBtn" DockPanel.Dock="Left" Content="Use the browser" Style="{StaticResource DialogButton}" Click="Browser_Click"
+                    ToolTip="Let the browser download this file itself, instead of Utylix" AutomationProperties.AutomationId="CaptureBrowser" />
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="Cancel" Style="{StaticResource DialogButton}" IsCancel="True" Margin="0,0,10,0" Click="Cancel_Click" />
+                <Button x:Name="LaterBtn" Content="Download later" Style="{StaticResource DialogButton}" Margin="0,0,10,0"
+                        IsEnabled="False" Click="Later_Click" />
+                <Button x:Name="StartBtn" Content="Start download" Style="{StaticResource DialogPrimary}"
+                        IsDefault="True" IsEnabled="False" Click="Start_Click" />
+            </StackPanel>
+        </DockPanel>
     </StackPanel>
 </Window>

@@ -266,6 +266,9 @@ public sealed partial class Download
 
     public bool ProbeDone => _probeTask?.IsCompleted ?? true;
     public string? ProbeError { get; private set; }
+
+    /// <summary>The person pressed "Use the browser" in the New-download window: the extension takes the entry away and lets the browser download the file itself.</summary>
+    public volatile bool HandBackRequested;
     public bool Probed { get { lock (_lock) return _size != null; } }
 
     /// <summary>Apply the name/folder the user picked. Nothing has been written to disk yet.</summary>

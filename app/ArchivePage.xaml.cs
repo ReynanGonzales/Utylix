@@ -83,6 +83,7 @@ public partial class ArchivePage : UserControl
     {
         InitializeComponent();
         CreateList.ItemsSource = _adds;
+        InitPreview();
 
         AddChip(ModeChips, "Extract", "mode", () => SetMode(Mode.Extract), true);
         AddChip(ModeChips, "Create", "mode", () => SetMode(Mode.Create));
@@ -304,6 +305,7 @@ public partial class ArchivePage : UserControl
     private void ShowFolder(string path)
     {
         _folder = path;
+        HidePreview();
         var items = (_children.TryGetValue(path, out var list) ? list : new())
             .OrderByDescending(i => i.IsFolder).ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
         EntryList.ItemsSource = items;
