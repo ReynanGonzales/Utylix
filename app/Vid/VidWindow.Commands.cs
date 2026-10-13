@@ -50,6 +50,23 @@ public sealed partial class VidWindow
         _s.SetTransition(chosen, TransitionKind.Dissolve, 1.0);
     }
 
+    /// <summary>An effect or a transition dragged from the Effects panel landed on a clip.</summary>
+    private void OnEffectDropped(string payload, Clip clip, bool onRightHalf)
+    {
+        if (payload.StartsWith("fx:", StringComparison.Ordinal))
+        {
+            int n = _s.AddEffect(new[] { clip }, payload.Substring(3));
+            if (n == 0) SetStatus("That effect does not fit this clip (picture effects go on pictures, sound effects on sound).");
+            else _s.Select(_s.WithLinked(new[] { clip }));
+        }
+        else if (payload.StartsWith("tr:", StringComparison.Ordinal) && Enum.TryParse<TransitionKind>(payload.Substring(3), out var kind))
+        {
+            if (_s.Project.TrackOf(clip)?.Kind != TrackKind.Video) { SetStatus("Transitions go on picture clips."); return; }
+            _s.SetTransition(new[] { clip }, kind, 1.0);
+            _s.Select(_s.WithLinked(new[] { clip }));
+        }
+    }
+
     // ---------- In / Out ----------
     private void MarkIn()
     {

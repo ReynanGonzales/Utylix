@@ -406,6 +406,19 @@ public sealed partial class VidSession
         });
     }
 
+    /// <summary>Moves a transition (kind and length) from one clip to another (dragged from one cut to another on the timeline).</summary>
+    public void MoveTransition(Clip from, Clip to)
+    {
+        if (from == to || from.Transition == TransitionKind.None) return;
+        Do("Move the transition", () =>
+        {
+            var kind = from.Transition; double len = from.TransitionLength;
+            from.Transition = TransitionKind.None;
+            to.Transition = kind;
+            to.TransitionLength = Math.Clamp(len, 0.1, Math.Max(0.1, to.Length));
+        });
+    }
+
     // ---------- keyframes ----------
     public const double KeyEps = 0.017;
 

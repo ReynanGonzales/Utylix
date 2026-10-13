@@ -282,7 +282,7 @@ public sealed partial class VidWindow
             t.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             _effectsList.Children.Add(t);
         }
-        UIElement Row(string title, string glyph, Action apply, string id)
+        UIElement Row(string title, string glyph, Action apply, string id, string? drag = null)
         {
             var d = new DockPanel();
             d.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 13, Width = 24, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 });
@@ -291,7 +291,20 @@ public sealed partial class VidWindow
             System.Windows.Automation.AutomationProperties.SetAutomationId(b, id);
             b.MouseEnter += (_, _) => b.SetResourceReference(Border.BackgroundProperty, "TrackBrush");
             b.MouseLeave += (_, _) => b.Background = Brushes.Transparent;
-            b.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) apply(); };
+            Point down = default; bool pressed = false;
+            b.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { apply(); return; } down = e.GetPosition(b); pressed = true; };
+            b.MouseLeftButtonUp += (_, _) => pressed = false;
+            b.MouseMove += (_, e) =>
+            {
+                if (!pressed || drag == null || e.LeftButton != MouseButtonState.Pressed) { pressed = false; return; }
+                var pos = e.GetPosition(b);
+                if (Math.Abs(pos.X - down.X) + Math.Abs(pos.Y - down.Y) < 8) return;
+                pressed = false;
+                var data = new DataObject();
+                data.SetData("UtylixVidEffect", drag);
+                DragDrop.DoDragDrop(b, data, DragDropEffects.Copy);
+            };
+            if (drag != null) b.ToolTip = "Drag onto a clip on the timeline, or double-click to apply to the chosen clip";
             return b;
         }
         string? last = null;
@@ -299,7 +312,7 @@ public sealed partial class VidWindow
         {
             if (info.Group != last) { Group(info.Group); last = info.Group; }
             string type = info.Type;
-            _effectsList.Children.Add(Row(info.Name, info.Audio ? "" : "", () => ApplyEffect(type), "VidFx_" + type));
+            _effectsList.Children.Add(Row(info.Name, info.Audio ? "" : "", () => ApplyEffect(type), "VidFx_" + type, "fx:" + type));
         }
         if (Match("Remove the background AI cut out person"))
         {
@@ -318,7 +331,7 @@ public sealed partial class VidWindow
                     var targets = _s.SelectedClips.Where(c => _s.Project.TrackOf(c)?.Kind == TrackKind.Video).ToList();
                     if (targets.Count == 0) { SetStatus("Choose a picture clip first: the transition goes at its start."); return; }
                     _s.SetTransition(targets, k, 1.0);
-                }, "VidTr_" + k));
+                }, "VidTr_" + k, "tr:" + k));
             }
         }
         if (_effectsList.Children.Count == 0)

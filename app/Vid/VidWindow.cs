@@ -90,6 +90,8 @@ public sealed partial class VidWindow : Window
         _timeline.RulerContextRequested += ShowRulerMenu;
         _timeline.TrackMenuRequested += ShowTrackMenu;
         _timeline.MarkerActivated += RenameMarkerPrompt;
+        _timeline.EffectDropped += OnEffectDropped;
+        _timeline.TransitionMoved += (from, to) => _s.MoveTransition(from, to);
 
         _picture.MouseLeftButtonDown += (_, ev) => PickFromPicture(ev);
         AllowDrop = true;

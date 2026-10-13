@@ -28,7 +28,7 @@ public sealed class VidTimeline : FrameworkElement
     private double _pps = 70;               // pixels per second
     private double _offset;                 // seconds at the left edge of the clip area
 
-    private enum Drag { None, Playhead, Move, TrimStart, TrimEnd, Pan, Marquee, RippleStart, RippleEnd, Roll, SlipClip, TransLen }
+    private enum Drag { None, Playhead, Move, TrimStart, TrimEnd, Pan, Marquee, RippleStart, RippleEnd, Roll, SlipClip, TransLen, TransMove }
     private Drag _drag;
     private Point _downPoint;
     private double _downTime;
@@ -45,6 +45,9 @@ public sealed class VidTimeline : FrameworkElement
     private double _ghostTime = -1;
     private Clip? _rollLeft;
     private double _slipDelta;
+    private Clip? _dropClip;                 // a clip an effect is being dragged over
+    private double _dropTransAt = -1;        // where a dragged transition would start
+    private Clip? _transMoveFrom;            // the clip whose transition is being dragged to another cut
     private HashSet<string> _marqueeBase = new();
 
     public VidTool Tool { get; set; } = VidTool.Select;
@@ -87,6 +90,10 @@ public sealed class VidTimeline : FrameworkElement
     public event Action<string[], double>? FilesDropped;
     public event Action<Clip>? ClipActivated;
     public event Action? Interacted;
+    /// <summary>An effect or transition from the Effects panel was dropped on a clip: (payload "fx:type" / "tr:Kind", the clip the drop landed on, true when it landed on its right half).</summary>
+    public event Action<string, Clip, bool>? EffectDropped;
+    /// <summary>A transition was dragged from one cut to another: (the clip it was on, the clip that should get it).</summary>
+    public event Action<Clip, Clip>? TransitionMoved;
     /// <summary>Right-click on the ruler: where (time).</summary>
     public event Action<double>? RulerContextRequested;
     /// <summary>Right-click on a track's header.</summary>
@@ -231,6 +238,30 @@ public sealed class VidTimeline : FrameworkElement
         {
             double top = RowTop(rows, _dropRow), h = RowHeight(rows[_dropRow]);
             dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(60, accent.R, accent.G, accent.B)), new Pen(new SolidColorBrush(accent), 1.5), new Rect(TimeToX(_dropTime), top, 90, h));
+        }
+
+        // an effect or transition is being dragged over a clip
+        if (_dropClip != null)
+        {
+            int dr = rows.FindIndex(t => t.Clips.Contains(_dropClip));
+            if (dr >= 0)
+            {
+                double top = RowTop(rows, dr), h = RowHeight(rows[dr]);
+                double x0 = TimeToX(_dropClip.Start), x1 = TimeToX(_dropClip.End);
+                var pen = new Pen(new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15)), 2);
+                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(40, 250, 204, 21)), pen, new Rect(x0, top, Math.Max(2, x1 - x0), h));
+            }
+        }
+        if (_dropTransAt >= 0)
+        {
+            var target = _session.Project.AllClips.FirstOrDefault(c => Math.Abs(c.Start - _dropTransAt) < 0.01);
+            int tr = target != null ? rows.FindIndex(t => t.Clips.Contains(target)) : -1;
+            if (tr >= 0)
+            {
+                double top = RowTop(rows, tr), h = RowHeight(rows[tr]);
+                double x0 = TimeToX(_dropTransAt);
+                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, 250, 204, 21)), null, new Rect(x0, top + 2, Math.Max(10, 1.0 * _pps), h - 4));
+            }
         }
 
         // ripple / rolling / slip feedback: the edge as it would be
@@ -513,6 +544,21 @@ public sealed class VidTimeline : FrameworkElement
         {
             var edgeOwner = rows[row].Clips.FirstOrDefault(c => c.Transition != TransitionKind.None && TimeToX(c.End) - TimeToX(c.Start) > 16 &&
                 Math.Abs(TimeToX(c.Start + Math.Min(c.TransitionLength, c.Length)) - p.X) <= 5);
+            var bodyOwner = edgeOwner == null
+                ? rows[row].Clips.FirstOrDefault(c => c.Transition != TransitionKind.None && p.X >= TimeToX(c.Start) && p.X <= TimeToX(c.Start + Math.Min(c.TransitionLength, c.Length)) - 6
+                    && p.Y > RowTop(rows, row) + 17 && TimeToX(c.End) - TimeToX(c.Start) > 16)
+                : null;
+            if (bodyOwner != null)
+            {
+                _transMoveFrom = bodyOwner;
+                _dragClip = bodyOwner;
+                _dropTransAt = -1;
+                _drag = Drag.TransMove;
+                _session.Select(_session.WithLinked(new[] { bodyOwner }));
+                CaptureMouse();
+                e.Handled = true;
+                return;
+            }
             if (edgeOwner != null)
             {
                 _dragClip = edgeOwner;
@@ -667,6 +713,25 @@ public sealed class VidTimeline : FrameworkElement
             case Drag.RippleEnd:
                 if (_dragClip != null) { _ghostTime = Snap(t, _dragClips); InvalidateVisual(); }
                 break;
+            case Drag.TransMove:
+            {
+                _dropTransAt = -1;
+                var tracksHere = rows;
+                int rr = RowAt(p.Y, rows);
+                if (rr >= 0 && _transMoveFrom != null)
+                {
+                    var hit = tracksHere[rr].Clips.FirstOrDefault(c => c != _transMoveFrom && XToTime(p.X) >= c.Start && XToTime(p.X) < c.End);
+                    if (hit != null)
+                    {
+                        // the nearest start of a clip: the clip itself, or the one that follows it when the pointer is in its right half
+                        bool rightHalf = XToTime(p.X) > (hit.Start + hit.End) / 2;
+                        var follow = rightHalf ? tracksHere[rr].Clips.FirstOrDefault(c => Math.Abs(c.Start - hit.End) < 0.002) : null;
+                        _dropTransAt = (follow ?? hit).Start;
+                    }
+                }
+                InvalidateVisual();
+                break;
+            }
             case Drag.TransLen:
                 if (_dragClip != null)
                 {
@@ -779,6 +844,16 @@ public sealed class VidTimeline : FrameworkElement
                 _moved = false;
                 InvalidateVisual();
                 break;
+            case Drag.TransMove:
+                if (_transMoveFrom != null && _dropTransAt >= 0)
+                {
+                    var target = _session.Project.AllClips.FirstOrDefault(c => c != _transMoveFrom && Math.Abs(c.Start - _dropTransAt) < 0.01);
+                    if (target != null) TransitionMoved?.Invoke(_transMoveFrom, target);
+                }
+                _transMoveFrom = null;
+                _dropTransAt = -1;
+                InvalidateVisual();
+                break;
             case Drag.TransLen:
                 if (_dragClip != null && _ghostTime >= 0) _session.SetTransition(new[] { _dragClip }, _dragClip.Transition, _ghostTime - _dragClip.Start);
                 _ghostTime = -1;
@@ -844,6 +919,25 @@ public sealed class VidTimeline : FrameworkElement
     {
         var p = e.GetPosition(this);
         var rows = Rows();
+        if (e.Data.GetDataPresent("UtylixVidEffect") && e.Data.GetData("UtylixVidEffect") is string payload)
+        {
+            e.Effects = DragDropEffects.Copy;
+            var (hover, _, hr) = HitTest(p, rows);
+            _dropClip = null; _dropTransAt = -1;
+            if (hover != null && hr >= 0)
+            {
+                if (payload.StartsWith("tr:", StringComparison.Ordinal))
+                {
+                    bool right = XToTime(p.X) > (hover.Start + hover.End) / 2;
+                    var follow = right ? rows[hr].Clips.FirstOrDefault(c => Math.Abs(c.Start - hover.End) < 0.002) : null;
+                    _dropTransAt = (follow ?? hover).Start;
+                }
+                else _dropClip = hover;
+            }
+            InvalidateVisual();
+            e.Handled = true;
+            return;
+        }
         bool ok = e.Data.GetDataPresent("UtylixVidMedia") || e.Data.GetDataPresent(DataFormats.FileDrop);
         e.Effects = ok ? DragDropEffects.Copy : DragDropEffects.None;
         if (ok)
@@ -855,12 +949,26 @@ public sealed class VidTimeline : FrameworkElement
         e.Handled = true;
     }
 
-    protected override void OnDragLeave(DragEventArgs e) { _dropTime = -1; _dropRow = -1; InvalidateVisual(); }
+    protected override void OnDragLeave(DragEventArgs e) { _dropTime = -1; _dropRow = -1; _dropClip = null; _dropTransAt = -1; InvalidateVisual(); }
 
     protected override void OnDrop(DragEventArgs e)
     {
         var p = e.GetPosition(this);
         var rows = Rows();
+        if (e.Data.GetDataPresent("UtylixVidEffect") && e.Data.GetData("UtylixVidEffect") is string fx)
+        {
+            var (target, _, tr) = HitTest(p, rows);
+            _dropClip = null; _dropTransAt = -1;
+            InvalidateVisual();
+            if (target != null && tr >= 0)
+            {
+                bool right = XToTime(p.X) > (target.Start + target.End) / 2;
+                var follow = right && fx.StartsWith("tr:", StringComparison.Ordinal) ? rows[tr].Clips.FirstOrDefault(c => Math.Abs(c.Start - target.End) < 0.002) : null;
+                EffectDropped?.Invoke(fx, follow ?? target, right);
+            }
+            e.Handled = true;
+            return;
+        }
         double t = Math.Max(0, Snap(XToTime(p.X), new List<Clip>()));
         int row = RowAt(p.Y, rows);
         _dropTime = -1; _dropRow = -1;
