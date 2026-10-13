@@ -52,6 +52,7 @@ public partial class SettingsWindow : Window
         BgMenuBox.IsChecked = c.ExplorerBgMenu;
         PlayMenuBox.IsChecked = c.ExplorerPlayMenu;
         PdfMenuBox.IsChecked = c.ExplorerPdfMenu;
+        MemoryMenuBox.IsChecked = c.ExplorerMemoryMenu;
         RefreshPlayerEngine();
         RefreshBgModel();
         ShotWinSBox.IsChecked = c.ShotWinS;
@@ -407,6 +408,7 @@ public partial class SettingsWindow : Window
         ShellMenu.RegisterBackground(App.DataDir, applied.ExplorerBgMenu);
         ShellMenu.RegisterPlayer(App.DataDir, applied.ExplorerPlayMenu);
         ShellMenu.RegisterPdfTools(App.DataDir, applied.ExplorerPdfMenu);
+        ShellMenu.RegisterMemory(App.DataDir, applied.ExplorerMemoryMenu);
         ShellMenu.RegisterTorrent(applied.TorrentHandler);
     }
 
@@ -555,6 +557,7 @@ public partial class SettingsWindow : Window
                 ExplorerBgMenu = BgMenuBox.IsChecked == true,
                 ExplorerPlayMenu = PlayMenuBox.IsChecked == true,
                 ExplorerPdfMenu = PdfMenuBox.IsChecked == true,
+                ExplorerMemoryMenu = MemoryMenuBox.IsChecked == true,
                 ShotWinS = ShotWinSBox.IsChecked == true,
                 OpenWinF = WinFBox.IsChecked == true,
                 ShotCtrlAltS = ShotCtrlAltBox.IsChecked == true,

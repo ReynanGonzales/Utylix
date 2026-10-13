@@ -73,6 +73,8 @@ public sealed class Config
     /// <summary>"Play with Utylix" in Explorer's right-click menu for video and music files.</summary>
     [JsonPropertyName("explorer_play_menu")] public bool ExplorerPlayMenu { get; set; } = true;
     [JsonPropertyName("explorer_pdf_menu")] public bool ExplorerPdfMenu { get; set; } = true;
+    /// <summary>Desktop right-click &gt; "Free up memory".</summary>
+    [JsonPropertyName("explorer_memory_menu")] public bool ExplorerMemoryMenu { get; set; } = true;
 
     // ---- archives ----
     /// <summary>Extract / Add to ZIP entries in Explorer's right-click menu, and Utylix in "Open with" for archives.</summary>
@@ -283,6 +285,7 @@ public sealed class Manager
                 ExplorerBgMenu = c.ExplorerBgMenu,
                 ExplorerPlayMenu = c.ExplorerPlayMenu,
                 ExplorerPdfMenu = c.ExplorerPdfMenu,
+                ExplorerMemoryMenu = c.ExplorerMemoryMenu,
                 AfterDownload = Config.AfterDownload,          // not a Settings field: keep what we have
                 Theme = c.Theme is "dark" or "light" ? c.Theme : "system",
                 Accent = string.IsNullOrWhiteSpace(c.Accent) ? "blue" : c.Accent,

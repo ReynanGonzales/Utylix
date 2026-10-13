@@ -99,6 +99,28 @@ public static class ShellMenu
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
     }
 
+    // ---------- free up memory ----------
+    private const string MemoryVerb = "Utylix.FreeMemory";
+
+    /// <summary>Right-click on the desktop &gt; "Free up memory" (runs "Utylix.exe --free-memory": see MemoryToast).</summary>
+    public static void RegisterMemory(string dataDir, bool enabled)
+    {
+        try
+        {
+            string exe = Environment.ProcessPath!;
+            string key = $@"Software\Classes\DesktopBackground\Shell\{MemoryVerb}";
+            Registry.CurrentUser.DeleteSubKeyTree(key, throwOnMissingSubKey: false);
+            if (!enabled) return;
+            using var verb = Registry.CurrentUser.CreateSubKey(key);
+            verb.SetValue("MUIVerb", "Free up memory");
+            verb.SetValue("Icon", IconOf(exe));
+            verb.SetValue("Position", "Bottom");
+            using var command = verb.CreateSubKey("command");
+            command.SetValue("", $"\"{exe}\" --free-memory");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
+    }
+
     // ---------- video player ----------
     private const string PlayVerb = "Utylix.Play", PlayProgId = "Utylix.MediaFile", MusicProgId = "Utylix.MusicFile";
 

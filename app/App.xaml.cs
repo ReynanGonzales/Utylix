@@ -101,6 +101,9 @@ public partial class App : Application
             return;
         }
 
+        // the desktop right-click "Free up memory": trim what the programs are not using, show a small notice, end (the tray copy is not involved)
+        if (e.Args.Contains("--free-memory") || e.Args.Contains("--free-memory-deep")) { ApplyTheme(); MemoryToast.Run(e.Args.Contains("--free-memory-deep")); return; }
+
         // the installed copy removes itself; a setup copy (Utylix-Setup.exe, --setup, first run on a PC) offers to install
         if (e.Args.Contains("--uninstall")) { ApplyTheme(); Installer.Uninstall(); Shutdown(); return; }
         if (Installer.WantsSetup(e.Args))
@@ -206,6 +209,7 @@ public partial class App : Application
             ShellMenu.RegisterViewer(dataDir);                                         // "Open with" Utylix on pictures
             ShellMenu.RegisterPdf(dataDir);                                            // "Open with" Utylix PDF on .pdf files
             ShellMenu.RegisterPdfTools(dataDir, _manager.Config.ExplorerPdfMenu);       // right-click -> Reduce file size, Combine into one PDF, Convert to PDF
+            ShellMenu.RegisterMemory(dataDir, _manager.Config.ExplorerMemoryMenu);      // desktop right-click -> Free up memory
             Installer.RefreshAppsEntry();                                              // the version shown in Settings > Apps
             ShellMenu.HidePlainExeFromOpenWith();                                      // (only the named entries: Utylix Editor, Utylix Photos, ...)
             ShellMenu.RegisterTorrent(_manager.Config.TorrentHandler);                 // magnet links and .torrent files can be opened with Utylix

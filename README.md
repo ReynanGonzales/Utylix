@@ -386,6 +386,12 @@ a menu bar, **Source** and **Effect Controls** on the top left, the **Program** 
   The preview and the export come from the same graph, so what you see is what you get.
 - It needs ffmpeg (the same one Utylix uses); if it is not there yet the editor offers to get it.
 
+## Free up memory (desktop right-click)
+
+Right-click the desktop and choose **Free up memory** (on Windows 11: Show more options first; it can be switched off in Settings). Utylix asks every running program it can reach to give back
+the memory it is not using right now (nothing is closed, nothing is lost, the pages come back by themselves when a program needs them), and a small notice in the corner shows how much came free.
+The program you are looking at and Explorer are left alone so they stay snappy. The notice also offers to clear Windows' cached (standby) memory, which needs administrator permission.
+
 ## Music player
 
 - **Six looks** (press **L**, or the ⋮ button > Look): *Classic* (big cover, playlist beside it), *Wide card* (one slim card with the playlist dropping under it), *Dark card*, *Frosted card*,

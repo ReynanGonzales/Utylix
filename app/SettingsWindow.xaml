@@ -129,6 +129,9 @@
                         <CheckBox x:Name="ExplorerMenuBox" Content="Show &quot;Convert&quot; when I right-click a picture, video or music file in Windows Explorer" />
                         <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                    Text="Right-click a PNG, MP4, MP3… → Convert → pick a format. Only added for your Windows account; turning it off removes it again." />
+                        <CheckBox x:Name="MemoryMenuBox" Margin="0,14,0,0" Content="Show &quot;Free up memory&quot; when I right-click the desktop" />
+                        <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Text="Asks the running programs to give back the memory they are not using right now (nothing is closed). A small notice shows how much came free. On Windows 11 it is under &quot;Show more options&quot;." />
                         <CheckBox x:Name="PdfMenuBox" Margin="0,14,0,0" Content="Show the PDF tools when I right-click PDFs and pictures in Windows Explorer" />
                         <TextBlock Margin="24,3,0,0" FontSize="12.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                    Text="Right-click PDFs → Utylix Editor → Reduce file size or Combine into one PDF. Right-click pictures → Convert → Convert to PDF (several selected pictures become one PDF)." />
