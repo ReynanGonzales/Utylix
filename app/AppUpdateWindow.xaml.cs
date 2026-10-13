@@ -75,15 +75,39 @@ public partial class AppUpdateWindow : Window
         if (AppUpdater.IsNewer(release))
         {
             HeadText.Text = "Utylix " + release.Version.ToString(3) + " is available";
-            if (!string.IsNullOrWhiteSpace(release.Notes)) { NotesBox.Text = release.Notes.Trim(); NotesBox.Visibility = Visibility.Visible; }
+            if (!string.IsNullOrWhiteSpace(release.Notes)) { NotesBox.Text = PlainNotes(release.Notes); NotesBox.Visibility = Visibility.Visible; }
             UpdateBtn.Visibility = Visibility.Visible;
-            SetStatus("Updating downloads the new Utylix.exe, checks it against its published checksum, then restarts Utylix. Downloads in progress are paused (Resume all continues them).");
+            SetStatus("Updating downloads the new " + release.AssetName + ", checks it against its published checksum, then restarts Utylix. Downloads in progress are paused (Resume all continues them).");
         }
         else
         {
             HeadText.Text = "Utylix is up to date";
             SetStatus("");
         }
+    }
+
+    /// <summary>Release notes are written in Markdown on GitHub; a plain text box shows them as readable text (no # ** ` marks, bullets as dots).</summary>
+    private static string PlainNotes(string notes)
+    {
+        var lines = new System.Collections.Generic.List<string>();
+        foreach (string raw in notes.Replace("\r\n", "\n").Split('\n'))
+        {
+            string line = raw.TrimEnd();
+            string t = line.TrimStart();
+            if (t.StartsWith("#"))
+            {
+                string head = t.TrimStart('#').Trim();
+                if (lines.Count > 0 && lines[^1].Length > 0) lines.Add("");
+                lines.Add(head.ToUpperInvariant());
+                continue;
+            }
+            int indent = line.Length - t.Length;
+            if (t.StartsWith("- ") || t.StartsWith("* ")) line = new string(' ', Math.Min(indent, 8)) + "•  " + t.Substring(2);
+            line = line.Replace("**", "").Replace("__", "").Replace("`", "");
+            if (line.Length == 0 && lines.Count > 0 && lines[^1].Length == 0) continue;
+            lines.Add(line);
+        }
+        return string.Join("\n", lines).Trim();
     }
 
     private void Later_Click(object sender, RoutedEventArgs e) => Close();

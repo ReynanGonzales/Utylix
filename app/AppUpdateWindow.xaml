@@ -8,7 +8,8 @@
     <StackPanel Margin="24,22,24,22">
         <TextBlock x:Name="HeadText" AutomationProperties.AutomationId="UpdHead" Text="Checking for updates…" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap" />
         <TextBlock x:Name="VersionText" AutomationProperties.AutomationId="UpdVersion" Margin="0,6,0,0" Foreground="{DynamicResource MutedBrush}" />
-        <TextBox x:Name="NotesBox" AutomationProperties.AutomationId="UpdNotes" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="170" VerticalScrollBarVisibility="Auto"
+        <TextBox x:Name="NotesBox" AutomationProperties.AutomationId="UpdNotes" IsReadOnly="True" TextWrapping="Wrap" Height="Auto" MinHeight="34" MaxHeight="280"
+                 VerticalScrollBarVisibility="Auto" Padding="10,8" VerticalContentAlignment="Top"
                  Margin="0,12,0,0" Visibility="Collapsed" Style="{StaticResource Field}" />
         <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="UpdStatus" TextWrapping="Wrap" Margin="0,12,0,0" />
 
