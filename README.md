@@ -359,6 +359,26 @@ Utylix Editor reads, fills in, edits, signs, prints and shrinks PDFs with PDFium
 - **Right-click in Explorer** (Settings → Tools, "PDF tools"): on PDFs, *Utylix Editor → Reduce file size…* (several selected PDFs: each smaller copy is saved next to its original as `name (reduced).pdf`) and *Combine into one PDF…*; on pictures, *Convert → Convert to PDF…*. Combining puts PDFs (all their pages, text stays text) and pictures (one page each: the picture's own shape, A4, Letter or Long 8.5 × 13) into one new PDF, in the order you set with the arrows; phone photos are turned the right way up and JPEG photos go in without losing quality. Password-protected PDFs can't be combined. A **photo of a page** can be cleaned up first: the *Clean up…* button on a picture row finds the paper, lets you drag its four corners, straightens it and takes the shadows out (colour, grey or black and white); the original photo is not changed. Also **New → Blank PDF** (right-click an empty spot in a folder or on the desktop): makes an empty one-page A4 PDF there, ready to open in the Utylix Editor and fill with text, pictures, fields...
   - **Word, Excel and PowerPoint files → PDF**: right-click a `.docx` / `.doc` / `.rtf` / `.odt`, `.xlsx` / `.xls` / `.ods` or `.pptx` / `.ppt` / `.odp` file → *Convert to PDF*. Utylix asks the Microsoft Office on this PC to do it (it has no Office engine of its own, so the entry only appears for the programs that are installed); the PDF is saved next to the original as `name.pdf` (`name (2).pdf` if that exists), several selected files are done one after the other, and a message by the clock says when each is ready.
 
+## Utylix Vid Editor (video editing)
+
+`UtylixVid.exe` is a video editor of its own, installed beside Utylix (Start menu: **Utylix Vid Editor**). It is a separate program: it has its own window, its own settings
+(`%APPDATA%\UtylixVid\settings.json`, changed in **Edit > Settings**) and never reads or changes Utylix's settings. It is laid out like Premiere Pro's Editing workspace:
+a menu bar, **Source** and **Effect Controls** on the top left, the **Program** monitor on the top right, **Project** and **Effects** on the bottom left, a tools column and the **Timeline**.
+
+- **Timeline:** any number of picture and sound tracks, picture and sound of a video stay linked, drag to move (also to another track), drag an edge to trim, snapping,
+  marquee select, copy / cut / paste, mute / lock / solo per track, markers (M) and In / Out (I / O) on the ruler, zoom with Ctrl + wheel.
+- **Tools:** Selection (V), Track select forward (A), Ripple edit (B), Rolling edit (N), Razor (C), Slip (Y), Hand (H), Title (T).
+- **Source monitor:** double-click a file in the Project panel, mark In and Out, then **Insert** (,) or **Overwrite** (.) it into the sequence at the playhead.
+- **Edit commands:** Lift (;) and Extract (') the part between In and Out, ripple delete, duplicate, speed, undo / redo through everything.
+- **Effect Controls:** Motion (position, scale, rotation) and Opacity with **keyframes** (stopwatch, add / delete / previous / next), volume keyframes, an effect stack,
+  transition in (cross dissolve, dip to black, four wipes), fades, track volume / balance.
+- **Effects panel:** colour (brightness / contrast / saturation / gamma, warm / cool, black and white, sepia, invert), blur, sharpen, film grain, crop, mirror, vignette,
+  mosaic, find edges, green screen key; sound: gain, high-pass, low-pass, noise reduction, even out volume, echo, bass, treble.
+- **Titles:** text clips with font, size, colour, bold, outline and a dark box; fades and keyframes work on them like on pictures.
+- **Export:** MP4 (H.264 or H.265, the video card's encoder when it works), WebM VP9, GIF, MP3, WAV; whole sequence or In to Out; any size; export a single frame.
+  The preview and the export come from the same graph, so what you see is what you get.
+- It needs ffmpeg (the same one Utylix uses); if it is not there yet the editor offers to get it.
+
 ## Music player
 
 - **Six looks** (press **L**, or the ⋮ button > Look): *Classic* (big cover, playlist beside it), *Wide card* (one slim card with the playlist dropping under it), *Dark card*, *Frosted card*,

@@ -742,6 +742,7 @@ public partial class App : Application
         menu.Items.Add("Browser extension…", null, (_, _) => Dispatcher.Invoke(() => ExtensionFiles.ShowHelp()));
         menu.Items.Add("About Utylix…", null, (_, _) => Dispatcher.Invoke(() => AboutWindow.ShowIt(null)));
         menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
+        menu.Items.Add("Video Editor", null, (_, _) => Dispatcher.Invoke(() => OpenVidEditor()));
         menu.Items.Add("Photo viewer…", null, (_, _) => Dispatcher.Invoke(ViewerWindow.Browse));
         menu.Items.Add("PDF editor…", null, (_, _) => Dispatcher.Invoke(PdfWindow.Browse));
         menu.Items.Add("Music player", null, (_, _) => Dispatcher.Invoke(MusicWindow.OpenEmpty));

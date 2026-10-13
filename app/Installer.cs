@@ -30,6 +30,7 @@ internal static partial class Installer
 
     private static RegistryKey Root(bool allUsers) => allUsers ? Registry.LocalMachine : Registry.CurrentUser;
     private static string StartMenuLink(bool allUsers) => Path.Combine(Environment.GetFolderPath(allUsers ? Environment.SpecialFolder.CommonPrograms : Environment.SpecialFolder.Programs), "Utylix.lnk");
+    private static string VidStartLink(bool allUsers) => Path.Combine(Environment.GetFolderPath(allUsers ? Environment.SpecialFolder.CommonPrograms : Environment.SpecialFolder.Programs), "Utylix Vid Editor.lnk");
     private static string DesktopLink(bool allUsers) => Path.Combine(Environment.GetFolderPath(allUsers ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory), "Utylix.lnk");
 
     public static bool IsAdmin
@@ -114,6 +115,7 @@ internal static partial class Installer
 
         progress.Report((74, "Creating shortcuts…")); Thread.Sleep(500);
         MakeShortcut(StartMenuLink(allUsers), exe);
+        MakeVidShortcut(dir, allUsers);
         if (desktopShortcut) MakeShortcut(DesktopLink(allUsers), exe);
         Thread.Sleep(400);
 
@@ -271,7 +273,12 @@ internal static partial class Installer
             var progress = new Progress<(double Percent, string Text)>(p => { bar.Value = p.Percent; status.Text = p.Text; });
             try
             {
+                // the first update that brings the video editor also puts its Start menu entry in (later updates leave shortcuts alone)
+                bool hadVideoEditor = false;
+                try { hadVideoEditor = File.Exists(Path.Combine(dir, Manifest)) && File.ReadAllLines(Path.Combine(dir, Manifest)).Any(l => l.Trim().Equals("UtylixVid.exe", StringComparison.OrdinalIgnoreCase)); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
                 long size = await Task.Run(() => CopyProgram(dir, progress, 5, 95));
+                if (!hadVideoEditor && Installed() is { } inst && SameFolder(inst.Dir, dir)) MakeVidShortcut(dir, inst.AllUsers);
                 // the version shown in Settings > Apps, when this is the installed copy
                 if (Installed() is { } i && SameFolder(i.Dir, dir))
                     try
@@ -363,7 +370,14 @@ internal static partial class Installer
         }
     }
 
-    private static void MakeShortcut(string path, string exe)
+    /// <summary>The Start menu entry of the video editor (UtylixVid.exe beside Utylix.exe), when this copy has one.</summary>
+    private static void MakeVidShortcut(string dir, bool allUsers)
+    {
+        string vid = Path.Combine(dir, "UtylixVid.exe");
+        if (File.Exists(vid)) try { MakeShortcut(VidStartLink(allUsers), vid, "Utylix Vid Editor"); } catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException) { }
+    }
+
+    private static void MakeShortcut(string path, string exe, string description = "Utylix")
     {
         var type = Type.GetTypeFromProgID("WScript.Shell");
         if (type == null) return;
@@ -371,7 +385,7 @@ internal static partial class Installer
         dynamic link = shell.CreateShortcut(path);
         link.TargetPath = exe;
         link.WorkingDirectory = Path.GetDirectoryName(exe);
-        link.Description = "Utylix";
+        link.Description = description;
         link.IconLocation = exe + ",0";
         link.Save();
     }
@@ -453,7 +467,7 @@ internal static partial class Installer
         if (allUsers) try { using var userRun = Registry.CurrentUser.CreateSubKey(RunKey); userRun.DeleteValue("Utylix", false); } catch (Exception) { }
         Thread.Sleep(700);
         progress.Report((68, "Removing the shortcuts…"));
-        foreach (var link in new[] { StartMenuLink(allUsers), DesktopLink(allUsers) }) try { File.Delete(link); } catch (Exception) { }
+        foreach (var link in new[] { StartMenuLink(allUsers), DesktopLink(allUsers), VidStartLink(allUsers) }) try { File.Delete(link); } catch (Exception) { }
         Thread.Sleep(700);
         progress.Report((80, "Removing Utylix from Windows' list of apps…"));
         try { Root(allUsers).DeleteSubKeyTree(UninstallKey, false); } catch (Exception) { }

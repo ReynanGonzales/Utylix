@@ -23,6 +23,24 @@ public partial class App
         catch (Exception) { return false; }
     }
 
+    /// <summary>Starts Utylix Vid Editor (UtylixVid.exe beside this program; a single-file copy starts itself in editor mode).</summary>
+    public static void OpenVidEditor(string? file = null)
+    {
+        try
+        {
+            string exe = Path.Combine(AppContext.BaseDirectory, "UtylixVid.exe");
+            var psi = File.Exists(exe)
+                ? new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = false }
+                : new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!, "--vid") { UseShellExecute = false };
+            if (file != null) psi.ArgumentList.Add(file);
+            System.Diagnostics.Process.Start(psi);
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            UMessage.Show("The video editor could not be started:\n\n" + e.Message, "Utylix", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private void StartVidEditor(string[] args)
     {
         ShutdownMode = ShutdownMode.OnLastWindowClose;
