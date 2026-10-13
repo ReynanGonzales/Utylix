@@ -154,6 +154,7 @@ public sealed partial class PdfWindow
     private void EditRun(RunEditItem item, bool isNew)
     {
         CloseTextBox(commit: true);
+        ClearTextSelection();                                          // (a selected word would be drawn over the line being changed)
         Snapshot();
         if (isNew) _items.Add(item);
         _runTyping = item;
@@ -249,7 +250,7 @@ public sealed partial class PdfWindow
     {
         if (_fieldEditor != null && _fieldEditing?.Page == page && _fieldEditor.Parent == null) overlay.Children.Add(_fieldEditor);
         if (_runBox != null && _runTyping?.Page == page) overlay.Children.Add(_runBox);
-        if (_editing && _tool == EditTool.EditText && _runBox == null && _hoverRun is { } h && h.Page == page)
+        if (_editing && _tool is EditTool.EditText or EditTool.Paragraph && _runBox == null && _hoverRun is { } h && h.Page == page)
         {
             double k = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);
             var frame = new Rectangle { Width = h.Box.Width + 4 * k, Height = h.Box.Height + 4 * k, Stroke = new SolidColorBrush(Color.FromRgb(0x2F, 0x6B, 0xEA)), StrokeThickness = 1 * k, StrokeDashArray = new DoubleCollection { 3, 2 }, IsHitTestVisible = false };

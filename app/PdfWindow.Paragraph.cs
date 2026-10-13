@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using IdmClone.Engine;
@@ -74,6 +75,22 @@ public sealed partial class PdfWindow
             else if (i is ParagraphItem pi) foreach (var s in pi.Sources) foreach (var x in s.Parts?.Select(p => p.Index) ?? new[] { s.Index }) set.Add(x);
         }
         return set;
+    }
+
+    /// <summary>
+    /// Where text on a page was changed or laid out again in this session (the old places and the new ones): the page's own text positions are not true there any more,
+    /// so no selection or search highlight is drawn over them and a click there does not select a word that is no longer there.
+    /// </summary>
+    private List<Rect> ChangedTextAreas(int page)
+    {
+        var areas = new List<Rect>();
+        foreach (var i in _items)
+        {
+            if (i.Page != page) continue;
+            if (i is RunEditItem r) { areas.Add(Grow(r.Run.Box, 2)); areas.Add(Grow(r.Bounds, 2)); }
+            else if (i is ParagraphItem pi) { foreach (var h in pi.Hide) areas.Add(Grow(h.Box, 2)); areas.Add(Grow(pi.Bounds, 2)); }
+        }
+        return areas;
     }
 
     /// <summary>The lines of the page, whatever their looks: pieces on one baseline side by side (a gap of three letters' width or more starts another line: columns).</summary>
@@ -375,6 +392,37 @@ public sealed partial class PdfWindow
         return done ? box.Text.Replace("\r\n", "\n").Replace('\r', '\n') : null;
     }
 
+    private PdfTextRun? _hoverParaRun;
+
+    /// <summary>With the Paragraph tool: the dashed frame goes round the whole paragraph under the pointer (or the single line when it stands alone), before anything is clicked.</summary>
+    private void HoverParagraph(PageView pv, Point p)
+    {
+        var laid = _items.OfType<ParagraphItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
+        var run = laid == null ? RunAt(pv.Index, p) : null;
+        if (laid == null && run != null && ReferenceEquals(run, _hoverParaRun) && _hoverRun is { } same && same.Page == pv.Index) return;      // (still on the same line: nothing to work out again)
+        _hoverParaRun = run;
+        Rect? box = null;
+        if (laid != null) box = laid.Bounds;
+        else if (run != null)
+        {
+            var para = FindParagraph(pv.Index, run);
+            if (para != null)
+            {
+                var all = Rect.Empty;
+                foreach (var line in para.Lines) foreach (var r in line.Runs) all.Union(r.Box);
+                box = all;
+            }
+            else box = run.Box;
+        }
+        pv.Overlay.Cursor = box != null ? Cursors.IBeam : Cursors.Arrow;
+        (int, Rect)? now = box == null ? null : (pv.Index, box.Value);
+        if (now == _hoverRun) return;
+        int? old = _hoverRun?.Page;
+        _hoverRun = now;
+        if (old is int o && o != pv.Index) RenderItems(o);
+        RenderItems(pv.Index);
+    }
+
     private void EditParagraphAt(PageView pv, Point p)
     {
         // a paragraph already laid out again in this session: open it again
@@ -403,6 +451,7 @@ public sealed partial class PdfWindow
         foreach (var src in item.Sources) item.Hide.Add((src.Box, CoverColour(pv, src.Box)));
         _items.Add(item);
         _dirty = true; UpdateTitle(); UpdateEditButtons();
+        ClearTextSelection();                                           // (the word that was selected for the right-click menu is gone with the old lines)
         RenderItems(pv.Index);
         int lineCount = segs.Select(s => s.Baseline).Distinct().Count();
         Toast($"Paragraph laid out again: {lineCount} line{(lineCount == 1 ? "" : "s")} (was {para.Lines.Count}). Undo takes it back; Save writes it");
@@ -421,6 +470,7 @@ public sealed partial class PdfWindow
         changed.Segs = segs; changed.Text = newText; changed.Looks = newLooks;
         if (at >= 0) _items[at] = changed;
         _dirty = true; UpdateTitle(); UpdateEditButtons();
+        ClearTextSelection();
         RenderItems(pv.Index);
     }
 }

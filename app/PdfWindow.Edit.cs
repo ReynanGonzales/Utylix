@@ -22,7 +22,7 @@ namespace IdmClone;
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField, DropField, Link }
+    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField, DropField, Link, Paragraph }
 
     // ---------- what can be on a page ----------
     private abstract class EditItem
@@ -527,7 +527,7 @@ public sealed partial class PdfWindow
         (EditTool.Select, Key.V, "V"), (EditTool.EditText, Key.E, "E"), (EditTool.Text, Key.T, "T"), (EditTool.Signature, Key.G, "G"), (EditTool.Image, Key.I, "I"),
         (EditTool.Check, Key.C, "C"), (EditTool.Cross, Key.X, "X"), (EditTool.Stamp, Key.M, "M"), (EditTool.Date, Key.D, "D"), (EditTool.Highlight, Key.H, "H"),
         (EditTool.Underline, Key.U, "U"), (EditTool.Strike, Key.K, "K"), (EditTool.Note, Key.N, "N"), (EditTool.Pen, Key.P, "P"), (EditTool.Shapes, Key.S, "S"),
-        (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"), (EditTool.TextField, Key.F, "F"), (EditTool.CheckField, Key.B, "B"), (EditTool.Table, Key.L, "L"), (EditTool.RadioField, Key.O, "O"), (EditTool.SignField, Key.Q, "Q"), (EditTool.DropField, Key.Y, "Y"), (EditTool.Link, Key.J, "J"),
+        (EditTool.WhiteOut, Key.W, "W"), (EditTool.Redact, Key.R, "R"), (EditTool.TextField, Key.F, "F"), (EditTool.CheckField, Key.B, "B"), (EditTool.Table, Key.L, "L"), (EditTool.RadioField, Key.O, "O"), (EditTool.SignField, Key.Q, "Q"), (EditTool.DropField, Key.Y, "Y"), (EditTool.Link, Key.J, "J"), (EditTool.Paragraph, Key.A, "A"), (EditTool.Paragraph, Key.A, "A"),
     };
 
     // the tabs of the tool bar (see BuildEditBar)
@@ -554,7 +554,7 @@ public sealed partial class PdfWindow
     /// <summary>Choosing a tool by its key (or from anywhere else) shows the tab it lives on.</summary>
     private static string? TabOf(EditTool tool) => tool switch
     {
-        EditTool.Text or EditTool.EditText or EditTool.Date or EditTool.Image or EditTool.Signature or EditTool.Stamp or EditTool.Link => "Add",
+        EditTool.Text or EditTool.EditText or EditTool.Paragraph or EditTool.Date or EditTool.Image or EditTool.Signature or EditTool.Stamp or EditTool.Link => "Add",
         EditTool.Highlight or EditTool.Underline or EditTool.Strike or EditTool.Note or EditTool.Pen or EditTool.Shapes or EditTool.Table or EditTool.Check or EditTool.Cross => "Mark up",
         EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField => "Forms",
         EditTool.WhiteOut or EditTool.Redact => "Page",
@@ -593,6 +593,7 @@ public sealed partial class PdfWindow
         ToolButton(EditTool.Select, "↖", "Select", "Select, move and resize what you added (double-click a text to change it)", "Segoe UI Symbol");
         ToolButton(EditTool.Text, "", "Text", "Click anywhere to type (also for filling in forms)");
         ToolButton(EditTool.EditText, "", "Edit text", "Click on text already in the PDF to change it (Enter or click elsewhere when done)");
+        ToolButton(EditTool.Paragraph, "\uE8E4", "Paragraph", "Click anywhere in a paragraph that is already in the PDF: all its lines open as one text, and when you change it the words are laid out again to the same width (a bold first word or a number in front is fine)");
         ActionButton("Columns", "Text in columns, like Word: choose how many columns and type the words", AddColumns, "PdfActionColumns",
                      new StackPanel
                      {
@@ -670,7 +671,7 @@ public sealed partial class PdfWindow
         }
         UIElement[] T(params EditTool[] list) => list.Select(t => (UIElement)_toolButtons[t]).ToArray();
         UIElement[] A(params string[] list) => list.Select(id => (UIElement)actions[id]).ToArray();
-        Tab("Add", "Put something on the page: text, the date, columns, pictures, your signature, stamps", T(EditTool.Text, EditTool.EditText, EditTool.Date).Concat(A("PdfActionColumns")).ToArray(), T(EditTool.Image, EditTool.Signature, EditTool.Stamp, EditTool.Link));
+        Tab("Add", "Put something on the page: text, the date, columns, pictures, your signature, stamps", T(EditTool.Text, EditTool.EditText, EditTool.Paragraph, EditTool.Date).Concat(A("PdfActionColumns")).ToArray(), T(EditTool.Image, EditTool.Signature, EditTool.Stamp, EditTool.Link));
         Tab("Mark up", "Comment and draw: highlight, underline, notes, pen, shapes, tables, check marks", T(EditTool.Highlight, EditTool.Underline, EditTool.Strike, EditTool.Note), T(EditTool.Pen, EditTool.Shapes, EditTool.Table, EditTool.Check, EditTool.Cross));
         Tab("Forms", "Fields people can fill in: text box, check box, option buttons, signature box", T(EditTool.TextField, EditTool.CheckField, EditTool.RadioField, EditTool.DropField, EditTool.SignField));
         Tab("Page", "Hide or remove things, a frame, a watermark, page numbers", T(EditTool.WhiteOut, EditTool.Redact), A("PdfActionBorder", "PdfActionWatermark", "PdfActionPageNumbers"));
@@ -987,12 +988,14 @@ public sealed partial class PdfWindow
         bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
         bool fieldTool = item is FieldItem || (item == null && _tool is EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField);
         // nothing to set: no colour dots, size or font for a tool or a choice that has none (the bar only shows what the tool uses)
-        bool nothingToSet = (item == null && _tool is EditTool.Select or EditTool.EditText or EditTool.Image or EditTool.Signature or EditTool.Link) && typingRun == null;
+        bool nothingToSet = (item == null && _tool is EditTool.Select or EditTool.EditText or EditTool.Paragraph or EditTool.Image or EditTool.Signature or EditTool.Link) && typingRun == null;
         _colorRow.Visibility = item is ImageItem or PageObjectItem or LinkPick || (run && typingRun == null) || redact || nothingToSet ? Visibility.Collapsed : Visibility.Visible;
         if (nothingToSet && !run)
         {
             _toolHint.Text = _tool == EditTool.Link
                 ? "Drag a box where the link should be, then say where it goes. Or select words and right-click > Make the selected words a link."
+                : _tool == EditTool.Paragraph
+                ? "Click a paragraph that is already in the PDF (the dashed frame shows which lines go together). Its words open as one text; after you change it they are laid out again to the same width."
                 : "Click something to change it, or drag a box on empty paper to choose several things. Right-click for more (copy, arrange, field options ...).";
             _toolHint.Visibility = Visibility.Visible;
         }
@@ -1313,6 +1316,14 @@ public sealed partial class PdfWindow
         }
         switch (_tool)
         {
+            case EditTool.Paragraph:
+            {
+                // a click anywhere in a paragraph of the PDF (or in one already laid out again here) opens it as one text
+                _dragPage = null;
+                if (_items.OfType<ParagraphItem>().Any(i => i.Page == pv.Index && i.Hit(p)) || RunAt(pv.Index, p) != null) EditParagraphAt(pv, p);
+                else Toast("Click on a paragraph that is already in the PDF (not on empty paper or a picture)");
+                return;
+            }
             case EditTool.EditText:
             {
                 // a line: pressed and let go = change it; pressed and dragged = move it
@@ -1427,6 +1438,7 @@ public sealed partial class PdfWindow
     {
         if (_drag == DragMode.None && _editing) UpdateGhost(pv, e.GetPosition(pv.Overlay));               // (the placing guide)
         if (_drag == DragMode.None && _editing && _tool == EditTool.EditText) { HoverRun(pv, e.GetPosition(pv.Overlay)); return; }
+        if (_drag == DragMode.None && _editing && _tool == EditTool.Paragraph) { HoverParagraph(pv, e.GetPosition(pv.Overlay)); return; }
         if (_drag == DragMode.None || _dragPage != pv) return;
         var p = e.GetPosition(pv.Overlay);
         p = new Point(Math.Clamp(p.X, 0, pv.Overlay.Width), Math.Clamp(p.Y, 0, pv.Overlay.Height));

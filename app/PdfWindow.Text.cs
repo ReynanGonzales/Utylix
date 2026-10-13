@@ -172,6 +172,7 @@ public sealed partial class PdfWindow
             if (markup != null) Toast("This page has no text to mark (it's probably a scanned picture)");
             return;
         }
+        if (ChangedTextAreas(pv.Index).Any(a => a.Contains(p))) return;                 // (changed text: the page's old word positions are not true there)
         _selPage = pv.Index;
         if (e.ClickCount >= 2 && markup == null)
         {
@@ -273,6 +274,7 @@ public sealed partial class PdfWindow
         layer.Children.Clear();
         var t = Text(page);
         if (t == null) return;
+        var changed = ChangedTextAreas(page);                    // (text that was changed here: the highlight would float over words that are no longer there)
         for (int h = 0; h < _hits.Count; h++)
         {
             var hit = _hits[h];
@@ -288,6 +290,7 @@ public sealed partial class PdfWindow
         }
         void Add(Rect r, Color c)
         {
+            if (changed.Any(a => a.IntersectsWith(r))) return;
             var box = new Rectangle { Width = r.Width, Height = r.Height, Fill = new SolidColorBrush(c) };
             Canvas.SetLeft(box, r.X); Canvas.SetTop(box, r.Y);
             layer.Children.Add(box);
@@ -386,6 +389,7 @@ public sealed partial class PdfWindow
         {
             var t = Text(pv.Index);
             int i = t?.IndexAt(p, 1) ?? -1;
+            if (ChangedTextAreas(pv.Index).Any(a => a.Contains(p))) i = -1;           // (over text that was changed here: nothing to select)
             ClearTextSelection();
             if (t != null && i >= 0) { var (s, en) = t.WordAt(i); _selPage = pv.Index; _selAnchor = s; _selCaret = en; DrawTextLayer(pv.Index); }
         }

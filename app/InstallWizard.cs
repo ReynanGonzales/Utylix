@@ -310,7 +310,9 @@ internal static partial class Installer
 
         // (this page is the longest one: it scrolls instead of being cut off on a small screen)
         var downloadsScroll = new ScrollViewer { Content = downloadsPage, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 8, 0) };
-        var pages = new UIElement[] { welcome, where, features, downloadsScroll, installing };
+        // every page scrolls (a small or scaled-up screen is shorter than the pages)
+        UIElement Scrolling(UIElement e) => new ScrollViewer { Content = e, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 8, 0) };
+        var pages = new UIElement[] { Scrolling(welcome), Scrolling(where), Scrolling(features), downloadsScroll, Scrolling(installing) };
         var titles = new[] { "Welcome to Utylix", "Where to install", "Right-click menus and startup", "Extra parts to download", "Installing" };
 
         // ---- frame: header with steps, page area, buttons ----
@@ -345,12 +347,19 @@ internal static partial class Installer
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
         root.Children.Add(area);
 
+        // The window fits the screen: on a small (or scaled-up) one it is no taller than the free area, so the title bar and its buttons are never above the top,
+        // and when the screen is really small it opens maximized. It can be resized and maximized by hand too.
+        var work = SystemParameters.WorkArea;
+        double winW = Math.Min(640, work.Width - 8), winH = Math.Min(600, work.Height - 8);
         var window = new Window
         {
-            Title = "Utylix Setup", Width = 640, Height = 600, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Title = "Utylix Setup", Width = winW, Height = winH, MinWidth = Math.Min(520, winW), MinHeight = Math.Min(380, winH),
+            ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = work.Left + Math.Max(0, (work.Width - winW) / 2), Top = work.Top + Math.Max(0, (work.Height - winH) / 2),
             Content = root, Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/logo.png")),
             Background = (Brush)R("BgBrush"), Foreground = (Brush)R("TextBrush"), FontFamily = new FontFamily("Segoe UI"), FontSize = 13.5,
         };
+        if (work.Height < 540 || work.Width < 700) window.WindowState = WindowState.Maximized;
 
         int page = 0;
         bool installing_ = false;
