@@ -380,7 +380,8 @@ public sealed partial class VidWindow
         root.Children.Add(bottom);
 
         var binGrid = BuildProjectPanelBody();
-        var bottomLeft = TabbedPanel(new[] { "Project", "Effects" }, new UIElement[] { binGrid, BuildEffectsPanel() }, out var bl, out _selectBottomLeft);
+        var bottomLeft = TabbedPanel(new[] { "Project", "Effects", "Info", "History", "Markers" },
+            new UIElement[] { binGrid, BuildEffectsPanel(), BuildInfoPanel(), BuildHistoryPanel(), BuildMarkersPanel() }, out var bl, out _selectBottomLeft);
         _projectTitle = bl[0];
         Grid.SetColumn(bottomLeft, 0);
         bottom.Children.Add(bottomLeft);

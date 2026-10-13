@@ -35,6 +35,10 @@ public sealed class ClipEffect
     public double B { get; set; }
     public double C { get; set; }
     public double D { get; set; }
+    public double E { get; set; }
+    public double F { get; set; }
+    public double G { get; set; }
+    public double H { get; set; }
     /// <summary>A colour as #RRGGBB (the key colour of the colour key).</summary>
     public string Color { get; set; } = "";
 }

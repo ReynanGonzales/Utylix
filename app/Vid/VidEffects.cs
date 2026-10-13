@@ -16,6 +16,9 @@ public static class VidEffects
     public static readonly EffectInfo[] All =
     {
         // ---- video: colour ----
+        new("lumetri", "Lumetri Color (basic correction)", "Video effects · Colour", false,
+            new EffectParam("Temperature", -100, 100, 0), new EffectParam("Tint", -100, 100, 0), new EffectParam("Exposure", -3, 3, 0, "stops"), new EffectParam("Contrast", -100, 100, 0),
+            new EffectParam("Highlights", -100, 100, 0), new EffectParam("Shadows", -100, 100, 0), new EffectParam("Saturation", 0, 200, 100, "%"), new EffectParam("Vibrance", -100, 100, 0)),
         new("color", "Brightness and contrast", "Video effects · Colour", false,
             new EffectParam("Brightness", -1, 1, 0), new EffectParam("Contrast", 0, 3, 1), new EffectParam("Saturation", 0, 3, 1), new EffectParam("Gamma", 0.2, 3, 1)),
         new("balance", "Warm / cool", "Video effects · Colour", false, new EffectParam("Cooler  ←  →  Warmer", -1, 1, 0.3)),
@@ -68,13 +71,14 @@ public static class VidEffects
         if (info.Params.Length > 1) e.B = info.Params[1].Default;
         if (info.Params.Length > 2) e.C = info.Params[2].Default;
         if (info.Params.Length > 3) e.D = info.Params[3].Default;
+        for (int i = 4; i < info.Params.Length && i < 8; i++) Set(e, i, info.Params[i].Default);
         return e;
     }
 
-    public static double Get(ClipEffect e, int index) => index switch { 0 => e.A, 1 => e.B, 2 => e.C, _ => e.D };
+    public static double Get(ClipEffect e, int index) => index switch { 0 => e.A, 1 => e.B, 2 => e.C, 3 => e.D, 4 => e.E, 5 => e.F, 6 => e.G, _ => e.H };
     public static void Set(ClipEffect e, int index, double v)
     {
-        switch (index) { case 0: e.A = v; break; case 1: e.B = v; break; case 2: e.C = v; break; default: e.D = v; break; }
+        switch (index) { case 0: e.A = v; break; case 1: e.B = v; break; case 2: e.C = v; break; case 3: e.D = v; break; case 4: e.E = v; break; case 5: e.F = v; break; case 6: e.G = v; break; default: e.H = v; break; }
     }
 
     private static string F(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
@@ -85,6 +89,7 @@ public static class VidEffects
         if (!e.On) return null;
         switch (e.Type)
         {
+            case "lumetri": return Lumetri(e);
             case "color": return $"eq=brightness={F(e.A)}:contrast={F(e.B)}:saturation={F(e.C)}:gamma={F(e.D <= 0 ? 1 : e.D)}";
             case "balance": return $"colorbalance=rs={F(e.A)}:rm={F(e.A)}:rh={F(e.A)}:bs={F(-e.A)}:bm={F(-e.A)}:bh={F(-e.A)}";
             case "bw": return "hue=s=0";
@@ -124,6 +129,29 @@ public static class VidEffects
             }
         }
         return null;
+    }
+
+    /// <summary>"Lumetri Color": the usual basic correction as one chain (colour cast, exposure, contrast + saturation, shadows / highlights, vibrance).</summary>
+    private static string? Lumetri(ClipEffect e)
+    {
+        var parts = new List<string>();
+        double temp = Math.Clamp(e.A, -100, 100) / 100, tint = Math.Clamp(e.B, -100, 100) / 100;
+        if (Math.Abs(temp) > 0.005 || Math.Abs(tint) > 0.005)
+            parts.Add($"colorchannelmixer=rr={F(1 + 0.25 * temp)}:gg={F(1 - 0.15 * tint)}:bb={F(1 - 0.25 * temp)}");
+        if (Math.Abs(e.C) > 0.01)
+            parts.Add($"lutyuv=y='clip(val*{F(Math.Pow(2, Math.Clamp(e.C, -3, 3)))},0,maxval)'");
+        double con = 1 + Math.Clamp(e.D, -100, 100) / 100, sat = Math.Clamp(e.G, 0, 200) / 100;
+        if (Math.Abs(con - 1) > 0.002 || Math.Abs(sat - 1) > 0.002) parts.Add($"eq=contrast={F(con)}:saturation={F(sat)}");
+        double hi = Math.Clamp(e.E, -100, 100) / 100, sh = Math.Clamp(e.F, -100, 100) / 100;
+        if (Math.Abs(hi) > 0.005 || Math.Abs(sh) > 0.005)
+        {
+            // one tone curve: the lower quarter moves with Shadows, the upper quarter with Highlights
+            double q1 = Math.Clamp(0.25 + sh * 0.12, 0.02, 0.48), q3 = Math.Clamp(0.75 + hi * 0.12, 0.52, 0.98);
+            parts.Add($"curves=m='0/0 0.25/{F(q1)} 0.75/{F(q3)} 1/1'");
+        }
+        double vib = Math.Clamp(e.H, -100, 100) / 100;
+        if (Math.Abs(vib) > 0.005) parts.Add($"vibrance=intensity={F(vib * 2)}");
+        return parts.Count == 0 ? null : string.Join(",", parts);
     }
 
     public static string? AudioFilter(ClipEffect e)

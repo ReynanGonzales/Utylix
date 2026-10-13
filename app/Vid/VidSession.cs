@@ -29,6 +29,10 @@ public sealed partial class VidSession
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
     public string? NextUndoLabel => _undoLabel;
+    public IReadOnlyList<string> UndoLabels => _labels;
+    public int RedoCount => _redo.Count;
+    /// <summary>Goes back this many steps (the History panel).</summary>
+    public void UndoSteps(int n) { for (int i = 0; i < n && CanUndo; i++) Undo(); }
     public void ClearDirty() => Dirty = false;
     public void MarkDirty() => Dirty = true;
 
