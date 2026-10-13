@@ -82,6 +82,7 @@ public sealed partial class VidWindow : Window
         _timeline.SizeChanged += (_, _) => SyncScroll();
         _timeline.PlayheadDragged += (t, final) => SeekTo(t);
         _timeline.ContextMenuRequested += ShowTimelineMenu;
+        _timeline.TransitionMenuRequested += ShowTransitionMenu;
         _timeline.MediaDropped += (id, t, track) =>
         {
             var m = _s.Project.Media.FirstOrDefault(x => x.Id == id);
@@ -438,6 +439,37 @@ public sealed partial class VidWindow : Window
         if (!_s.Split(_s.Playhead)) SetStatus("Put the playhead on a clip to cut it there.");
     }
 
+    private void RemoveTransition(Clip clip)
+    {
+        _s.SetTransition(new[] { clip }, TransitionKind.None, 1.0);
+        _timeline.InvalidateVisual();
+        SetStatus("Transition deleted.");
+    }
+
+    private void ShowTransitionMenu(Clip clip)
+    {
+        var menu = new ContextMenu { Style = (Style)FindResource("ThemedMenu") };
+        menu.Items.Add(Item("Delete the transition", () => RemoveTransition(clip), "Del"));
+        var track = _s.Project.TrackOf(clip);
+        bool dip = clip.Transition is TransitionKind.DipToBlack or TransitionKind.DipToWhite;
+        if (track?.ClipBefore(clip) != null && !dip)
+        {
+            menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedSeparator") });
+            menu.Items.Add(Item("Centred on the cut", () => _s.SetTransitionAlign(new[] { clip }, TransitionAlign.Center)));
+            menu.Items.Add(Item("Starts at the cut", () => _s.SetTransitionAlign(new[] { clip }, TransitionAlign.Start)));
+            menu.Items.Add(Item("Ends at the cut", () => _s.SetTransitionAlign(new[] { clip }, TransitionAlign.End)));
+        }
+        menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedSeparator") });
+        menu.Items.Add(Item("Length…", () =>
+        {
+            string? text = TextPrompt.Ask(this, "Transition length", "How many seconds should it last?", clip.TransitionLength.ToString("0.0#", System.Globalization.CultureInfo.CurrentCulture));
+            if (text != null && double.TryParse(text.Trim().Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double len) && len > 0)
+                _s.SetTransition(new[] { clip }, clip.Transition, len, null);
+        }));
+        menu.PlacementTarget = _timeline;
+        menu.IsOpen = true;
+    }
+
     private void ShowTimelineMenu(Clip? clip, double time)
     {
         var menu = new ContextMenu { Style = (Style)FindResource("ThemedMenu") };
@@ -521,7 +553,10 @@ public sealed partial class VidWindow : Window
             case Key.OemPeriod: SrcPlace(true); e.Handled = true; break;
             case Key.Up: GoToEdit(-1); e.Handled = true; break;
             case Key.Down: GoToEdit(1); e.Handled = true; break;
-            case Key.Delete: case Key.Back: _s.Delete(shift); e.Handled = true; break;
+            case Key.Delete: case Key.Back:
+                if (_timeline.SelectedTransition is { } chosenTransition) RemoveTransition(chosenTransition);       // a chosen transition box goes first
+                else _s.Delete(shift);
+                e.Handled = true; break;
             case Key.Left:
                 if (_sourceActive && _srcMedia != null) SrcSeek(_src.Playhead - (shift ? 5.0 / SrcFps : 1.0 / SrcFps)); else SeekTo(_s.Playhead - (shift ? 5 * frame : frame));
                 e.Handled = true; break;

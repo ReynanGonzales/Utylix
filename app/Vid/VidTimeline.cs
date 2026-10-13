@@ -46,6 +46,7 @@ public sealed class VidTimeline : FrameworkElement
     private Clip? _rollLeft;
     private double _slipDelta;
     private Clip? _dropClip;                 // a clip an effect is being dragged over
+    private Clip? _transSel;                 // the transition box that is chosen (its clip): Delete removes it
     private double _dropTransAt = -1;        // the cut a dragged transition would go on (= the start of the clip that comes in)
     private double _dropTransLead, _dropTransLen = 1;     // how far its box reaches back over the clip before, and how long it is
     private Clip? _transMoveFrom;            // the clip whose transition is being dragged to another cut
@@ -101,6 +102,11 @@ public sealed class VidTimeline : FrameworkElement
     public event Action<Track>? TrackMenuRequested;
     /// <summary>A marker on the ruler was double-clicked.</summary>
     public event Action<Marker>? MarkerActivated;
+    /// <summary>Right-click on a transition box: the clip it belongs to (it comes in with that transition).</summary>
+    public event Action<Clip>? TransitionMenuRequested;
+
+    /// <summary>The clip whose transition box is chosen, or null.</summary>
+    public Clip? SelectedTransition => _transSel != null && _transSel.Transition != TransitionKind.None ? _transSel : null;
 
     public void ZoomToFit()
     {
@@ -247,7 +253,9 @@ public sealed class VidTimeline : FrameworkElement
                 double lx = Math.Max(bx0, HeaderWidth);
                 if (bx1 < HeaderWidth || lx > W) continue;
                 var box = new Rect(lx, top + 1, Math.Max(6, bx1 - lx), h - 2);
-                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(170, 255, 255, 255)), new Pen(new SolidColorBrush(Color.FromArgb(200, 40, 40, 40)), 1), box);
+                bool chosen = ReferenceEquals(c, _transSel);
+                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb((byte)(chosen ? 215 : 170), 255, 255, 255)),
+                    chosen ? new Pen(new SolidColorBrush(accent), 2.5) : new Pen(new SolidColorBrush(Color.FromArgb(200, 40, 40, 40)), 1), box);
                 dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(180, 40, 40, 40)), 1), new Point(box.X, box.Bottom), new Point(box.Right, box.Y));
             }
         }
@@ -593,6 +601,7 @@ public sealed class VidTimeline : FrameworkElement
         _downPoint = p;
         _downTime = XToTime(p.X);
         _moved = false;
+        _transSel = null;                                                   // (a transition box that is pressed sets it again below)
 
         if (p.Y < RulerHeight)
         {
@@ -641,6 +650,7 @@ public sealed class VidTimeline : FrameworkElement
                 : null;
             if (bodyOwner != null)
             {
+                _transSel = bodyOwner;
                 _transMoveFrom = bodyOwner;
                 _dragClip = bodyOwner;
                 _dropTransAt = -1;
@@ -652,6 +662,7 @@ public sealed class VidTimeline : FrameworkElement
             }
             if (edgeOwner != null)
             {
+                _transSel = edgeOwner;
                 _dragClip = edgeOwner;
                 _dragClips = new List<Clip> { edgeOwner };
                 _editBefore = _session.BeginEdit();
@@ -988,6 +999,21 @@ public sealed class VidTimeline : FrameworkElement
         var rows = Rows();
         if (p.Y < RulerHeight) { RulerContextRequested?.Invoke(Math.Max(0, XToTime(p.X))); e.Handled = true; return; }
         if (p.X < HeaderWidth) { int hr = RowAt(p.Y, rows); if (hr >= 0) TrackMenuRequested?.Invoke(rows[hr]); e.Handled = true; return; }
+        int rr = RowAt(p.Y, rows);
+        if (rr >= 0)
+        {
+            var boxOwner = rows[rr].Clips.FirstOrDefault(c => c.Transition != TransitionKind.None && TimeToX(c.End) - TimeToX(c.Start) > 16 &&
+                p.X >= TransitionBox(rows[rr], c).X0 - 2 && p.X <= TransitionBox(rows[rr], c).X1 + 2 && (rows[rr].TransitionLead(c) == 0 || Math.Abs(p.X - TimeToX(c.Start)) > 6 || p.Y > RowTop(rows, rr) + 17));
+            if (boxOwner != null)
+            {
+                _transSel = boxOwner;
+                InvalidateVisual();
+                TransitionMenuRequested?.Invoke(boxOwner);
+                e.Handled = true;
+                return;
+            }
+        }
+        _transSel = null;
         var (clip, _, _) = HitTest(p, rows);
         if (clip != null && !_session.Selected.Contains(clip.Id)) _session.Select(_session.WithLinked(new[] { clip }));
         ContextMenuRequested?.Invoke(clip, Math.Max(0, XToTime(p.X)));

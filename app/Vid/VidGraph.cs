@@ -374,14 +374,16 @@ public static class VidGraph
                     TransitionKind.BarnDoors => $"lte(abs(X-W/2),W/2*{p})",
                     _ => $"lte(abs(Y-H/2),H/2*{p})",
                 };
-                ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*{visible}':enable='between(t,{F(ts)},{F(ts + trL)})'");
+                // (gt(p,0): at progress 0 nothing may show - "lte(X, W*0)" is still true for the first column)
+                ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*({visible})*gt({p},0)':enable='between(t,{F(ts)},{F(ts + trL)})'");
                 break;
             }
         }
         if (VidTransitionDefs.HasMask(tr))
         {
-            string visible = VidTransitionDefs.Mask(tr, $"clip((T-({F(ts)}))/{F(trL)},0,1)");
-            ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*({visible})':enable='between(t,{F(ts)},{F(ts + trL)})'");
+            string pm = $"clip((T-({F(ts)}))/{F(trL)},0,1)";
+            string visible = VidTransitionDefs.Mask(tr, pm);
+            ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*({visible})*gt({pm},0)':enable='between(t,{F(ts)},{F(ts + trL)})'");
         }
         // blur while it moves (whip pans, shake) or while it dissolves
         if (VidTransitionDefs.IsWhip(tr) || tr is TransitionKind.Shake or TransitionKind.BlurDissolve)
