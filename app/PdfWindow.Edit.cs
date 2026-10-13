@@ -65,6 +65,7 @@ public sealed partial class PdfWindow
         public double AngleDeg;                        // turned clockwise around the middle of the text
 
         public bool Italic, Underline;
+        public int ListKind;                           // 0 = plain, 1 = bullets, 2 = numbers: every paragraph (line of the text) starts with a marker and its wrapped lines hang under the words
         public int Align;                              // 0 left, 1 middle, 2 right (inside the box width, or inside the longest line)
         public double BoxWidth;                        // 0 = the box fits the longest line; otherwise the text wraps at this width (points)
         public Color? Fill;                            // background of the box (null = none)
@@ -86,51 +87,65 @@ public sealed partial class PdfWindow
         double Measure(string s) => new FormattedText(s.Length == 0 ? " " : s, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Face, FontSize, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace;
         public double LineHeight => Family(Font, FontName).LineSpacing * FontSize;
 
-        /// <summary>The lines as they are shown and written: the text's own lines, broken at the box width when there is one (words are never cut, except one longer than the whole line).</summary>
-        public List<string> Lines()
+        /// <summary>Room taken by the marker of a list (the words start this far in).</summary>
+        public double Indent => ListKind == 0 ? 0 : Math.Round(FontSize * (ListKind == 1 ? 1.15 : 1.75), 1);
+
+        /// <summary>One line as it is shown and written: its words, and the marker when it is the first line of a paragraph of a list.</summary>
+        public readonly record struct Row(string Text, string? Marker);
+
+        /// <summary>The lines as they are shown and written: the text's own lines, broken at the box width when there is one (words are never cut, except one longer than the whole line), with the markers of a list.</summary>
+        public List<Row> Rows()
         {
             var raw = (Text.Length == 0 ? " " : Text).Replace("\r\n", "\n").Split('\n');
-            if (BoxWidth <= 0) return raw.ToList();
-            double room = Math.Max(10, BoxWidth - 2 * Inset);
-            var result = new List<string>();
+            var rows = new List<Row>();
+            double room = BoxWidth > 0 ? Math.Max(10, BoxWidth - 2 * Inset - Indent) : double.MaxValue;
+            int number = 0;
             foreach (string paragraph in raw)
             {
-                if (paragraph.Length == 0 || Measure(paragraph) <= room) { result.Add(paragraph); continue; }
-                string line = "";
-                foreach (string word in paragraph.Split(' '))
+                string? marker = ListKind != 0 && paragraph.Trim().Length > 0 ? (ListKind == 1 ? "\u2022" : ++number + ".") : null;
+                var pieces = new List<string>();
+                if (BoxWidth <= 0 || paragraph.Length == 0 || Measure(paragraph) <= room) pieces.Add(paragraph);
+                else
                 {
-                    string tryLine = line.Length == 0 ? word : line + " " + word;
-                    if (line.Length > 0 && Measure(tryLine) > room) { result.Add(line); line = word; }
-                    else line = tryLine;
-                    while (line.Length > 1 && Measure(line) > room)                            // (one long word: cut where it no longer fits)
+                    string line = "";
+                    foreach (string word in paragraph.Split(' '))
                     {
-                        int cut = line.Length - 1;
-                        while (cut > 1 && Measure(line[..cut]) > room) cut--;
-                        result.Add(line[..cut]); line = line[cut..];
+                        string tryLine = line.Length == 0 ? word : line + " " + word;
+                        if (line.Length > 0 && Measure(tryLine) > room) { pieces.Add(line); line = word; }
+                        else line = tryLine;
+                        while (line.Length > 1 && Measure(line) > room)                            // (one long word: cut where it no longer fits)
+                        {
+                            int cut = line.Length - 1;
+                            while (cut > 1 && Measure(line[..cut]) > room) cut--;
+                            pieces.Add(line[..cut]); line = line[cut..];
+                        }
                     }
+                    pieces.Add(line);
                 }
-                result.Add(line);
+                for (int k = 0; k < pieces.Count; k++) rows.Add(new Row(pieces[k], k == 0 ? marker : null));
             }
-            return result;
+            return rows;
         }
+
+        public List<string> Lines() => Rows().Select(r => r.Text).ToList();
 
         public override Rect Bounds
         {
             get
             {
-                var lines = Lines();
-                double w = BoxWidth > 0 ? BoxWidth : lines.Max(Measure) + 2 * Inset;
-                return new Rect(TopLeft, new Size(Math.Max(4, w), lines.Count * LineHeight + 2 * Inset));
+                var rows = Rows();
+                double w = BoxWidth > 0 ? BoxWidth : rows.Max(r => Measure(r.Text)) + Indent + 2 * Inset;
+                return new Rect(TopLeft, new Size(Math.Max(4, w), rows.Count * LineHeight + 2 * Inset));
             }
         }
 
         /// <summary>Where a line starts (x, relative to the box's left edge).</summary>
-        double LineX(string line, double boxWidth) => Inset + Align switch { 1 => (boxWidth - 2 * Inset - Measure(line)) / 2, 2 => boxWidth - 2 * Inset - Measure(line), _ => 0 };
+        double LineX(string line, double boxWidth) => ListKind != 0 ? Inset + Indent : Inset + Align switch { 1 => (boxWidth - 2 * Inset - Measure(line)) / 2, 2 => boxWidth - 2 * Inset - Measure(line), _ => 0 };
 
         public override EditItem Clone() => (TextItem)MemberwiseClone();
         public override FrameworkElement Build()
         {
-            var b = Bounds; var lines = Lines();
+            var b = Bounds; var rows = Rows(); var lines = rows.Select(r => r.Text).ToList();
             var canvas = new Canvas { Width = b.Width, Height = b.Height };
             if (HasBox)
             {
@@ -145,6 +160,12 @@ public sealed partial class PdfWindow
                 if (Underline) t.TextDecorations = System.Windows.TextDecorations.Underline;
                 Canvas.SetLeft(t, LineX(lines[i], b.Width)); Canvas.SetTop(t, Inset + i * lineH);
                 canvas.Children.Add(t);
+                if (rows[i].Marker is string mark)
+                {
+                    var m = new TextBlock { Text = mark, FontFamily = Family(Font, FontName), FontSize = FontSize, FontWeight = Bold ? FontWeights.Bold : FontWeights.Normal, Foreground = new SolidColorBrush(Color), TextWrapping = TextWrapping.NoWrap };
+                    Canvas.SetLeft(m, Inset); Canvas.SetTop(m, Inset + i * lineH);
+                    canvas.Children.Add(m);
+                }
             }
             Canvas.SetLeft(canvas, b.X); Canvas.SetTop(canvas, b.Y);
             if (AngleDeg != 0) canvas.RenderTransform = new RotateTransform(AngleDeg, b.Width / 2, b.Height / 2);
@@ -163,9 +184,11 @@ public sealed partial class PdfWindow
                 var fig = new PdfFigure(Turn(corners[0]), corners.Skip(1).Select(c => PdfSegment.Line(Turn(c))).ToList(), true);
                 yield return new PdfPathMark(Page, new[] { fig }, BorderWidth > 0 ? Color : null, BorderWidth, Fill, false);
             }
-            var lines = Lines(); double lineH = LineHeight;
+            var rows = Rows(); var lines = rows.Select(r => r.Text).ToList(); double lineH = LineHeight;
             for (int i = 0; i < lines.Count; i++)
             {
+                if (rows[i].Marker is string mark)
+                    yield return new PdfTextMark(Page, new Point(b.X + Inset, b.Y + Inset + i * lineH), mark, Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName, AngleDeg, pivot, Italic: Italic);
                 if (lines[i].Trim().Length == 0) continue;
                 double x = b.X + LineX(lines[i], b.Width), y = b.Y + Inset + i * lineH;
                 yield return new PdfTextMark(Page, new Point(x, y), lines[i], Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName, AngleDeg, pivot, Italic: Italic);
@@ -732,6 +755,7 @@ public sealed partial class PdfWindow
         _boldButton = new ToggleButton { Content = new TextBlock { Text = "B", FontWeight = FontWeights.Bold, Foreground = Brushes.White }, Template = ToggleTemplate(), Focusable = false, ToolTip = "Bold" };
         _boldButton.Click += (_, _) => SetFont(null, _boldButton.IsChecked == true);
         _fontRow.Children.Add(_boldButton);
+        AddListButtons();
         _fontRow.Children.Add(FontPickerButton());
         _fontRow.Children.Add(StyleButton());
         _fontButtons[PdfFontKind.Sans].IsChecked = true;
@@ -975,10 +999,10 @@ public sealed partial class PdfWindow
                 _fontLabel.Text = typingRun.FontOverride ?? typingRun.Run.Family;       // (the PDF's own font, until another one is chosen)
                 _boldButton.IsChecked = typingRun.EffBold;
             }
-            else if (item is TextItem ti) { ShowFont(ti.Font, ti.FontName); _boldButton.IsChecked = ti.Bold; }
+            else if (item is TextItem ti) { ShowFont(ti.Font, ti.FontName); _boldButton.IsChecked = ti.Bold; ShowList(ti.ListKind); }
             else if (item is FieldItem fi && fi.Kind is PdfNewFieldKind.Text or PdfNewFieldKind.Dropdown) { ShowFont(fi.Font, null); _boldButton.IsChecked = fi.Bold; }
             else if (textField) { ShowFont(_font, null); _boldButton.IsChecked = _bold; }
-            else if (text) { ShowFont(_font, _fontName); _boldButton.IsChecked = _bold; }
+            else if (text) { ShowFont(_font, _fontName); _boldButton.IsChecked = _bold; ShowList(_listKind); }
         }
         finally { _syncingFont = false; }
         bool run = item is RunEditItem || (item == null && _tool == EditTool.EditText);
@@ -1204,7 +1228,7 @@ public sealed partial class PdfWindow
             overlay.Children.Add(e);
         }
         if (_drawing != null && _drawing.Page == page) { var e = _drawing.Build(); e.IsHitTestVisible = false; overlay.Children.Add(e); }
-        if (_textBox != null && _typing?.Page == page) overlay.Children.Add(_textBox);
+        if (_textBox != null && _typing?.Page == page) { overlay.Children.Add(_textBox); AttachTypingMarkers(overlay); }
         RenderRunExtras(page, overlay);
         DrawLinkOutlines(page, overlay);
         DrawGuides(page, overlay);
@@ -1376,7 +1400,7 @@ public sealed partial class PdfWindow
             case EditTool.Text:
                 if (ItemAt(pv.Index, p) is TextItem existing) { EditText(existing, isNew: false); return; }
                 if (wasTyping) return;                                                 // (a click outside just finishes the text)
-                var text = new TextItem { Page = pv.Index, TopLeft = new Point(p.X - 1, p.Y - _textSize * 0.6), Font = _font, FontName = _fontName, Bold = _bold, Italic = _italic, Underline = _underline, Align = _align, FontSize = _textSize, Color = _toolColors[EditTool.Text] };
+                var text = new TextItem { Page = pv.Index, TopLeft = new Point(p.X - 1, p.Y - _textSize * 0.6), Font = _font, FontName = _fontName, Bold = _bold, Italic = _italic, Underline = _underline, Align = _align, ListKind = _listKind, FontSize = _textSize, Color = _toolColors[EditTool.Text] };
                 EditText(text, isNew: true);
                 return;
             case EditTool.Check or EditTool.Cross:
@@ -1647,11 +1671,11 @@ public sealed partial class PdfWindow
             Text = item.Text, AcceptsReturn = true, AcceptsTab = false, Padding = new Thickness(0), BorderThickness = new Thickness(0), MinWidth = 6,
             Template = (ControlTemplate)XamlReader.Parse(
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='TextBox'>" +
-                "<Border Background='#185B8DEF' BorderBrush='#AA5B8DEF' BorderThickness='0.6'><ScrollViewer x:Name='PART_ContentHost' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Margin='0' Padding='0' Focusable='False' HorizontalScrollBarVisibility='Hidden' VerticalScrollBarVisibility='Hidden' /></Border></ControlTemplate>"),
+                "<Border Background='#185B8DEF' BorderBrush='#AA5B8DEF' BorderThickness='0.6'><ScrollViewer x:Name='PART_ContentHost' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Margin='{TemplateBinding Padding}' Padding='0' Focusable='False' HorizontalScrollBarVisibility='Hidden' VerticalScrollBarVisibility='Hidden' /></Border></ControlTemplate>"),
         };
         System.Windows.Automation.AutomationProperties.SetAutomationId(box, "PdfTextBox");
         StyleTextBox(box, item);
-        box.TextChanged += (_, _) => { if (_typing != null) { _typing.Text = box.Text; _dirty = true; UpdateTitle(); } };
+        box.TextChanged += (_, _) => { if (_typing != null) { _typing.Text = box.Text; _dirty = true; UpdateTitle(); RefreshTypingMarkers(); } };
         box.LostKeyboardFocus += (_, ev) =>
         {
             // focus moved to the tool bar (colour, size, font): keep typing; anywhere else: finished
@@ -1678,8 +1702,10 @@ public sealed partial class PdfWindow
         box.CaretBrush = new SolidColorBrush(item.Color.R + item.Color.G + item.Color.B > 600 ? Colors.Black : item.Color);
         // (a WPF text box draws its text 2 units in from its left edge)
         Canvas.SetLeft(box, item.TopLeft.X + item.Inset - 2); Canvas.SetTop(box, item.TopLeft.Y + item.Inset);
+        box.Padding = new Thickness(item.Indent, 0, 0, 0);                  // (room for the markers of a list)
         box.RenderTransformOrigin = new Point(0.5, 0.5);
         box.RenderTransform = item.AngleDeg != 0 ? new RotateTransform(item.AngleDeg) : Transform.Identity;
+        RefreshTypingMarkers();
     }
 
     private void CloseTextBox(bool commit)
