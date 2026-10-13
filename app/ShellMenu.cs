@@ -114,7 +114,7 @@ public static class ShellMenu
             using var verb = Registry.CurrentUser.CreateSubKey(key);
             verb.SetValue("MUIVerb", "Free up memory");
             verb.SetValue("Icon", IconOf(exe));
-            verb.SetValue("Position", "Bottom");
+            verb.SetValue("Position", "Top");                    // (above the NVIDIA / Display / Personalize entries)
             using var command = verb.CreateSubKey("command");
             command.SetValue("", $"\"{exe}\" --free-memory");
         }
