@@ -168,7 +168,7 @@ internal static class FanTask
     public static bool Exists() => Schtasks($"/query /tn \"{Name}\"", out _) == 0;
 
     /// <summary>A fan helper task exists for any account (the uninstall removes them all).</summary>
-    public static bool AnyExists() => Schtasks("/query /fo csv /nh", out string list) == 0 && (list.Contains(BaseName, StringComparison.Ordinal) || list.Contains("Utylix Free Memory", StringComparison.Ordinal));
+    public static bool AnyExists() => Schtasks("/query /fo csv /nh", out string list) == 0 && (list.Contains(BaseName, StringComparison.Ordinal) || list.Contains("Utylix Free Memory", StringComparison.Ordinal) || list.Contains("Utylix Memory Guard", StringComparison.Ordinal));
 
     /// <summary>The task is this account's own (it runs as this account, so this account may start it).</summary>
     private static bool BelongsToMe(string xml) => xml.Contains(">" + CurrentSid + "<", StringComparison.OrdinalIgnoreCase);
@@ -353,7 +353,7 @@ internal static class FanTask
             foreach (string line in list.Split('\n'))
             {
                 string first = line.Split(',')[0].Trim().Trim('"').TrimStart('\\');
-                if (first.StartsWith(BaseName, StringComparison.Ordinal) || first.StartsWith("Utylix Free Memory", StringComparison.Ordinal)) names.Add(first);   // (+ the silent "Free up memory" task)
+                if (first.StartsWith(BaseName, StringComparison.Ordinal) || first.StartsWith("Utylix Free Memory", StringComparison.Ordinal) || first.StartsWith("Utylix Memory Guard", StringComparison.Ordinal)) names.Add(first);   // (+ the silent "Free up memory" task)
             }
         }
         else if (!string.IsNullOrEmpty(who))

@@ -64,6 +64,15 @@ public static class MemoryCleaner
         return new Result(before, after, total, trimmed, deepDone, deepFailed);
     }
 
+    /// <summary>Trims the working set of one program. False when Windows does not let this copy reach it (it runs as administrator, or is protected).</summary>
+    public static bool TrimProcess(int pid)
+    {
+        IntPtr h = OpenProcess(ProcessSetQuota | ProcessQueryInformation, false, pid);
+        if (h == IntPtr.Zero) return false;
+        try { return EmptyWorkingSet(h); }
+        finally { CloseHandle(h); }
+    }
+
     private static bool PurgeSystemLists()
     {
         try

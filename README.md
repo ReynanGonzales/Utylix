@@ -392,6 +392,12 @@ Right-click the desktop and choose **Free up memory** (on Windows 11: Show more 
 the memory it is not using right now (nothing is closed, nothing is lost, the pages come back by themselves when a program needs them), and a small notice in the corner shows how much came free.
 The program you are looking at and Explorer are left alone so they stay snappy. The notice also offers to clear Windows' cached (standby) memory, which needs administrator permission.
 
+## Memory limits (per program)
+
+**Dashboard > Memory limits** (or the tray menu): pick a program (for example `cabal.exe`) and a limit in MB. While Utylix runs it checks the listed programs every five seconds and, when one is above its
+limit, trims it (or, with *Deep clean*, frees every program and Windows' cached memory). Nothing is closed; a program that needs more simply goes over the limit again (at most one trim every 20 seconds
+per program). Nothing runs while the list is empty. Programs that run as administrator (many game clients) need one permission, asked once with a button in that window.
+
 ## Music player
 
 - **Six looks** (press **L**, or the ⋮ button > Look): *Classic* (big cover, playlist beside it), *Wide card* (one slim card with the playlist dropping under it), *Dark card*, *Frosted card*,

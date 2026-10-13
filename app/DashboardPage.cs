@@ -64,6 +64,7 @@ public sealed class DashboardPage : UserControl
         Tile("", "Browser extension", "DashExtension", () => ExtensionFiles.ShowHelp(Window.GetWindow(this)));
         Tile("", "Check for updates", "DashUpdates", () => AppUpdateWindow.ShowWindow(_manager));
         Tile("", "Drivers", "DashDrivers", DriversWindow.ShowPanel);
+        Tile("", "Memory limits", "DashMemoryLimits", MemoryLimitsWindow.ShowPanel);
         Fans.ExtraSlot.Children.Add(tiles);
 
         // ---- lighting of the RAM ----

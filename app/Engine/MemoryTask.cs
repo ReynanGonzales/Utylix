@@ -15,8 +15,11 @@ namespace IdmClone.Engine;
 public static class MemoryTask
 {
     private const string BaseName = "Utylix Free Memory";
+    private const string GuardBaseName = "Utylix Memory Guard";
 
-    public static string NameFor(string sid)
+    public static string NameFor(string sid) => NameFor(BaseName, sid);
+
+    private static string NameFor(string baseName, string sid)
     {
         string who;
         try
@@ -26,8 +29,14 @@ public static class MemoryTask
         }
         catch (Exception e) when (e is ArgumentException or IdentityNotMappedException or SystemException) { who = sid; }
         foreach (char c in Path.GetInvalidFileNameChars()) who = who.Replace(c, '_');
-        return BaseName + " (" + who + ")";
+        return baseName + " (" + who + ")";
     }
+
+    /// <summary>The task of the memory guard (limits for programs, see MemoryGuard): "Utylix.exe --memory-guard" with administrator rights.</summary>
+    public static bool GuardExists() => Schtasks($"/query /tn \"{NameFor(GuardBaseName, CurrentSid)}\"", out _) == 0;
+    public static bool RunGuard() => Schtasks($"/run /tn \"{NameFor(GuardBaseName, CurrentSid)}\"", out _) == 0;
+    public static bool InstallGuard(string sid) => InstallTask(GuardBaseName, sid, "--memory-guard",
+        "Utylix: watches the programs you gave a memory limit and trims them with administrator rights, without asking each time. It runs only while Utylix runs.");
 
     private static string CurrentSid => WindowsIdentity.GetCurrent().User?.Value ?? "";
 
@@ -61,14 +70,17 @@ public static class MemoryTask
     }
 
     /// <summary>Makes (or replaces) the task for the account <paramref name="sid"/>. Needs administrator rights.</summary>
-    public static bool Install(string sid)
+    public static bool Install(string sid) => InstallTask(BaseName, sid, "--free-memory-deep",
+        "Utylix: free up memory with administrator rights, without asking each time. It runs only when you use Free up memory.");
+
+    private static bool InstallTask(string baseName, string sid, string arguments, string description)
     {
         try
         {
             string exe = Environment.ProcessPath!;
             string xml = $@"<?xml version=""1.0"" encoding=""UTF-16""?>
 <Task version=""1.2"" xmlns=""http://schemas.microsoft.com/windows/2004/02/mit/task"">
-  <RegistrationInfo><Description>Utylix: free up memory with administrator rights, without asking each time. It runs only when you use Free up memory.</Description></RegistrationInfo>
+  <RegistrationInfo><Description>{Esc(description)}</Description></RegistrationInfo>
   <Triggers />
   <Principals><Principal id=""Author""><UserId>{Esc(sid)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
@@ -83,11 +95,11 @@ public static class MemoryTask
     <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
     <Priority>5</Priority>
   </Settings>
-  <Actions Context=""Author""><Exec><Command>{Esc(exe)}</Command><Arguments>--free-memory-deep</Arguments></Exec></Actions>
+  <Actions Context=""Author""><Exec><Command>{Esc(exe)}</Command><Arguments>{Esc(arguments)}</Arguments></Exec></Actions>
 </Task>";
             string file = Path.Combine(Path.GetTempPath(), "utylix_mem_task_" + Guid.NewGuid().ToString("N")[..8] + ".xml");
             File.WriteAllText(file, xml, Encoding.Unicode);
-            try { return Schtasks($"/create /tn \"{NameFor(sid)}\" /xml \"{file}\" /f", out _) == 0; }
+            try { return Schtasks($"/create /tn \"{NameFor(baseName, sid)}\" /xml \"{file}\" /f", out _) == 0; }
             finally { try { File.Delete(file); } catch (IOException) { } }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }

@@ -101,6 +101,16 @@ public partial class App : Application
             return;
         }
 
+        // the memory guard of the "Memory limits" tool, as a separate copy with administrator rights (started by its scheduled task): no windows
+        if (e.Args.Contains("--memory-guard"))
+        {
+            _ = System.Threading.Tasks.Task.Run(() => { int code = MemoryGuard.RunProcess(dataDir); Dispatcher.Invoke(() => Shutdown(code)); });
+            return;
+        }
+        // one-time setup of that task (started with administrator rights by the Memory limits window, then ends)
+        int guardSetup = Array.IndexOf(e.Args, "--memory-guard-setup");
+        if (guardSetup >= 0 && guardSetup + 1 < e.Args.Length) { Shutdown(MemoryTask.InstallGuard(e.Args[guardSetup + 1]) ? 0 : 1); return; }
+
         // the desktop right-click "Free up memory": trim what the programs are not using, show a small notice, end (the tray copy is not involved)
         if (e.Args.Contains("--free-memory") || e.Args.Contains("--free-memory-deep"))
         {
@@ -223,6 +233,7 @@ public partial class App : Application
             ShellMenu.HidePlainExeFromOpenWith();                                      // (only the named entries: Utylix Editor, Utylix Photos, ...)
             ShellMenu.RegisterTorrent(_manager.Config.TorrentHandler);                 // magnet links and .torrent files can be opened with Utylix
         }
+        MemoryGuard.Ensure(dataDir);                                                   // limits chosen in "Memory limits": watched while Utylix runs
         _quickBackground = new QuickBackground((title, text, error, reveal) => Dispatcher.BeginInvoke(() =>
             Balloon(error ? 7000 : 5000, title, reveal != null ? text + "\nClick to open its folder" : text,
                     error ? System.Windows.Forms.ToolTipIcon.Warning : System.Windows.Forms.ToolTipIcon.Info, reveal != null ? () => Reveal(reveal) : null)),
@@ -297,6 +308,7 @@ public partial class App : Application
         if (args.Contains("--extension-help")) return ("extension", new List<string>());    // shows how to add the browser extension
         if (args.Contains("--snip")) return ("snip", new List<string>());                  // opens the Snip window
         if (args.Contains("--brightness")) return ("brightness", new List<string>());       // opens the brightness panel
+        if (args.Contains("--memory-limits")) return ("memory-limits", new List<string>()); // opens the Memory limits window
         int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent" or "--view" or "--pdf" or "--pdf-reduce" or "--pdf-combine" or "--to-pdf" or "--office-pdf");
         if (i < 0) return null;
         var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).ToList();
@@ -330,6 +342,7 @@ public partial class App : Application
         else if (op == "brightness") BrightnessWindow.ShowPanel();
         else if (op == "update") AppUpdateWindow.ShowWindow(_manager!);
         else if (op == "snip") SnipWindow.Get(_manager!).Open();
+        else if (op == "memory-limits") MemoryLimitsWindow.ShowPanel();
         else if (op == "extension") ExtensionFiles.ShowHelp();
     }
 
@@ -756,6 +769,7 @@ public partial class App : Application
         menu.Items.Add("About Utylix…", null, (_, _) => Dispatcher.Invoke(() => AboutWindow.ShowIt(null)));
         menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
         menu.Items.Add("Video Editor", null, (_, _) => Dispatcher.Invoke(() => OpenVidEditor()));
+        menu.Items.Add("Memory limits…", null, (_, _) => Dispatcher.Invoke(MemoryLimitsWindow.ShowPanel));
         menu.Items.Add("Photo viewer…", null, (_, _) => Dispatcher.Invoke(ViewerWindow.Browse));
         menu.Items.Add("PDF editor…", null, (_, _) => Dispatcher.Invoke(PdfWindow.Browse));
         menu.Items.Add("Music player", null, (_, _) => Dispatcher.Invoke(MusicWindow.OpenEmpty));
