@@ -208,7 +208,7 @@ public static class ArchiveService
                                 : streamFile is { Length: > 0 } sf ? Math.Min(1.0, sf.Position / (double)sf.Length) : 0;   // no sizes known: how far through the file we are
             void Report(string current) => progress?.Report((Fraction(), current));
 
-            void Write(string key, bool isDir, DateTime? modified, Func<Stream> open)
+            void Write(string key, bool isDir, DateTime? modified, Func<Stream> open, long size = -1)
             {
                 ct.ThrowIfCancellationRequested();
                 string? target = SafeTarget(destination, key);
@@ -222,18 +222,42 @@ public static class ArchiveService
                         target = Path.Combine(Path.GetDirectoryName(target)!, Util.UniqueName(Path.GetDirectoryName(target)!, Path.GetFileName(target)));
                 }
                 Report(key);
-                using (var src = open())
-                using (var dst = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
+                // Written under a temporary name and renamed when complete: a full disk, a cancel or a damaged archive never leaves a
+                // half-written file that looks real, and a file that was already there is only replaced by a whole one.
+                string part = target + ".utylix-part";
+                try
                 {
-                    var buf = new byte[1 << 16];
-                    int n;
-                    while ((n = src.Read(buf, 0, buf.Length)) > 0)
+                    long written = 0;
+                    using (var src = open())
+                    using (var dst = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
                     {
-                        ct.ThrowIfCancellationRequested();
-                        dst.Write(buf, 0, n);
-                        done += n;
-                        Report(key);
+                        var buf = new byte[1 << 16];
+                        int n;
+                        while ((n = src.Read(buf, 0, buf.Length)) > 0)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            dst.Write(buf, 0, n);
+                            written += n;
+                            done += n;
+                            Report(key);
+                        }
                     }
+                    // a cut-off archive (a download that stopped, a copy that was interrupted) can end in the middle of a file without any error
+                    if (size > 0 && written < size) throw new IOException("The archive is damaged or incomplete: it ends before this file does.");
+                    File.Move(part, target, overwrite: true);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { File.Delete(part); } catch (Exception) { }
+                    throw;
+                }
+                catch (IOException e)
+                {
+                    try { File.Delete(part); } catch (Exception) { }
+                    string left = files == 0 ? "Nothing was extracted before it stopped."
+                        : $"{files} file{(files == 1 ? " was" : "s were")} extracted before it stopped.";
+                    string reason = (e.HResult & 0xFFFF) is 0x70 or 0x27 ? "There is not enough space on the drive." : e.Message;    // (disk full / handle disk full)
+                    throw new IOException($"{reason} \"{Path.GetFileName(target)}\" was not finished and was removed. {left}");
                 }
                 if (modified is { } m) { try { File.SetLastWriteTime(target, m); } catch (Exception) { } }
                 files++;
@@ -246,7 +270,7 @@ public static class ArchiveService
                     string key = Normalize(entry.Key ?? "");
                     if (key.Length == 0 || !Wanted(key, only)) continue;
                     var e = entry;
-                    Write(key, e.IsDirectory, e.LastModifiedTime, () => e.IsDirectory ? Stream.Null : e.OpenEntryStream());
+                    Write(key, e.IsDirectory, e.LastModifiedTime, () => e.IsDirectory ? Stream.Null : e.OpenEntryStream(), e.Size);
                 }
             }
             else
@@ -258,7 +282,7 @@ public static class ArchiveService
                     string key = Normalize(reader.Entry.Key ?? "");
                     if (key.Length == 0 || !Wanted(key, only)) continue;
                     var entry = reader.Entry;
-                    Write(key, entry.IsDirectory, entry.LastModifiedTime, () => entry.IsDirectory ? Stream.Null : reader.OpenEntryStream());
+                    Write(key, entry.IsDirectory, entry.LastModifiedTime, () => entry.IsDirectory ? Stream.Null : reader.OpenEntryStream(), entry.Size);
                 }
             }
             progress?.Report((1, ""));
