@@ -25,11 +25,16 @@ public static class NativeHost
     /// <summary>Derived from the "key" in extension/manifest.json, so it is the same on every PC.</summary>
     public const string ExtensionId = "cpggenldolfdkngbboephajkoankclkj";
 
+    /// <summary>The id of the same extension in Firefox (set in extension/manifest.json, browser_specific_settings). Firefox names the caller by this id, not by an origin.</summary>
+    public const string GeckoId = "utylix-integration@utylix.app";
+
     private static readonly string[] BrowserKeys =
     {
         @"Software\Google\Chrome", @"Software\BraveSoftware\Brave-Browser", @"Software\Microsoft\Edge",
         @"Software\Chromium", @"Software\Vivaldi",
     };
+    /// <summary>Firefox looks in its own place and wants "allowed_extensions" (ids) instead of "allowed_origins".</summary>
+    private const string FirefoxKey = @"Software\Mozilla";
 
     // ---------- registering the host with the browsers (per user, no admin rights) ----------
     public static void Register(string dataDir, bool enabled)
@@ -37,10 +42,11 @@ public static class NativeHost
         try
         {
             string manifest = Path.Combine(dataDir, "native", HostName + ".json");
+            string firefoxManifest = Path.Combine(dataDir, "native", HostName + "-firefox.json");
             if (enabled)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
-                File.WriteAllText(manifest, JsonSerializer.Serialize(new
+                WriteIfDifferent(manifest, JsonSerializer.Serialize(new
                 {
                     name = HostName,
                     description = "Lets the Utylix browser extension start the Utylix app",
@@ -48,14 +54,23 @@ public static class NativeHost
                     type = "stdio",
                     allowed_origins = new[] { $"chrome-extension://{ExtensionId}/" },
                 }));
+                WriteIfDifferent(firefoxManifest, JsonSerializer.Serialize(new
+                {
+                    name = HostName,
+                    description = "Lets the Utylix browser extension start the Utylix app",
+                    path = Environment.ProcessPath,
+                    type = "stdio",
+                    allowed_extensions = new[] { GeckoId },
+                }));
             }
-            foreach (var browser in BrowserKeys)
+            foreach (var (browser, file) in BrowserKeys.Select(b => (b, manifest)).Append((FirefoxKey, firefoxManifest)))
             {
                 string key = $@"{browser}\NativeMessagingHosts\{HostName}";
                 if (enabled)
                 {
                     using var k = Registry.CurrentUser.CreateSubKey(key);
-                    k.SetValue("", manifest);                       // the default value points at the manifest file
+                    if (!string.Equals(k.GetValue("") as string, file, StringComparison.OrdinalIgnoreCase))
+                        k.SetValue("", file);                       // the default value points at the manifest file
                 }
                 else Registry.CurrentUser.DeleteSubKey(key, throwOnMissingSubKey: false);
             }
@@ -63,16 +78,23 @@ public static class NativeHost
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
     }
 
+    private static void WriteIfDifferent(string path, string text)
+    {
+        if (File.Exists(path) && File.ReadAllText(path) == text) return;
+        File.WriteAllText(path, text);
+    }
+
     // ---------- host mode ----------
+    // Chromium browsers pass the extension's origin; Firefox passes the manifest's path and then the extension's id.
     public static bool IsHostLaunch(string[] args) =>
-        args.Any(a => a.StartsWith("chrome-extension://", StringComparison.Ordinal) || a.StartsWith("moz-extension://", StringComparison.Ordinal));
+        args.Any(a => a.StartsWith("chrome-extension://", StringComparison.Ordinal) || a.StartsWith("moz-extension://", StringComparison.Ordinal) || a == GeckoId);
 
     /// <summary>Answers one "start" message: makes sure the app is running, then returns (the process exits).</summary>
     public static int RunHost(string[] args, string dataDir)
     {
         try
         {
-            string origin = args.First(a => a.Contains("-extension://"));
+            string origin = args.First(a => a.Contains("-extension://") || a == GeckoId);
             // This is a windowed app, so .NET's Console streams can be empty stand-ins; use the handles the browser gave us.
             using var stdin = new FileStream(new SafeFileHandle(GetStdHandle(-10), false), FileAccess.Read, 1, false);
             using var stdout = new FileStream(new SafeFileHandle(GetStdHandle(-11), false), FileAccess.Write, 1, false);
@@ -91,7 +113,7 @@ public static class NativeHost
             int explicitPort = 0;
             for (int i = 0; i < args.Length - 1; i++) if (args[i] == "--port" && int.TryParse(args[i + 1], out int ep)) explicitPort = ep;
             object reply;
-            if (origin != $"chrome-extension://{ExtensionId}/") reply = new { ok = false, error = "unknown extension" };
+            if (origin != $"chrome-extension://{ExtensionId}/" && origin != GeckoId) reply = new { ok = false, error = "unknown extension" };
             else if (cmd == "info") { int live = ApiPort.Current(dataDir, explicitPort > 0 ? explicitPort : null); reply = new { ok = true, port = live, user = ApiPort.UserId, running = Ping(live) }; }
             else if (cmd != "start") reply = new { ok = false, error = "unknown command" };
             else if (!AllowedByUser(dataDir)) reply = new { ok = false, error = "disabled in Utylix settings" };

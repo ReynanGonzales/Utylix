@@ -106,6 +106,44 @@ internal static class ExtensionFiles
         return list;
     }
 
+    /// <summary>The installed Firefox program, or null.</summary>
+    private static string? FirefoxExe()
+    {
+        foreach (var root in new[] { Registry.LocalMachine, Registry.CurrentUser })
+        {
+            try
+            {
+                using var key = root.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\App Paths\firefox.exe");
+                if (key?.GetValue("") is string exe && File.Exists(exe)) return exe;
+            }
+            catch (Exception e) when (e is System.Security.SecurityException or IOException) { }
+        }
+        foreach (var dir in new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)) })
+        {
+            string exe = Path.Combine(dir, "Mozilla Firefox", "firefox.exe");
+            if (File.Exists(exe)) return exe;
+        }
+        return null;
+    }
+
+    /// <summary>The extension's files as one zip with manifest.json at its root: what Mozilla's signing page wants.</summary>
+    private static void SaveFirefoxZip(string folder)
+    {
+        var dlg = new SaveFileDialog { Title = "Save the extension for Mozilla signing", FileName = "Utylix-extension.zip", Filter = "Zip file (*.zip)|*.zip", OverwritePrompt = true };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            if (File.Exists(dlg.FileName)) File.Delete(dlg.FileName);
+            System.IO.Compression.ZipFile.CreateFromDirectory(folder, dlg.FileName, System.IO.Compression.CompressionLevel.Optimal, includeBaseDirectory: false);
+            UMessage.Show("Saved. Upload this zip at addons.mozilla.org/developers (Submit a New Add-on > On your own).", "Utylix browser extension");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            UMessage.Show("The zip could not be saved: " + e.Message, "Utylix browser extension");
+        }
+    }
+
     public static void ShowHelp(Window? owner = null)
     {
         string folder = Ensure();
@@ -149,6 +187,35 @@ internal static class ExtensionFiles
         row.Children.Add(open); row.Children.Add(copy);
         panel.Children.Add(row);
         panel.Children.Add(new TextBlock { Text = "4.  The Utylix icon appears next to the address bar. Click the puzzle piece and pin it if you like.", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 0), TextWrapping = TextWrapping.Wrap });
+        // ---- Firefox: a different way of adding (and Mozilla has to sign an add-on before Firefox keeps it) ----
+        panel.Children.Add(new TextBlock { Text = "Firefox", FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 24, 0, 0) });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "1.  Open Firefox's add-on debugging page, click \"Load Temporary Add-on…\" and choose the file manifest.json inside the folder above. " +
+                   "That works at once, but Firefox forgets it when it is closed.\n" +
+                   "2.  To keep it for good, Mozilla has to sign it (free, takes a few minutes): save the zip below, sign in at addons.mozilla.org/developers, " +
+                   "choose \"Submit a New Add-on\" > \"On your own\", upload the zip, then drag the .xpi you get back onto Firefox.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8),
+        });
+        var ffRow = new WrapPanel();
+        var ffExe = FirefoxExe();
+        var ffOpen = new Button { Content = "Open Firefox's debugging page", Style = (Style)R("DialogButton"), Margin = new Thickness(0, 0, 8, 6), IsEnabled = ffExe != null };
+        AutomationProperties("OpenFirefox", ffOpen);
+        ffOpen.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(ffExe!) { ArgumentList = { "about:debugging#/runtime/this-firefox" }, UseShellExecute = false }); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { } };
+        var ffZip = new Button { Content = "Save a zip for Mozilla signing…", Style = (Style)R("DialogButton"), Margin = new Thickness(0, 0, 8, 6) };
+        AutomationProperties("SaveFirefoxZip", ffZip);
+        ffZip.Click += (_, _) => SaveFirefoxZip(folder);
+        ffRow.Children.Add(ffOpen); ffRow.Children.Add(ffZip);
+        panel.Children.Add(ffRow);
+        if (ffExe == null)
+            panel.Children.Add(new TextBlock { Text = "Firefox was not found on this PC (the first button needs it).", FontSize = 12, Foreground = (Brush)R("MutedBrush"), TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "In Firefox the extension takes the downloads, the video button and the right-click entries; Picture in Picture is Firefox's own (the button on the video, or Ctrl+Shift+]). " +
+                   "If a site does not work, check in Firefox's Add-ons page > Utylix > Permissions that it may access your data for all websites.",
+            FontSize = 12, Foreground = (Brush)R("MutedBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
+        });
+
         panel.Children.Add(new TextBlock
         {
             Text = "After Utylix is updated, the extension reloads itself the next time the browser talks to Utylix. If it ever does not, press the round reload arrow on the Utylix extension (same page) once.",

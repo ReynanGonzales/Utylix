@@ -116,6 +116,12 @@ Works in every Chromium browser: Brave, Chrome, Edge, Opera, Vivaldi. The extens
 download before the browser saves anything and hands the link (plus the cookies, referrer and user-agent the
 browser used) to Utylix. If the app can't fetch the file, the browser gets it back, so nothing is lost.
 
+**Firefox** (121 or newer) uses the same extension folder, but is added differently: *about:debugging* >
+*Load Temporary Add-on…* > `manifest.json` (gone when Firefox closes), or permanently once Mozilla has signed it
+(free: the extension window has a **Save a zip for Mozilla signing** button). Firefox has no hook that makes the
+browser wait before it saves, so there the file may start in Firefox for a moment before Utylix takes it over;
+Picture in Picture is Firefox's own.
+
 - **"New download" window** – shows the size, whether fast multi-connection download is possible, the file name,
   a type (Compressed, Picture, Video, Music, Document, Application, Other) and where it will be saved; choose
   *Start download*, *Download later* or *Cancel*. Turn the window off in Settings → *Browser capture*.

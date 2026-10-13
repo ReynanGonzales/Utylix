@@ -5,6 +5,8 @@
   if (window.__utylixPip) return;
   window.__utylixPip = true;
   if (/(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/i.test(location.hostname)) return;
+  // Firefox has no page-controlled Picture in Picture (it has its own button on the video, or Ctrl+Shift+]): nothing for this script to do there.
+  if (typeof HTMLVideoElement.prototype.requestPictureInPicture !== 'function' && !window.documentPictureInPicture) return;
 
   const MIN_W = 120, MIN_H = 70;          // ignore tiny videos (ads, previews, icons)
   let target = null;                      // the video under the pointer at the last right click
