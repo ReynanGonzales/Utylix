@@ -36,6 +36,8 @@
     <Resource Include="archive.png" />
     <Resource Include="pdf.ico" />
     <Resource Include="pdf.png" />
+    <Resource Include="vid.ico" />
+    <Resource Include="vid.png" />
     <!-- the browser extension travels inside Utylix.exe and is unpacked into the data folder, so the installer needs no extra files -->
     <EmbeddedResource Include="..\extension\**\*" LogicalName="ext/%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- and as real files next to the program (extension\ in the program folder): the installed copy uses those, the embedded copy is for the single-file build -->

@@ -32,6 +32,7 @@ public partial class App : Application
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         if (e.Args.Contains("--selftest")) { Shutdown(SelfTest.Run()); return; }         // (the build checks that the program folder starts)
+        if (WantsVidEditor(e.Args)) { StartVidEditor(e.Args); return; }                   // UtylixVid.exe: the video editor (App.Vid.cs)
 
         // an unexpected error must never close Utylix (it may be doing your downloads): show a notice and keep a log
         DispatcherUnhandledException += (_, ev) =>

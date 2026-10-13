@@ -346,6 +346,21 @@ internal static partial class Installer
             catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
             finally { p.Dispose(); }
         }
+        // the video editor (UtylixVid.exe) runs from the same Utylix.dll: it is asked to close (it offers to save), then ended
+        string vid = Path.Combine(Path.GetDirectoryName(exe) ?? "", "UtylixVid.exe");
+        foreach (var p in Process.GetProcessesByName("UtylixVid"))
+        {
+            try
+            {
+                if (p.Id != Environment.ProcessId && string.Equals(p.MainModule?.FileName, vid, StringComparison.OrdinalIgnoreCase))
+                {
+                    p.CloseMainWindow();
+                    if (!p.WaitForExit(20000)) { p.Kill(); p.WaitForExit(5000); }
+                }
+            }
+            catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+            finally { p.Dispose(); }
+        }
     }
 
     private static void MakeShortcut(string path, string exe)
