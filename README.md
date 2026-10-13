@@ -102,7 +102,12 @@ where Utylix has never run, a plain `Utylix.exe` offers the same wizard. It has 
 3. **Right-click menus and startup** – Convert, Utylix Archive, Remove background, Play with Utylix, run Utylix when Windows
    starts, desktop shortcut.
 4. **Extra parts to download** – yt-dlp, ffmpeg, the player engine, the background remover's AI model (each from its official
-   source, checked against its fingerprint; skipped ones are offered later when needed).
+   source, checked against its fingerprint; skipped ones are offered later when needed). **A PC without internet:** on a PC
+   that has these parts, open *Settings > Video sites > Save the tools for another PC…* and choose the USB stick: it makes a
+   `Utylix-tools` folder (about 650 MB with everything). Put `Utylix-Setup.exe` on the same stick and run it on the offline
+   PC: this page finds the folder by itself (or use *Choose a folder…*) and copies the parts, so nothing has to be downloaded.
+   The same two buttons are in an installed Utylix (*Save the tools for another PC…* / *Use a folder…*). Video-site and
+   torrent downloads still need the internet; the converter, recorder, player, background remover and PDF tools do not.
 5. **Installing** – a progress bar, then *Start Utylix now*.
 
 It adds Utylix to *Settings > Apps* and the Start menu. Uninstall from there, or with **`Uninstall.bat`**: it removes the

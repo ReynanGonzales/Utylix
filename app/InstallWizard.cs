@@ -242,6 +242,53 @@ internal static partial class Installer
         selectNone.Click += (_, _) => { foreach (var b in new[] { dYt, dFf, dVlc, dAi, dPawn }) if (b.IsEnabled) b.IsChecked = false; };
         var downloadsPage = new StackPanel();
         downloadsPage.Children.Add(Text("Utylix does not carry these inside it (they are other people's programs, and they go out of date). Choose which to download now; each comes from its official source and is checked against its published fingerprint. Anything you skip is offered later, the first time it is needed.", muted: true));
+        // A PC without internet: the same parts from a folder or USB stick that another PC saved (Settings > Video sites > Save the tools for another PC).
+        string? nearby = ToolPack.FindNearby();
+        var packMsg = Text(nearby != null ? "Found the tools on this stick / next to the setup file:  " + nearby
+                                          : "No internet on this PC? Use the \"Utylix-tools\" folder that another PC saved on a USB stick (Settings > Video sites > Save the tools for another PC).",
+                           12.5, bold: nearby != null, margin: new Thickness(0, 14, 0, 0));
+        var packUse = new Button { Content = "Use these tools", Style = (Style)R("DialogButton"), Margin = new Thickness(0, 8, 8, 0), Visibility = nearby != null ? Visibility.Visible : Visibility.Collapsed };
+        var packPick = new Button { Content = "Choose a folder…", Style = (Style)R("DialogButton"), Margin = new Thickness(0, 8, 0, 0) };
+        A(packUse, "SetupPackUse"); A(packPick, "SetupPackPick"); A(packMsg, "SetupPackMessage");
+        void Relabel(CheckBox box, string label, bool has)
+        {
+            if (box.Content is StackPanel sp && sp.Children.Count > 0 && sp.Children[0] is TextBlock t) t.Text = label + (has ? have : "");
+            if (has) box.IsChecked = false;
+        }
+        async Task CopyPack(string pack)
+        {
+            packUse.IsEnabled = packPick.IsEnabled = false;
+            packMsg.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            try
+            {
+                var names = await Task.Run(() => ToolPack.Import(pack, s => Application.Current.Dispatcher.Invoke(() => packMsg.Text = s)));
+                packMsg.Text = names.Count == 0 ? "Nothing new: everything in that folder is already on this PC." : "Copied: " + string.Join(", ", names) + ". These no longer need a download.";
+                Relabel(dYt, "Video sites: yt-dlp", Tools.HasYtDlp);
+                Relabel(dFf, "Convert, record and merge: ffmpeg", Tools.HasFfmpeg);
+                Relabel(dVlc, "Video player engine", VlcEngine.Find() != null);
+                Relabel(dAi, "Background remover: AI model", BackgroundRemover.HasModel);
+                UpdateTotal();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                packMsg.Text = "Couldn't copy the tools: " + e.Message;
+                packMsg.SetResourceReference(TextBlock.ForegroundProperty, "ErrBrush");
+            }
+            finally { packUse.IsEnabled = packPick.IsEnabled = true; }
+        }
+        packUse.Click += async (_, _) => { if (nearby != null) await CopyPack(nearby); };
+        packPick.Click += async (_, _) =>
+        {
+            using var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "Choose the folder (or the USB stick) that holds Utylix-tools", UseDescriptionForTitle = true };
+            if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+            string? pack = ToolPack.FindPack(dlg.SelectedPath);
+            if (pack == null) { packMsg.Text = "No Utylix tools were found in that folder."; packMsg.SetResourceReference(TextBlock.ForegroundProperty, "ErrBrush"); return; }
+            await CopyPack(pack);
+        };
+        var packButtons = new StackPanel { Orientation = Orientation.Horizontal };
+        packButtons.Children.Add(packUse); packButtons.Children.Add(packPick);
+        downloadsPage.Children.Add(packMsg);
+        downloadsPage.Children.Add(packButtons);
         downloadsPage.Children.Add(dYt); downloadsPage.Children.Add(dFf); downloadsPage.Children.Add(dVlc); downloadsPage.Children.Add(dAi); downloadsPage.Children.Add(dPawn);
         var links = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
         links.Children.Add(selectAll); links.Children.Add(selectNone);
@@ -261,7 +308,9 @@ internal static partial class Installer
         installing.Children.Add(Text("Please wait while Utylix is set up. You can keep using your PC.", muted: true));
         installing.Children.Add(bar); installing.Children.Add(status); installing.Children.Add(startNow); installing.Children.Add(showExtension);
 
-        var pages = new[] { welcome, where, features, downloadsPage, installing };
+        // (this page is the longest one: it scrolls instead of being cut off on a small screen)
+        var downloadsScroll = new ScrollViewer { Content = downloadsPage, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 8, 0) };
+        var pages = new UIElement[] { welcome, where, features, downloadsScroll, installing };
         var titles = new[] { "Welcome to Utylix", "Where to install", "Right-click menus and startup", "Extra parts to download", "Installing" };
 
         // ---- frame: header with steps, page area, buttons ----

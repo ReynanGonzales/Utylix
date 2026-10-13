@@ -318,6 +318,20 @@
                             <TextBlock x:Name="PawnStatus" Grid.Column="1" VerticalAlignment="Center" Text="Checking…" TextWrapping="Wrap" Margin="0,0,10,0" />
                             <Button x:Name="PawnBtn" Grid.Column="2" Content="Install" Style="{StaticResource DialogButton}" Click="PawnBtn_Click" />
                         </Grid>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="290" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="For a PC without internet" FontWeight="SemiBold" />
+                                <TextBlock Text="carry these tools on a USB stick (about 650 MB with everything)" FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <WrapPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <Button x:Name="PackSaveBtn" Content="Save the tools for another PC…" Style="{StaticResource DialogButton}" Margin="0,0,8,0" Click="PackSave_Click" />
+                                <Button x:Name="PackUseBtn" Content="Use a folder…" Style="{StaticResource DialogButton}" Click="PackUse_Click" />
+                            </WrapPanel>
+                        </Grid>
                         <TextBlock x:Name="ToolMessage" Margin="0,14,0,0" TextWrapping="Wrap" />
                         <CheckBox x:Name="AutoUpdateBox" Margin="0,14,0,0" Content="Check for a newer yt-dlp now and then (it asks before installing)" />
 

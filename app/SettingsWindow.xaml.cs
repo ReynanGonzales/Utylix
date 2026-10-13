@@ -307,6 +307,39 @@ public partial class SettingsWindow : Window
     private void JsBtn_Click(object sender, RoutedEventArgs e) => _ = RunToolInstall(Tools.InstallJsRuntimeAsync);
     private void PawnBtn_Click(object sender, RoutedEventArgs e) => _ = RunToolInstall(PawnIoSetup.InstallAsync);
 
+    // ---------- tools for a PC without internet ----------
+    private void PackSave_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Choose the folder or USB stick to save the tools on" };
+        if (dlg.ShowDialog(this) != true) return;
+        string target = dlg.FolderName;
+        _ = RunToolInstall(async (status, ct) =>
+        {
+            var (folder, names) = await System.Threading.Tasks.Task.Run(() => ToolPack.Export(target, status, ct), ct);
+            status($"Saved {string.Join(", ", names)} in {folder}. On the other PC put the folder next to Utylix-Setup.exe, or use \"Use a folder…\" there.");
+        });
+    }
+
+    private void PackUse_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Choose the folder (or USB stick) that holds Utylix-tools" };
+        if (dlg.ShowDialog(this) != true) return;
+        string? pack = ToolPack.FindPack(dlg.FolderName);
+        if (pack == null)
+        {
+            ToolMessage.Text = "No Utylix tools were found in that folder.";
+            ToolMessage.SetResourceReference(TextBlock.ForegroundProperty, "ErrBrush");
+            return;
+        }
+        _ = RunToolInstall(async (status, ct) =>
+        {
+            var names = await System.Threading.Tasks.Task.Run(() => ToolPack.Import(pack, status, ct), ct);
+            status(names.Count == 0 ? "Nothing new: everything in that folder is already on this PC." : "Copied: " + string.Join(", ", names) + ".");
+        });
+    }
+
     private void BuildCategoryRows(Config c)
     {
         foreach (var category in Categories.All)
