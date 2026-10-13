@@ -368,11 +368,15 @@ a menu bar, **Source** and **Effect Controls** on the top left, the **Program** 
 - **Timeline:** any number of picture and sound tracks, picture and sound of a video stay linked, drag to move (also to another track), drag an edge to trim, snapping,
   marquee select, copy / cut / paste, mute / lock / solo per track, markers (M) and In / Out (I / O) on the ruler, zoom with Ctrl + wheel.
 - **Tools:** Selection (V), Track select forward (A), Ripple edit (B), Rolling edit (N), Razor (C), Slip (Y), Hand (H), Title (T).
+- **Program monitor:** click a picture, video or title in the picture to choose it, drag it to move, drag a corner to resize, drag the top handle to turn it (with keyframes on, every drag sets one);
+  double-click a title to type in it. Fit / zoom, safe margins and a preview quality menu sit on the monitor's bar.
+- **Panels:** Project (icon or list view, search), Effects, **Info** (what is chosen), **History** (every step, click one to go back to it) and **Markers** (click to jump).
+- **Workspaces:** Assembly, Editing, Color, Effects, Audio and Graphics tabs under the menu bar change which panels are in front.
 - **Source monitor:** double-click a file in the Project panel, mark In and Out, then **Insert** (,) or **Overwrite** (.) it into the sequence at the playhead.
 - **Edit commands:** Lift (;) and Extract (') the part between In and Out, ripple delete, duplicate, speed, undo / redo through everything.
 - **Effect Controls:** Motion (position, scale, rotation) and Opacity with **keyframes** (stopwatch, add / delete / previous / next), volume keyframes, an effect stack,
   transition in (19 kinds: cross dissolve, dip to black or white, wipes, push, slide, iris, barn doors, zoom; drag its edge on the clip to change the length), fades, track volume / balance.
-- **Effects panel:** colour (brightness / contrast / saturation / gamma, warm / cool, black and white, sepia, invert), blur, sharpen, film grain, crop, mirror, vignette,
+- **Effects panel:** colour (**Lumetri Color**: temperature, tint, exposure, contrast, highlights, shadows, saturation, vibrance; brightness / contrast / saturation / gamma, warm / cool, black and white, sepia, invert), blur, sharpen, film grain, crop, mirror, vignette,
   mosaic, find edges, green screen key; sound: gain, high-pass, low-pass, noise reduction, even out volume, echo, bass, treble.
 - **Titles:** text clips with font, size, colour, bold, outline and a dark box; fades and keyframes work on them like on pictures.
 - **Export:** MP4 (H.264 or H.265, the video card's encoder when it works), WebM VP9, GIF, MP3, WAV; whole sequence or In to Out; any size; export a single frame.
