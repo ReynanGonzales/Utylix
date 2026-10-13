@@ -152,20 +152,27 @@ public static class VidGraph
     }
 
     // ---------- picture ----------
+    private static bool IsDip(TransitionKind k) => k is TransitionKind.DipToBlack or TransitionKind.DipToWhite;
+    private static bool IsPush(TransitionKind k) => k is TransitionKind.PushLeft or TransitionKind.PushRight or TransitionKind.PushUp or TransitionKind.PushDown;
+    private static bool IsSlide(TransitionKind k) => k is TransitionKind.SlideLeft or TransitionKind.SlideRight or TransitionKind.SlideUp or TransitionKind.SlideDown;
+
+    /// <summary>Progress 0..1 of a transition as an ffmpeg expression in window time (variable <paramref name="tv"/>).</summary>
+    private static string Progress(double start, double length, string tv) => $"clip(({tv}-{F(start)})/{F(Math.Max(0.05, length))},0,1)";
+
     private static void AddVideoClip(Ctx x, Track track, Clip c)
     {
         var m = x.P.MediaOf(c);
         if (m == null || !m.HasVideo) return;
         double T0 = x.T0, T1 = x.T1, fps = x.Fps;
 
-        // the clip that comes in over this one (cross dissolve and wipes need this one to stay visible under it)
+        // the clip that comes in over this one (it has to stay visible under it, and push / slide transitions move it)
         var next = track.Clips.FirstOrDefault(o => o != c && Math.Abs(o.Start - c.End) < 0.002 && o.Transition != TransitionKind.None);
         double nextL = next != null ? Math.Max(0.05, next.TransitionLength) : 0;
-        double ext = next != null && next.Transition != TransitionKind.DipToBlack ? nextL : 0;
+        double ext = next != null && !IsDip(next.Transition) ? nextL : 0;
         double visEnd = c.End + ext;
         if (visEnd <= T0 || c.Start >= T1) return;
 
-        bool frozen = c.End <= T0;                                           // only the held last picture is inside the window
+        bool frozen = c.End <= T0;                                           // only the held / handle part is inside the window
         double a = frozen ? T0 : Math.Max(c.Start, T0);
         double b = frozen ? T0 : Math.Min(c.End, T1);
         if (!frozen && b - a < 0.001) return;
@@ -174,16 +181,42 @@ public static class VidGraph
         double tail;
         if (frozen)
         {
-            double read = 2.0 / fps;
-            if (m.Kind == MediaKind.Image) x.Job.Args.AddRange(new[] { "-loop", "1", "-framerate", F(fps), "-t", F(read), "-i", m.Path });
-            else x.Job.Args.AddRange(new[] { "-ss", F(Math.Max(0, c.In + Math.Max(0, c.Length - read) * speed)), "-t", F(read * speed), "-i", m.Path });
-            tail = Math.Min(visEnd, T1) - a;
+            // the end of the clip may have more picture after it in the file (a "handle"): use it; hold the last picture for what is missing
+            double handleAvail = m.Kind == MediaKind.Image ? 0 : Math.Max(0, (m.Duration - (c.In + c.SourceLength)) / speed);
+            double need = Math.Min(visEnd, T1) - T0;
+            double handleStart = T0 - c.End;
+            double use = Math.Clamp(Math.Min(need, handleAvail - handleStart), 0, need);
+            if (m.Kind == MediaKind.Image)
+            {
+                double read = 2.0 / fps;
+                x.Job.Args.AddRange(new[] { "-loop", "1", "-framerate", F(fps), "-t", F(read), "-i", m.Path });
+                tail = need;
+            }
+            else if (use > 0.05)
+            {
+                x.Job.Args.AddRange(new[] { "-ss", F(c.In + (c.Length + handleStart) * speed), "-t", F(use * speed), "-i", m.Path });
+                tail = need - use;
+            }
+            else
+            {
+                double read = 2.0 / fps;
+                x.Job.Args.AddRange(new[] { "-ss", F(Math.Max(0, c.In + Math.Max(0, c.Length - read) * speed)), "-t", F(read * speed), "-i", m.Path });
+                tail = need;
+            }
         }
         else
         {
-            if (m.Kind == MediaKind.Image) x.Job.Args.AddRange(new[] { "-loop", "1", "-framerate", F(fps), "-t", F(b - a), "-i", m.Path });
-            else x.Job.Args.AddRange(new[] { "-ss", F(c.In + (a - c.Start) * speed), "-t", F((b - a) * speed), "-i", m.Path });
-            tail = b >= c.End - 1e-6 ? Math.Min(visEnd, T1) - b : 0;
+            double handle = 0;
+            if (b >= c.End - 1e-6 && ext > 0 && m.Kind != MediaKind.Image)
+            {
+                double avail = Math.Max(0, (m.Duration - (c.In + c.SourceLength)) / speed);
+                handle = Math.Clamp(Math.Min(avail, Math.Min(ext, T1 - c.End)), 0, ext);
+                if (handle < 0.05) handle = 0;
+            }
+            if (m.Kind == MediaKind.Image) x.Job.Args.AddRange(new[] { "-loop", "1", "-framerate", F(fps), "-t", F(b - a + Math.Min(ext, Math.Max(0, T1 - c.End))), "-i", m.Path });
+            else x.Job.Args.AddRange(new[] { "-ss", F(c.In + (a - c.Start) * speed), "-t", F((b - a + handle) * speed), "-i", m.Path });
+            double wanted = b >= c.End - 1e-6 ? Math.Min(visEnd, T1) - b : 0;
+            tail = m.Kind == MediaKind.Image ? 0 : Math.Max(0, wanted - handle);
         }
 
         var ch = new StringBuilder();
@@ -203,10 +236,21 @@ public static class VidGraph
         bool rotated = kRot != null || Math.Abs(c.Rotation) > 0.01;
         var tr = c.Transition;
         double trL = Math.Max(0.05, c.TransitionLength);
-        bool alpha = kOpacity != null || c.Opacity < 0.999 || c.FadeIn > 0 || c.FadeOut > 0 || rotated || IsWipe(tr) || tr == TransitionKind.Dissolve;
+        double ts = c.Start - T0;
+        bool maskTransition = IsWipe(tr) || tr is TransitionKind.Iris or TransitionKind.BarnDoors or TransitionKind.BarnDoorsV;
+        bool alpha = kOpacity != null || c.Opacity < 0.999 || c.FadeIn > 0 || c.FadeOut > 0 || rotated || maskTransition || tr is TransitionKind.Dissolve or TransitionKind.ZoomIn;
         if (alpha) ch.Append(",format=yuva420p");
 
-        if (kScale != null) ch.Append($",scale=w='max(2,trunc(iw*({kScale})/2)*2)':h='max(2,trunc(ih*({kScale})/2)*2)':eval=frame");
+        // size: its own scale (maybe animated), and the zoom-in transition grows it from a fifth
+        string? scaleExpr = kScale;
+        bool zoomIn = tr == TransitionKind.ZoomIn;
+        if (zoomIn)
+        {
+            string p = Progress(ts, trL, "t");
+            string baseScale = kScale ?? F(c.Scale);
+            scaleExpr = $"({baseScale})*(0.2+0.8*{p})";
+        }
+        if (scaleExpr != null) ch.Append($",scale=w='max(2,trunc(iw*({scaleExpr})/2)*2)':h='max(2,trunc(ih*({scaleExpr})/2)*2)':eval=frame");
         else if (Math.Abs(c.Scale - 1) > 0.001) ch.Append($",scale=max(2\\,trunc(iw*{F(c.Scale)}/2)*2):max(2\\,trunc(ih*{F(c.Scale)}/2)*2)");
         if (rotated)
         {
@@ -215,23 +259,29 @@ public static class VidGraph
         }
         if (kOpacity != null) ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*clip({kOpacity},0,1)'");
         else if (c.Opacity < 0.999) ch.Append($",colorchannelmixer=aa={F(Math.Clamp(c.Opacity, 0, 1))}");
-        if (c.FadeIn > 0) ch.Append($",fade=t=in:st={F(c.Start - T0)}:d={F(c.FadeIn)}:alpha=1");
+        if (c.FadeIn > 0) ch.Append($",fade=t=in:st={F(ts)}:d={F(c.FadeIn)}:alpha=1");
         if (c.FadeOut > 0) ch.Append($",fade=t=out:st={F(c.End - c.FadeOut - T0)}:d={F(c.FadeOut)}:alpha=1");
 
         // the way this clip comes in
-        double ts = c.Start - T0;
         switch (tr)
         {
             case TransitionKind.Dissolve:
+            case TransitionKind.ZoomIn:
                 ch.Append($",fade=t=in:st={F(ts)}:d={F(trL)}:alpha=1");
                 break;
             case TransitionKind.DipToBlack:
                 ch.Append($",fade=t=in:st={F(ts)}:d={F(trL / 2)}:color=black");
                 break;
+            case TransitionKind.DipToWhite:
+                ch.Append($",fade=t=in:st={F(ts)}:d={F(trL / 2)}:color=white");
+                break;
             case TransitionKind.WipeRight:
             case TransitionKind.WipeLeft:
             case TransitionKind.WipeDown:
             case TransitionKind.WipeUp:
+            case TransitionKind.Iris:
+            case TransitionKind.BarnDoors:
+            case TransitionKind.BarnDoorsV:
             {
                 string p = $"clip((T-{F(ts)})/{F(trL)},0,1)";
                 string visible = tr switch
@@ -239,22 +289,50 @@ public static class VidGraph
                     TransitionKind.WipeRight => $"lte(X,W*{p})",
                     TransitionKind.WipeLeft => $"gte(X,W*(1-{p}))",
                     TransitionKind.WipeDown => $"lte(Y,H*{p})",
-                    _ => $"gte(Y,H*(1-{p}))",
+                    TransitionKind.WipeUp => $"gte(Y,H*(1-{p}))",
+                    TransitionKind.Iris => $"lte(hypot(X-W/2,Y-H/2),hypot(W/2,H/2)*{p})",
+                    TransitionKind.BarnDoors => $"lte(abs(X-W/2),W/2*{p})",
+                    _ => $"lte(abs(Y-H/2),H/2*{p})",
                 };
                 ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*{visible}'");
                 break;
             }
         }
-        // and the way it goes out when the next clip dips to black
-        if (next != null && next.Transition == TransitionKind.DipToBlack)
-            ch.Append($",fade=t=out:st={F(c.End - nextL / 2 - T0)}:d={F(nextL / 2)}:color=black");
+        // and the way it goes out when the next clip dips (to black or to white)
+        if (next != null && IsDip(next.Transition))
+            ch.Append($",fade=t=out:st={F(c.End - nextL / 2 - T0)}:d={F(nextL / 2)}:color={(next.Transition == TransitionKind.DipToWhite ? "white" : "black")}");
 
         string vl = "v" + idx;
         x.Script.Append(ch).Append($"[{vl}];\n");
+
+        // place it; push and slide transitions move the picture (both this one and the one it comes over)
         string kx = Keyed(c, "X", T0, "t") ?? F(c.X);
         string ky = Keyed(c, "Y", T0, "t") ?? F(c.Y);
+        string offX = "0", offY = "0";
+        if (IsPush(tr) || IsSlide(tr))
+        {
+            string inv = $"(1-{Progress(ts, trL, "t")})";                       // 1 -> 0 while it comes in
+            switch (tr)
+            {
+                case TransitionKind.PushLeft: case TransitionKind.SlideLeft: offX = inv; break;           // enters from the right
+                case TransitionKind.PushRight: case TransitionKind.SlideRight: offX = $"(-{inv})"; break;
+                case TransitionKind.PushUp: case TransitionKind.SlideUp: offY = inv; break;               // enters from below
+                case TransitionKind.PushDown: case TransitionKind.SlideDown: offY = $"(-{inv})"; break;
+            }
+        }
+        if (next != null && IsPush(next.Transition))
+        {
+            string go = Progress(next.Start - T0, nextL, "t");                    // 0 -> 1 while the next one pushes this one out
+            switch (next.Transition)
+            {
+                case TransitionKind.PushLeft: offX = $"(-{go})"; break;
+                case TransitionKind.PushRight: offX = go; break;
+                case TransitionKind.PushUp: offY = $"(-{go})"; break;
+                case TransitionKind.PushDown: offY = go; break;
+            }
+        }
         string nextLabel = "o" + (++x.Layer);
-        x.Script.Append($"[{x.Last}][{vl}]overlay=x='main_w*({kx})-overlay_w/2':y='main_h*({ky})-overlay_h/2':eof_action=pass:format=auto[{nextLabel}];\n");
+        x.Script.Append($"[{x.Last}][{vl}]overlay=x='main_w*(({kx})+{offX})-overlay_w/2':y='main_h*(({ky})+{offY})-overlay_h/2':eof_action=pass:format=auto[{nextLabel}];\n");
         x.Last = nextLabel;
     }
 
@@ -286,7 +364,7 @@ public static class VidGraph
         else if (c.Opacity < 0.999) ch.Append($",colorchannelmixer=aa={F(Math.Clamp(c.Opacity, 0, 1))}");
         if (c.FadeIn > 0) ch.Append($",fade=t=in:st={F(c.Start - T0)}:d={F(c.FadeIn)}:alpha=1");
         if (c.FadeOut > 0) ch.Append($",fade=t=out:st={F(c.End - c.FadeOut - T0)}:d={F(c.FadeOut)}:alpha=1");
-        if (c.Transition == TransitionKind.Dissolve || c.Transition == TransitionKind.DipToBlack)
+        if (c.Transition != TransitionKind.None)
             ch.Append($",fade=t=in:st={F(c.Start - T0)}:d={F(Math.Max(0.05, c.TransitionLength))}:alpha=1");
         x.Script.Append(ch).Append($"[{lid}];\n");
         string next = "o" + n + "x";
@@ -335,8 +413,21 @@ public static class VidGraph
                 if (kv != null) ch.Append($",volume=volume='clip({kv},0,4)':eval=frame");
                 else if (Math.Abs(c.Volume - 1) > 0.001) ch.Append($",volume={F(c.Volume)}");
                 double local = b - a;
-                if (c.FadeIn > 0 && a <= c.Start + 0.0005) ch.Append($",afade=t=in:st=0:d={F(Math.Min(c.FadeIn, local))}");
-                if (c.FadeOut > 0) ch.Append($",afade=t=out:st={F(Math.Max(0, c.End - c.FadeOut - a))}:d={F(c.FadeOut)}");
+                // a transition on the picture fades the linked sound in (and the sound of the clip before it out), so the cut does not click
+                double fadeIn = c.FadeIn, fadeOut = c.FadeOut;
+                if (c.LinkId != null)
+                {
+                    var partner = P.Tracks.Where(t => t.Kind == TrackKind.Video).SelectMany(t => t.Clips).FirstOrDefault(o => o != c && o.LinkId == c.LinkId);
+                    if (partner != null)
+                    {
+                        if (partner.Transition != TransitionKind.None) fadeIn = Math.Max(fadeIn, Math.Min(Math.Max(0.1, partner.TransitionLength), c.Length / 2));
+                        var vtrack = P.TrackOf(partner);
+                        var following = vtrack?.Clips.FirstOrDefault(o => o != partner && Math.Abs(o.Start - partner.End) < 0.002 && o.Transition != TransitionKind.None);
+                        if (following != null) fadeOut = Math.Max(fadeOut, Math.Min(Math.Max(0.1, following.TransitionLength), c.Length / 2));
+                    }
+                }
+                if (fadeIn > 0 && a <= c.Start + 0.0005) ch.Append($",afade=t=in:st=0:d={F(Math.Min(fadeIn, local))}");
+                if (fadeOut > 0) ch.Append($",afade=t=out:st={F(Math.Max(0, c.End - fadeOut - a))}:d={F(fadeOut)}");
                 long delay = (long)Math.Round((a - T0) * 1000);
                 if (delay > 0) ch.Append($",adelay={delay}:all=1");
                 string al = "a" + idx;

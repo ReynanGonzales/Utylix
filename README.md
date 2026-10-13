@@ -371,7 +371,7 @@ a menu bar, **Source** and **Effect Controls** on the top left, the **Program** 
 - **Source monitor:** double-click a file in the Project panel, mark In and Out, then **Insert** (,) or **Overwrite** (.) it into the sequence at the playhead.
 - **Edit commands:** Lift (;) and Extract (') the part between In and Out, ripple delete, duplicate, speed, undo / redo through everything.
 - **Effect Controls:** Motion (position, scale, rotation) and Opacity with **keyframes** (stopwatch, add / delete / previous / next), volume keyframes, an effect stack,
-  transition in (cross dissolve, dip to black, four wipes), fades, track volume / balance.
+  transition in (19 kinds: cross dissolve, dip to black or white, wipes, push, slide, iris, barn doors, zoom; drag its edge on the clip to change the length), fades, track volume / balance.
 - **Effects panel:** colour (brightness / contrast / saturation / gamma, warm / cool, black and white, sepia, invert), blur, sharpen, film grain, crop, mirror, vignette,
   mosaic, find edges, green screen key; sound: gain, high-pass, low-pass, noise reduction, even out volume, echo, bass, treble.
 - **Titles:** text clips with font, size, colour, bold, outline and a dark box; fades and keyframes work on them like on pictures.

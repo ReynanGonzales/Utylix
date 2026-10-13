@@ -455,6 +455,8 @@ public sealed partial class VidWindow : Window
             menu.Items.Add(Item("Split here", () => { _s.Playhead = time; DoSplit(); _timeline.InvalidateVisual(); UpdateTime(); }));
             menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedSeparator") });
             menu.Items.Add(Item("Duplicate", () => _s.Duplicate(), "Ctrl+D"));
+            menu.Items.Add(Item("Add a cross dissolve to the start of this clip", () => ApplyTransition(TransitionKind.Dissolve)));
+            if (clip.Transition != TransitionKind.None) menu.Items.Add(Item("Remove its transition", () => ApplyTransition(TransitionKind.None)));
             menu.Items.Add(Item("Delete", () => _s.Delete(false), "Del"));
             menu.Items.Add(Item("Delete and close the gap", () => _s.Delete(true), "Shift+Del"));
         }
@@ -486,7 +488,7 @@ public sealed partial class VidWindow : Window
                 case Key.K: DoSplit(); e.Handled = true; return;
                 case Key.I: ImportDialog(); e.Handled = true; return;
                 case Key.E: if (shift) ExportFrame(); else Export(); e.Handled = true; return;
-                case Key.D: if (!typing) { _s.Duplicate(); e.Handled = true; } return;
+                case Key.D: if (!typing) { if (shift) AddTransitionAtPlayhead(); else _s.Duplicate(); e.Handled = true; } return;
                 case Key.A: if (!typing) { _s.Select(_s.Project.AllClips); e.Handled = true; } return;
                 case Key.C: if (!typing) { _s.Copy(); SetStatus("Copied."); e.Handled = true; } return;
                 case Key.X: if (!typing && shift) { _s.ClearWorkArea(); e.Handled = true; } else if (!typing) { _s.Cut(); e.Handled = true; } return;

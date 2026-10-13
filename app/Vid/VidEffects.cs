@@ -48,8 +48,13 @@ public static class VidEffects
 
     public static readonly (TransitionKind Kind, string Name)[] Transitions =
     {
-        (TransitionKind.Dissolve, "Cross dissolve"), (TransitionKind.DipToBlack, "Dip to black"),
+        (TransitionKind.Dissolve, "Cross dissolve"), (TransitionKind.DipToBlack, "Dip to black"), (TransitionKind.DipToWhite, "Dip to white"),
         (TransitionKind.WipeRight, "Wipe right"), (TransitionKind.WipeLeft, "Wipe left"), (TransitionKind.WipeDown, "Wipe down"), (TransitionKind.WipeUp, "Wipe up"),
+        (TransitionKind.PushLeft, "Push left"), (TransitionKind.PushRight, "Push right"), (TransitionKind.PushUp, "Push up"), (TransitionKind.PushDown, "Push down"),
+        (TransitionKind.SlideLeft, "Slide in from the right"), (TransitionKind.SlideRight, "Slide in from the left"),
+        (TransitionKind.SlideUp, "Slide in from below"), (TransitionKind.SlideDown, "Slide in from above"),
+        (TransitionKind.Iris, "Iris (circle opens)"), (TransitionKind.BarnDoors, "Barn doors (across)"), (TransitionKind.BarnDoorsV, "Barn doors (up-down)"),
+        (TransitionKind.ZoomIn, "Zoom in"),
     };
 
     public static EffectInfo? Info(string type) => All.FirstOrDefault(e => e.Type == type);

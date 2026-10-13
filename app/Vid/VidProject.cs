@@ -12,7 +12,12 @@ public enum TrackKind { Video, Audio }
 public enum ClipKind { Media, Text }
 
 /// <summary>How a clip comes in over the clip before it on the same track.</summary>
-public enum TransitionKind { None, Dissolve, DipToBlack, WipeRight, WipeLeft, WipeDown, WipeUp }
+public enum TransitionKind
+{
+    None, Dissolve, DipToBlack, WipeRight, WipeLeft, WipeDown, WipeUp,
+    // added later: new members go at the end so saved projects keep their numbers
+    DipToWhite, PushLeft, PushRight, PushUp, PushDown, SlideLeft, SlideRight, SlideUp, SlideDown, Iris, BarnDoors, BarnDoorsV, ZoomIn,
+}
 
 /// <summary>A value at a time (seconds from the start of the clip, on the timeline); between two keyframes the value moves in a straight line.</summary>
 public sealed class Keyframe

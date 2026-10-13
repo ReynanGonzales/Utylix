@@ -28,7 +28,7 @@ public sealed class VidTimeline : FrameworkElement
     private double _pps = 70;               // pixels per second
     private double _offset;                 // seconds at the left edge of the clip area
 
-    private enum Drag { None, Playhead, Move, TrimStart, TrimEnd, Pan, Marquee, RippleStart, RippleEnd, Roll, SlipClip }
+    private enum Drag { None, Playhead, Move, TrimStart, TrimEnd, Pan, Marquee, RippleStart, RippleEnd, Roll, SlipClip, TransLen }
     private Drag _drag;
     private Point _downPoint;
     private double _downTime;
@@ -509,6 +509,22 @@ public sealed class VidTimeline : FrameworkElement
             _drag = Drag.Pan; _panOffset = _offset; CaptureMouse(); e.Handled = true; return;
         }
         var (clip, zone, row) = HitTest(p, rows);
+        if (Tool == VidTool.Select && row >= 0 && !rows[row].Locked)
+        {
+            var edgeOwner = rows[row].Clips.FirstOrDefault(c => c.Transition != TransitionKind.None && TimeToX(c.End) - TimeToX(c.Start) > 16 &&
+                Math.Abs(TimeToX(c.Start + Math.Min(c.TransitionLength, c.Length)) - p.X) <= 5);
+            if (edgeOwner != null)
+            {
+                _dragClip = edgeOwner;
+                _dragClips = new List<Clip> { edgeOwner };
+                _editBefore = _session.BeginEdit();
+                _ghostTime = edgeOwner.Start + Math.Min(edgeOwner.TransitionLength, edgeOwner.Length);
+                _drag = Drag.TransLen;
+                CaptureMouse();
+                e.Handled = true;
+                return;
+            }
+        }
         if (Tool == VidTool.Razor)
         {
             if (clip != null && !rows[row].Locked)
@@ -608,6 +624,8 @@ public sealed class VidTimeline : FrameworkElement
             }
             if (Tool == VidTool.Hand) { Cursor = Cursors.ScrollAll; return; }
             if (Tool is VidTool.Ripple or VidTool.Rolling) { Cursor = Cursors.SizeWE; return; }
+            if (Tool == VidTool.Select && clip != null && clip.Transition != TransitionKind.None && Math.Abs(TimeToX(clip.Start + Math.Min(clip.TransitionLength, clip.Length)) - p.X) <= 5)
+            { Cursor = Cursors.SizeWE; return; }
             if (Tool == VidTool.Slip) { Cursor = clip != null ? Cursors.ScrollWE : Cursors.Arrow; return; }
             if (Tool == VidTool.TrackForward) { Cursor = Cursors.Arrow; return; }
             Cursor = p.Y < RulerHeight ? Cursors.Hand : zone is Drag.TrimStart or Drag.TrimEnd ? Cursors.SizeWE : clip != null ? Cursors.SizeAll : Cursors.Arrow;
@@ -648,6 +666,13 @@ public sealed class VidTimeline : FrameworkElement
             case Drag.RippleStart:
             case Drag.RippleEnd:
                 if (_dragClip != null) { _ghostTime = Snap(t, _dragClips); InvalidateVisual(); }
+                break;
+            case Drag.TransLen:
+                if (_dragClip != null)
+                {
+                    _ghostTime = Math.Clamp(Snap(t, _dragClips), _dragClip.Start + 0.1, _dragClip.End);
+                    InvalidateVisual();
+                }
                 break;
             case Drag.Roll:
                 _ghostTime = Math.Max(0, Snap(t, _dragClips));
@@ -752,6 +777,11 @@ public sealed class VidTimeline : FrameworkElement
                 }
                 _marquee = null;
                 _moved = false;
+                InvalidateVisual();
+                break;
+            case Drag.TransLen:
+                if (_dragClip != null && _ghostTime >= 0) _session.SetTransition(new[] { _dragClip }, _dragClip.Transition, _ghostTime - _dragClip.Start);
+                _ghostTime = -1;
                 InvalidateVisual();
                 break;
             case Drag.RippleEnd:

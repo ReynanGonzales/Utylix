@@ -36,6 +36,20 @@ public sealed partial class VidWindow
         _s.SetTransition(targets, kind, 1.0);
     }
 
+    /// <summary>The usual way to join two clips: a cross dissolve on the clip that starts at (or nearest to) the playhead.</summary>
+    private void AddTransitionAtPlayhead()
+    {
+        var chosen = _s.SelectedClips.Where(c => _s.Project.TrackOf(c)?.Kind == TrackKind.Video).ToList();
+        if (chosen.Count == 0)
+        {
+            var near = _s.Project.Tracks.Where(t => t.Kind == TrackKind.Video).SelectMany(t => t.Clips)
+                .Where(c => Math.Abs(c.Start - _s.Playhead) < 0.75).OrderBy(c => Math.Abs(c.Start - _s.Playhead)).FirstOrDefault();
+            if (near != null) chosen.Add(near);
+        }
+        if (chosen.Count == 0) { SetStatus("Put the playhead at a cut between two clips (or choose the clip that comes in) first."); return; }
+        _s.SetTransition(chosen, TransitionKind.Dissolve, 1.0);
+    }
+
     // ---------- In / Out ----------
     private void MarkIn()
     {
