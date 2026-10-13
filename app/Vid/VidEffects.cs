@@ -58,6 +58,20 @@ public static class VidEffects
         (TransitionKind.SlideUp, "Slide in from below"), (TransitionKind.SlideDown, "Slide in from above"),
         (TransitionKind.Iris, "Iris (circle opens)"), (TransitionKind.BarnDoors, "Barn doors (across)"), (TransitionKind.BarnDoorsV, "Barn doors (up-down)"),
         (TransitionKind.ZoomIn, "Zoom in"),
+        (TransitionKind.WipeDiagTL, "Diagonal wipe from the top left"), (TransitionKind.WipeDiagTR, "Diagonal wipe from the top right"),
+        (TransitionKind.WipeDiagBL, "Diagonal wipe from the bottom left"), (TransitionKind.WipeDiagBR, "Diagonal wipe from the bottom right"),
+        (TransitionKind.SoftWipeRight, "Soft wipe right"), (TransitionKind.SoftWipeLeft, "Soft wipe left"),
+        (TransitionKind.SoftWipeDown, "Soft wipe down"), (TransitionKind.SoftWipeUp, "Soft wipe up"),
+        (TransitionKind.BlindsH, "Horizontal blinds"), (TransitionKind.BlindsV, "Vertical blinds"),
+        (TransitionKind.ClockWipe, "Clock wipe"), (TransitionKind.ClockWipeReverse, "Clock wipe (counter-clockwise)"),
+        (TransitionKind.IrisClose, "Iris close (circle shrinks)"), (TransitionKind.DoorsCloseAcross, "Doors close (across)"),
+        (TransitionKind.DoorsCloseUpDown, "Doors close (up-down)"), (TransitionKind.Diamond, "Diamond"), (TransitionKind.Cross, "Cross (plus)"),
+        (TransitionKind.NoiseDissolve, "Film dissolve (grain)"), (TransitionKind.Blocks, "Blocks"), (TransitionKind.BlocksLarge, "Big blocks"),
+        (TransitionKind.Glitch, "Glitch"),
+        (TransitionKind.ZoomOut, "Zoom out"), (TransitionKind.ZoomThrough, "Zoom through"), (TransitionKind.Spin, "Spin in"),
+        (TransitionKind.FlipH, "Flip (across)"), (TransitionKind.FlipV, "Flip (up-down)"),
+        (TransitionKind.WhipLeft, "Whip pan left"), (TransitionKind.WhipRight, "Whip pan right"), (TransitionKind.WhipUp, "Whip pan up"), (TransitionKind.WhipDown, "Whip pan down"),
+        (TransitionKind.Shake, "Shake hit"), (TransitionKind.BlurDissolve, "Blur dissolve"),
     };
 
     public static EffectInfo? Info(string type) => All.FirstOrDefault(e => e.Type == type);

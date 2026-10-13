@@ -328,9 +328,11 @@ public sealed partial class VidWindow
         var trans = VidEffects.Transitions.Where(t => Match(t.Name) || Match("Transitions")).ToList();
         if (trans.Count > 0)
         {
-            Group("Video transitions");
-            foreach (var (kind, name) in trans)
+            string? lastGroup = null;
+            foreach (var (kind, name) in trans.OrderBy(t => Array.IndexOf(VidTransitionDefs.GroupOrder, VidTransitionDefs.GroupOf(t.Kind))))
             {
+                string grp = VidTransitionDefs.GroupOf(kind);
+                if (grp != lastGroup) { Group("Video transitions · " + grp); lastGroup = grp; }
                 var k = kind;
                 _effectsList.Children.Add(Row(name, "", () =>
                 {

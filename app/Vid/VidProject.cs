@@ -17,6 +17,9 @@ public enum TransitionKind
     None, Dissolve, DipToBlack, WipeRight, WipeLeft, WipeDown, WipeUp,
     // added later: new members go at the end so saved projects keep their numbers
     DipToWhite, PushLeft, PushRight, PushUp, PushDown, SlideLeft, SlideRight, SlideUp, SlideDown, Iris, BarnDoors, BarnDoorsV, ZoomIn,
+    WipeDiagTL, WipeDiagTR, WipeDiagBL, WipeDiagBR, IrisClose, DoorsCloseAcross, DoorsCloseUpDown, ClockWipe, ClockWipeReverse,
+    Blocks, BlocksLarge, BlindsH, BlindsV, Diamond, Cross, NoiseDissolve, SoftWipeRight, SoftWipeLeft, SoftWipeDown, SoftWipeUp, Glitch,
+    ZoomOut, ZoomThrough, Spin, FlipH, FlipV, WhipLeft, WhipRight, WhipUp, WhipDown, Shake, BlurDissolve,
 }
 
 /// <summary>Where a transition sits on the cut between two clips (Premiere's "Start at cut", "Center at cut", "End at cut").</summary>

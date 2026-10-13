@@ -173,6 +173,36 @@ public static class VidGraph
         return $",format=yuva420p,geq=lum='{luma}':cb='128+(cb(X,Y)-128)*{v}':cr='128+(cr(X,Y)-128)*{v}':a='alpha(X,Y)'";
     }
 
+    /// <summary>
+    /// Moves the picture of the chain <paramref name="ch"/> by a transform of its four corners (scale about the middle by zx / zy, turned by an angle in
+    /// radians), at the SAME frame size, with transparency outside: the picture goes through <c>perspective</c> (fast), and a white-on-black frame goes
+    /// through the same transform to become the new outline (it is multiplied into the alpha). The expressions get the progress 0 .. 1 of the transition
+    /// at the stream's own frame (<paramref name="timeOffset"/> = window time of its first frame). The chain is ended and a new one started from the result.
+    /// </summary>
+    private static void Transform(Ctx x, StringBuilder ch, string tag, double timeOffset, double start, double length, Func<string, (string Zx, string Zy, string? Ang)> motion)
+    {
+        string n = tag + (++x.Layer);
+        string pg = $"clip((({F(timeOffset)}+in/{F(x.Fps)})-({F(start)}))/{F(Math.Max(0.05, length))},0,1)";
+        var (zx, zy, ang) = motion(pg);
+        string hx = $"max({zx},0.02)*W/2", hy = $"max({zy},0.02)*H/2";
+        string Px(int sx, int sy) => ang == null ? $"W/2+({sx})*{hx}" : $"W/2+({sx})*{hx}*cos({ang})-({sy})*{hy}*sin({ang})";
+        string Py(int sx, int sy) => ang == null ? $"H/2+({sy})*{hy}" : $"H/2+({sx})*{hx}*sin({ang})+({sy})*{hy}*cos({ang})";
+        string quad = $"x0='{Px(-1, -1)}':y0='{Py(-1, -1)}':x1='{Px(1, -1)}':y1='{Py(1, -1)}':x2='{Px(-1, 1)}':y2='{Py(-1, 1)}':x3='{Px(1, 1)}':y3='{Py(1, 1)}':sense=destination:eval=frame";
+        double dur = Math.Max(0.1, x.T1 - x.T0);
+        x.Script.Append(ch).Append($"[ta{n}];\n");
+        x.Script.Append($"color=c=black:s={x.W}x{x.H}:r={F(x.Fps)}:d={F(dur)},format=gray,drawbox=x=1:y=1:w={x.W - 2}:h={x.H - 2}:color=white:t=fill[mk{n}];\n");
+        x.Script.Append($"[mk{n}][ta{n}]scale2ref[mm{n}][tb{n}];\n");
+        x.Script.Append($"[mm{n}]perspective={quad}[mp{n}];\n");
+        x.Script.Append($"[tb{n}]format=yuva420p,perspective={quad}[sp{n}];\n");
+        x.Script.Append($"[sp{n}]split[sq{n}][sr{n}];[sr{n}]alphaextract[sa{n}];[sa{n}][mp{n}]blend=all_mode=multiply[am{n}];[sq{n}][am{n}]alphamerge[td{n}];\n");
+        ch.Clear();
+        ch.Append($"[td{n}]null");
+    }
+
+    /// <summary>A blur that is only on between two times of the window (whip pans, shake, blur dissolve); the strength follows the picture size.</summary>
+    private static string BlurWindow(Ctx x, double start, double end, double sigmaAt1080)
+        => $",gblur=sigma={F(Math.Max(2, x.W / 1920.0 * sigmaAt1080))}:enable='between(t,{F(start)},{F(end)})'";
+
     /// <summary>Progress 0..1 of a transition as an ffmpeg expression in window time (variable <paramref name="tv"/>).</summary>
     private static string Progress(double start, double length, string tv) => $"clip(({tv}-{F(start)})/{F(Math.Max(0.05, length))},0,1)";
 
@@ -265,22 +295,22 @@ public static class VidGraph
         var kOpacity = Keyed(c, "Opacity", T0, "T");
         bool rotated = kRot != null || Math.Abs(c.Rotation) > 0.01;
         var tr = c.Transition;
+        var trDir = VidTransitionDefs.Direction(tr);                        // a whip pan moves like a push (and gets blurred)
         double trL = Math.Max(0.05, c.TransitionLength);
         double ts0 = c.Start - T0;                                          // the clip's own start
         double ts = ts0 - shift;                                            // where its transition starts
-        bool maskTransition = IsWipe(tr) || tr is TransitionKind.Iris or TransitionKind.BarnDoors or TransitionKind.BarnDoorsV;
-        bool alpha = kOpacity != null || c.Opacity < 0.999 || c.FadeIn > 0 || c.FadeOut > 0 || rotated || maskTransition || tr is TransitionKind.Dissolve or TransitionKind.ZoomIn;
+        bool flip = tr is TransitionKind.FlipH or TransitionKind.FlipV;
+        bool maskTransition = IsWipe(tr) || tr is TransitionKind.Iris or TransitionKind.BarnDoors or TransitionKind.BarnDoorsV || VidTransitionDefs.HasMask(tr) || flip;
+        bool fadeKind = tr is TransitionKind.Dissolve or TransitionKind.ZoomIn or TransitionKind.ZoomOut or TransitionKind.ZoomThrough or TransitionKind.BlurDissolve;
+        bool spin = tr == TransitionKind.Spin;
+        bool alpha = kOpacity != null || c.Opacity < 0.999 || c.FadeIn > 0 || c.FadeOut > 0 || rotated || maskTransition || fadeKind || spin;
         if (alpha) ch.Append(",format=yuva420p");
 
-        // size: its own scale (maybe animated), and the zoom-in transition grows it from a fifth
+        // size: its own scale (maybe animated), and some transitions grow or shrink it
+        string pTr = Progress(ts, trL, "t");
         string? scaleExpr = kScale;
-        bool zoomIn = tr == TransitionKind.ZoomIn;
-        if (zoomIn)
-        {
-            string p = Progress(ts, trL, "t");
-            string baseScale = kScale ?? F(c.Scale);
-            scaleExpr = $"({baseScale})*(0.2+0.8*{p})";
-        }
+        string baseScale = kScale ?? F(c.Scale);
+        if (tr == TransitionKind.ZoomIn) scaleExpr = $"({baseScale})*(0.2+0.8*{pTr})";
         if (scaleExpr != null) ch.Append($",scale=w='max(2,trunc(iw*({scaleExpr})/2)*2)':h='max(2,trunc(ih*({scaleExpr})/2)*2)':eval=frame");
         else if (Math.Abs(c.Scale - 1) > 0.001) ch.Append($",scale=max(2\\,trunc(iw*{F(c.Scale)}/2)*2):max(2\\,trunc(ih*{F(c.Scale)}/2)*2)");
         if (rotated)
@@ -293,11 +323,30 @@ public static class VidGraph
         if (c.FadeIn > 0) ch.Append(FadeFilter(true, ts0, c.FadeIn, null));
         if (c.FadeOut > 0) ch.Append(FadeFilter(false, c.End - c.FadeOut - T0, c.FadeOut, null));
 
+        // zoom out / zoom through / spin / flip: the whole picture is moved by a corner transform (see Transform): same frame size, fast
+        if (tr is TransitionKind.ZoomOut or TransitionKind.ZoomThrough or TransitionKind.Spin or TransitionKind.FlipH or TransitionKind.FlipV)
+        {
+            double off = a - T0;                                                // the window time of this stream's first frame
+            switch (tr)
+            {
+                case TransitionKind.ZoomOut: Transform(x, ch, "i", off, ts, trL, pg => ($"(1.6-0.6*{pg})", $"(1.6-0.6*{pg})", null)); break;
+                case TransitionKind.ZoomThrough: Transform(x, ch, "i", off, ts, trL, pg => ($"(0.6+0.4*{pg})", $"(0.6+0.4*{pg})", null)); break;
+                case TransitionKind.Spin: Transform(x, ch, "i", off, ts, trL, pg => ($"{pg}", $"{pg}", $"(1-{pg})*{F(4 * Math.PI)}")); break;
+                case TransitionKind.FlipH: Transform(x, ch, "i", off, ts, trL, pg => ($"clip(({pg}-0.5)*2,0,1)", "1", null)); break;
+                case TransitionKind.FlipV: Transform(x, ch, "i", off, ts, trL, pg => ("1", $"clip(({pg}-0.5)*2,0,1)", null)); break;
+            }
+            // (a flip shows nothing of the new picture until the old one has turned away)
+            if (flip) ch.Append($",colorchannelmixer=aa=0:enable='between(t,{F(ts)},{F(ts + trL / 2)})'");
+        }
+
         // the way this clip comes in
         switch (tr)
         {
             case TransitionKind.Dissolve:
             case TransitionKind.ZoomIn:
+            case TransitionKind.ZoomOut:
+            case TransitionKind.ZoomThrough:
+            case TransitionKind.BlurDissolve:
                 ch.Append(FadeFilter(true, ts, trL, null));
                 break;
             case TransitionKind.DipToBlack:
@@ -325,13 +374,40 @@ public static class VidGraph
                     TransitionKind.BarnDoors => $"lte(abs(X-W/2),W/2*{p})",
                     _ => $"lte(abs(Y-H/2),H/2*{p})",
                 };
-                ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*{visible}'");
+                ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*{visible}':enable='between(t,{F(ts)},{F(ts + trL)})'");
                 break;
             }
         }
+        if (VidTransitionDefs.HasMask(tr))
+        {
+            string visible = VidTransitionDefs.Mask(tr, $"clip((T-({F(ts)}))/{F(trL)},0,1)");
+            ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*({visible})':enable='between(t,{F(ts)},{F(ts + trL)})'");
+        }
+        // blur while it moves (whip pans, shake) or while it dissolves
+        if (VidTransitionDefs.IsWhip(tr) || tr is TransitionKind.Shake or TransitionKind.BlurDissolve)
+            ch.Append(BlurWindow(x, ts, ts + trL, VidTransitionDefs.IsWhip(tr) ? 22 : tr == TransitionKind.Shake ? 8 : 14));
         // and the way it goes out when the next clip dips (to black or to white)
         if (next != null && IsDip(next.Transition))
             ch.Append(FadeFilter(false, c.End - nextL / 2 - T0, nextL / 2, next.Transition == TransitionKind.DipToWhite ? "white" : "black"));
+
+        // and what the next clip's transition does to this one while it leaves
+        if (next != null)
+        {
+            var nk = next.Transition;
+            double ws = next.Start - T0 - nextLead, we = ws + nextL;
+            string q = Progress(ws, nextL, "t");
+            if (VidTransitionDefs.IsWhip(nk) || nk == TransitionKind.BlurDissolve) ch.Append(BlurWindow(x, ws, we, VidTransitionDefs.IsWhip(nk) ? 22 : 14));
+            double offOut = a - T0;
+            if (nk == TransitionKind.ZoomThrough)
+                Transform(x, ch, "o", offOut, ws, nextL, pg => ($"(1+0.6*{pg})", $"(1+0.6*{pg})", null));
+            if (nk == TransitionKind.FlipH)
+                Transform(x, ch, "o", offOut, ws, nextL, pg => ($"(1-clip({pg}*2,0,1))", "1", null));
+            if (nk == TransitionKind.FlipV)
+                Transform(x, ch, "o", offOut, ws, nextL, pg => ("1", $"(1-clip({pg}*2,0,1))", null));
+            // (a flip: the old picture is gone once it has turned away)
+            if (nk is TransitionKind.FlipH or TransitionKind.FlipV)
+                ch.Append($",colorchannelmixer=aa=0:enable='gte(t,{F(ws + nextL / 2)})'");
+        }
 
         string vl = "v" + idx;
         x.Script.Append(ch).Append($"[{vl}];\n");
@@ -340,10 +416,16 @@ public static class VidGraph
         string kx = Keyed(c, "X", T0, "t") ?? F(c.X);
         string ky = Keyed(c, "Y", T0, "t") ?? F(c.Y);
         string offX = "0", offY = "0";
-        if (IsPush(tr) || IsSlide(tr))
+        if (tr == TransitionKind.Shake)
+        {
+            string inv = $"(1-{pTr})";                                          // it lands and shakes, calming down
+            offX = $"(0.03*sin(60*t)*{inv})";
+            offY = $"(0.02*sin(47*t+1)*{inv})";
+        }
+        if (IsPush(trDir) || IsSlide(trDir))
         {
             string inv = $"(1-{Progress(ts, trL, "t")})";                       // 1 -> 0 while it comes in
-            switch (tr)
+            switch (trDir)
             {
                 case TransitionKind.PushLeft: case TransitionKind.SlideLeft: offX = inv; break;           // enters from the right
                 case TransitionKind.PushRight: case TransitionKind.SlideRight: offX = $"(-{inv})"; break;
@@ -351,10 +433,10 @@ public static class VidGraph
                 case TransitionKind.PushDown: case TransitionKind.SlideDown: offY = $"(-{inv})"; break;
             }
         }
-        if (next != null && IsPush(next.Transition))
+        if (next != null && IsPush(VidTransitionDefs.Direction(next.Transition)))
         {
             string go = Progress(next.Start - T0 - nextLead, nextL, "t");         // 0 -> 1 while the next one pushes this one out
-            switch (next.Transition)
+            switch (VidTransitionDefs.Direction(next.Transition))
             {
                 case TransitionKind.PushLeft: offX = $"(-{go})"; break;
                 case TransitionKind.PushRight: offX = go; break;

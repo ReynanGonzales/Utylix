@@ -376,7 +376,8 @@ a menu bar, **Source** and **Effect Controls** on the top left, the **Program** 
 - **Source monitor:** double-click a file in the Project panel, mark In and Out, then **Insert** (,) or **Overwrite** (.) it into the sequence at the playhead.
 - **Edit commands:** Lift (;) and Extract (') the part between In and Out, ripple delete, duplicate, speed, undo / redo through everything.
 - **Effect Controls:** Motion (position, scale, rotation) and Opacity with **keyframes** (stopwatch, add / delete / previous / next), volume keyframes, an effect stack,
-  transition in (19 kinds: cross dissolve, dip to black or white, wipes, push, slide, iris, barn doors, zoom). Drop one on the **cut between two clips**: it sits centred on the cut like Premiere's
+  transition in (**51 kinds** in six groups: dissolves (cross, dip, blur, film grain), wipes (straight, diagonal, soft, blinds, clock), slide and push (incl. whip pans with blur),
+  zoom and spin (zoom in / out / through, spin, flips, shake), shapes (iris, doors, diamond, cross) and stylized (blocks, glitch)). Drop one on the **cut between two clips**: it sits centred on the cut like Premiere's
   (or starts / ends at it); drag the box's edge to change the length. Fades, track volume / balance.
 - **Effects panel:** colour (**Lumetri Color**: temperature, tint, exposure, contrast, highlights, shadows, saturation, vibrance; brightness / contrast / saturation / gamma, warm / cool, black and white, sepia, invert), blur, sharpen, film grain, crop, mirror, vignette,
   mosaic, find edges, green screen key; sound: gain, high-pass, low-pass, noise reduction, even out volume, echo, bass, treble.
