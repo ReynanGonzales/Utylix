@@ -30,6 +30,7 @@ public sealed partial class PdfWindow
     {
         if (_selected is PageObjectItem picked && _pdf != null)
         {
+            if (picked.Indices.Any(PdfFile.IsAnnotation)) { Toast("A comment of the PDF can't be copied. Double-click a text comment to turn its words into a text box, which can be copied"); return false; }
             try { _objectClip = _pdf.CopyPageObjects(picked.Page, picked.Indices); }
             catch (Exception e) when (e is IOException or InvalidOperationException or OutOfMemoryException or ObjectDisposedException or PdfProtectedException)
             {

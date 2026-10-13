@@ -27,6 +27,13 @@ public sealed record PdfTextRun(int Index, Rect Box, string Text, double Size, s
 public sealed record PdfReplaceTextMark(int Page, int Index, string OldText, string NewText, double Dx = 0, double Dy = 0, double LineAdvance = 0,
                                         string? Family = null, bool? Bold = null, double? Size = null, Color? Color = null) : PdfMark(Page);
 
+/// <summary>
+/// Write a new piece of text that looks like one already in the page (the "donor": its font, size and colour; Windows' copy of the font when the
+/// donor's own has not got a letter) with its start on the baseline at (<paramref name="X"/>, <paramref name="Baseline"/>), points as shown.
+/// The donor itself is left alone (take it out with a <see cref="PdfReplaceTextMark"/>): used to lay a paragraph out again.
+/// </summary>
+public sealed record PdfPlaceTextMark(int Page, int DonorIndex, string DonorText, string Text, double X, double Baseline) : PdfMark(Page);
+
 internal static class PdfTextRuns
 {
     /// <summary>The pieces of text of a page (call under Pdfium.Sync).</summary>
@@ -148,13 +155,23 @@ internal static class PdfTextRuns
         string family = Ascii((b, n) => Pdfium.FPDFFont_GetFamilyName(font, b, n));
         int plus = baseName.IndexOf('+');
         if (plus is >= 0 and <= 7) baseName = baseName[(plus + 1)..];                // ("ABCDEF+Calibri-Bold": a subset)
+        int familyPlus = family.IndexOf('+');
+        if (familyPlus is >= 0 and <= 7) family = family[(familyPlus + 1)..];            // ("ABCDEF+Cambria": a subset - the name Windows knows is after the plus)
         if (family.Length == 0) family = baseName.Split('-', ',')[0];
         int weight = Pdfium.FPDFFont_GetWeight(font);
         Pdfium.FPDFFont_GetItalicAngle(font, out int angle);
         string lower = baseName.ToLowerInvariant();
         bool bold = weight >= 600 || lower.Contains("bold") || lower.Contains("black") || lower.Contains("heavy") || lower.Contains("semibold");
         bool italic = angle != 0 || lower.Contains("italic") || lower.Contains("oblique");
-        return (Readable(family), bold, italic);
+        return (Readable(StripStyle(family)), bold, italic);
+    }
+
+    /// <summary>"Cambria-Bold" / "Arial-BoldMT" / "Calibri,Italic" -> the family without the style glued on ("Cambria", "Arial", "Calibri"): that is the name Windows lists the font under.</summary>
+    private static string StripStyle(string family)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(family.Trim(), @"^(.+?)[-,]\s*(Bold ?Italic|Bold ?Oblique|Bold|Italic|Oblique|Regular|Roman|Semibold|Light|Medium|Black)(MT|PS|PSMT)?$",
+                                                           System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value : family;
     }
 
     /// <summary>"TimesNewRomanPSMT" / "ArialMT" -> "Times New Roman" / "Arial" (the names Windows knows).</summary>
@@ -230,6 +247,45 @@ internal static class PdfTextRuns
                     Pdfium.FPDFPage_InsertObject(page, fresh);
                 }
                 if (!firstDone) { Pdfium.FPDFPage_RemoveObject(page, obj); Pdfium.FPDFPageObj_Destroy(obj); }
+            }
+        }
+        finally { if (tp != IntPtr.Zero) Pdfium.FPDFText_ClosePage(tp); }
+    }
+
+    /// <summary>Writes new pieces of text that look like existing ones (call under Pdfium.Sync, before <see cref="Replace"/>: the donors must still be there).</summary>
+    public static void Place(IntPtr doc, IntPtr page, PageMapping map, IEnumerable<PdfPlaceTextMark> marks, Dictionary<string, IntPtr> fonts)
+    {
+        IntPtr tp = Pdfium.FPDFText_LoadPage(page);
+        try
+        {
+            Dictionary<IntPtr, HashSet<char>>? letters = null;
+            foreach (var m in marks)
+            {
+                if (m.Text.Trim().Length == 0) continue;
+                IntPtr donor = Pdfium.FPDFPage_GetObject(page, m.DonorIndex);
+                if (donor == IntPtr.Zero || Pdfium.FPDFPageObj_GetType(donor) != Pdfium.ObjText || TextOf(donor, tp) != m.DonorText)
+                    throw new IOException("Page " + (m.Page + 1) + " isn't as it was when the text was changed. Open the PDF again and redo the change.");
+                IntPtr font = Pdfium.FPDFTextObj_GetFont(donor);
+                letters ??= LettersByFont(page, tp);
+                Pdfium.FPDFPageObj_GetMatrix(donor, out var matrix);
+                Pdfium.FPDFTextObj_GetFontSize(donor, out float fs);
+                Pdfium.FPDFPageObj_GetFillColor(donor, out uint r, out uint g, out uint b, out uint a);
+                // the PDF's own font when it has every letter (a font in a PDF often has only the letters it uses), else the same font from Windows, or one like it
+                IntPtr useFont = font;
+                if (!(letters.TryGetValue(font, out var has) && m.Text.All(c => c == ' ' || has.Contains(c))))
+                {
+                    var (family, bold, italic) = Describe(font);
+                    useFont = Substitute(doc, family, bold, italic, m.Text, fonts);
+                }
+                IntPtr fresh = Pdfium.FPDFPageObj_CreateTextObj(doc, useFont, fs);
+                if (fresh == IntPtr.Zero) throw new IOException("The changed text couldn't be written.");
+                Pdfium.FPDFText_SetText(fresh, m.Text);
+                Pdfium.FPDFPageObj_SetFillColor(fresh, r, g, b, a);
+                var at = map.ToPage(new Point(m.X, m.Baseline));
+                var place = matrix;                                  // (the donor's size, slant and direction; only where it starts changes)
+                place.E = (float)at.X; place.F = (float)at.Y;
+                Pdfium.FPDFPageObj_SetMatrix(fresh, ref place);
+                Pdfium.FPDFPage_InsertObject(page, fresh);
             }
         }
         finally { if (tp != IntPtr.Zero) Pdfium.FPDFText_ClosePage(tp); }

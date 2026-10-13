@@ -8,8 +8,15 @@ using System.Windows.Media;
 
 namespace IdmClone.Engine;
 
-/// <summary>One thing drawn on a page (text, line / shape, picture ...), as PDFium lists it: Index = its place in the page's list, Kind = PDFium's type (1 text, 2 path, 3 picture, 4 shading, 5 form), Box in points from the top-left of the page as shown.</summary>
-public sealed record PdfPageObject(int Index, int Kind, Rect Box);
+/// <summary>
+/// One thing drawn on a page (text, line / shape, picture ...), as PDFium lists it: Index = its place in the page's list, Kind = PDFium's type (1 text, 2 path, 3 picture, 4 shading, 5 form), Box in points from the top-left of the page as shown.
+/// A comment of the PDF (callout text, revision cloud, strike-out ...) is listed after the drawn things with Index = <see cref="PdfFile.AnnotationBase"/> + its place in the page's annotations and
+/// Kind = <see cref="PdfFile.AnnotationKind"/> + its subtype. <paramref name="Hollow"/>: an outline with nothing inside (a cloud round a picture): it is picked by its edge, not by what is inside it.
+/// </summary>
+public sealed record PdfPageObject(int Index, int Kind, Rect Box, bool Hollow = false);
+
+/// <summary>The text of a callout (free text comment) of a PDF, as far as it can be read: where it is, the words, size and colour.</summary>
+public sealed record PdfFreeText(Rect Box, string Text, double Size, Color Color);
 
 /// <summary>A text box / check box made by Utylix and saved in a PDF (found again so it can be moved, resized, copied or deleted).</summary>
 public sealed record PdfOwnField(int AnnotIndex, PdfNewFieldKind Kind, Rect Box, string Name, double FontSize, PdfFontKind Font, bool Bold, Color Color, string Value = "", PdfFieldExtra? Extra = null);
@@ -19,6 +26,14 @@ public sealed partial class PdfFile
 {
     public const string OwnFieldKey = "UtlxField", OwnColorKey = "UtlxColor";
 
+    /// <summary>A comment of the PDF is listed with this number added to its place in the page's comments (drawn things come first, so their places are far below).</summary>
+    public const int AnnotationBase = 1_000_000;
+    /// <summary>The <see cref="PdfPageObject.Kind"/> of a comment is this plus its PDF subtype (3 = free text, 7 = polygon / cloud, 12 = strike-out ...).</summary>
+    public const int AnnotationKind = 1000;
+    public static bool IsAnnotation(int index) => index >= AnnotationBase;
+    public static int AnnotationSubtype(PdfPageObject o) => o.Kind - AnnotationKind;
+    public const int SubtypeFreeText = 3;
+
     private IntPtr LoadPageOrThrow(int pageIndex)
     {
         IntPtr page = Pdfium.FPDF_LoadPage(_doc, pageIndex);
@@ -26,7 +41,7 @@ public sealed partial class PdfFile
         return page;
     }
 
-    /// <summary>Everything drawn on the page, bottom to top, with where it is.</summary>
+    /// <summary>Everything drawn on the page, bottom to top, with where it is; then the comments (callouts, clouds, strike-outs ...) of the PDF, which lie on top of all of it.</summary>
     public List<PdfPageObject> GetPageObjects(int pageIndex)
     {
         var list = new List<PdfPageObject>();
@@ -45,24 +60,139 @@ public sealed partial class PdfFile
                     if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetBounds(obj, out float l, out float b, out float r, out float t) == 0) continue;
                     list.Add(new PdfPageObject(i, Pdfium.FPDFPageObj_GetType(obj), map.ToShown(l, b, r, t)));
                 }
+                int annots = Pdfium.FPDFPage_GetAnnotCount(page);
+                for (int i = 0; i < annots; i++)
+                {
+                    IntPtr annot = Pdfium.FPDFPage_GetAnnot(page, i);
+                    if (annot == IntPtr.Zero) continue;
+                    try
+                    {
+                        int sub = Pdfium.FPDFAnnot_GetSubtype(annot);
+                        if (sub is 2 /* link: has its own tool */ or Pdfium.AnnotPopup or Pdfium.AnnotWidget /* form fields */ or 24 /* watermark: removed in the Tools menu */) continue;
+                        if ((Pdfium.FPDFAnnot_GetFlags(annot) & (2 /* hidden */ | 32 /* not shown */)) != 0) continue;
+                        if (Pdfium.FPDFAnnot_GetRect(annot, out var ar) == 0) continue;
+                        var box = map.ToShown(ar.Left, ar.Bottom, ar.Right, ar.Top);
+                        if (box.Width < 1 && box.Height < 1) continue;
+                        // an outline with nothing inside (a revision cloud round a picture, a frame, a ring): picked by its edge, so the things inside it can still be picked
+                        bool outline = sub is 4 or 5 or 6 or 7 or 8 or 15 && Pdfium.FPDFAnnot_GetColor(annot, 1, out _, out _, out _, out _) == 0;
+                        list.Add(new PdfPageObject(AnnotationBase + i, AnnotationKind + sub, box, outline));
+                    }
+                    finally { Pdfium.FPDFPage_CloseAnnot(annot); }
+                }
             }
             finally { Pdfium.FPDF_ClosePage(page); }
         }
         return list;
     }
 
+    /// <summary>The words, size and colour of a callout (free text comment): from its default appearance string and, when it has one, its rich text.</summary>
+    public PdfFreeText? ReadFreeText(int pageIndex, int annotIndex)
+    {
+        lock (Pdfium.Sync)
+        {
+            ThrowIfClosed();
+            Pdfium.FPDF_GetPageSizeByIndexF(_doc, pageIndex, out var size);
+            IntPtr page = LoadPageOrThrow(pageIndex);
+            try
+            {
+                var map = new PageMapping(page, size.Width, size.Height);
+                IntPtr annot = Pdfium.FPDFPage_GetAnnot(page, annotIndex);
+                if (annot == IntPtr.Zero) return null;
+                try
+                {
+                    if (Pdfium.FPDFAnnot_GetSubtype(annot) != SubtypeFreeText || Pdfium.FPDFAnnot_GetRect(annot, out var ar) == 0) return null;
+                    string text = AnnotString(annot, "Contents").Replace("\r\n", "\n").Replace('\r', '\n');
+                    double fontSize = 12; var color = Colors.Black;
+                    string da = AnnotString(annot, "DA");
+                    var tf = System.Text.RegularExpressions.Regex.Match(da, @"([\d.]+)\s+Tf");
+                    if (tf.Success && double.TryParse(tf.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double s) && s > 1) fontSize = s;
+                    static byte B(double v) => (byte)Math.Round(Math.Clamp(v, 0, 1) * 255);
+                    double N(string v) => double.Parse(v, System.Globalization.CultureInfo.InvariantCulture);
+                    const string num = @"(-?[\d.]+)";
+                    var rg = System.Text.RegularExpressions.Regex.Match(da, num + @"\s+" + num + @"\s+" + num + @"\s+rg");
+                    var gray = System.Text.RegularExpressions.Regex.Match(da, num + @"\s+g\b");
+                    if (rg.Success) color = Color.FromRgb(B(N(rg.Groups[1].Value)), B(N(rg.Groups[2].Value)), B(N(rg.Groups[3].Value)));
+                    else if (gray.Success) { byte v = B(N(gray.Groups[1].Value)); color = Color.FromRgb(v, v, v); }
+                    // rich text (Acrobat writes the look of the words there): colour:#RRGGBB and font-size:12pt
+                    string rc = AnnotString(annot, "RC");
+                    var rcColor = System.Text.RegularExpressions.Regex.Match(rc, @"color\s*:\s*#([0-9a-fA-F]{6})");
+                    if (rcColor.Success) color = (Color)ColorConverter.ConvertFromString("#" + rcColor.Groups[1].Value);
+                    var rcSize = System.Text.RegularExpressions.Regex.Match(rc, @"font-size\s*:\s*([\d.]+)\s*pt");
+                    if (rcSize.Success && double.TryParse(rcSize.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double rs) && rs > 1) fontSize = rs;
+                    return new PdfFreeText(map.ToShown(ar.Left, ar.Bottom, ar.Right, ar.Top), text, fontSize, color);
+                }
+                finally { Pdfium.FPDFPage_CloseAnnot(annot); }
+            }
+            finally { Pdfium.FPDF_ClosePage(page); }
+        }
+    }
+
+    /// <summary>Changes where comments sit: <paramref name="change"/> gets a comment's box as shown and returns the box it should have.</summary>
+    private void ChangeAnnotations(int pageIndex, IEnumerable<int> annotIndices, Func<Rect, Rect> change)
+    {
+        lock (Pdfium.Sync)
+        {
+            ThrowIfClosed();
+            Pdfium.FPDF_GetPageSizeByIndexF(_doc, pageIndex, out var size);
+            IntPtr page = LoadPageOrThrow(pageIndex);
+            try
+            {
+                var map = new PageMapping(page, size.Width, size.Height);
+                foreach (int i in annotIndices.Distinct())
+                {
+                    IntPtr annot = Pdfium.FPDFPage_GetAnnot(page, i);
+                    if (annot == IntPtr.Zero) continue;
+                    try
+                    {
+                        if (Pdfium.FPDFAnnot_GetRect(annot, out var ar) == 0) continue;
+                        var now = map.ToShown(ar.Left, ar.Bottom, ar.Right, ar.Top);
+                        var to = change(now);
+                        var p1 = map.ToPage(to.TopLeft); var p2 = map.ToPage(to.BottomRight);
+                        var rect = new Pdfium.RectF
+                        {
+                            Left = (float)Math.Min(p1.X, p2.X), Right = (float)Math.Max(p1.X, p2.X),
+                            Bottom = (float)Math.Min(p1.Y, p2.Y), Top = (float)Math.Max(p1.Y, p2.Y),
+                        };
+                        Pdfium.FPDFAnnot_SetRect(annot, ref rect);             // (its appearance is drawn into the new box: it moves, or stretches, with it)
+                    }
+                    finally { Pdfium.FPDFPage_CloseAnnot(annot); }
+                }
+            }
+            finally { Pdfium.FPDF_ClosePage(page); }
+            _texts.Remove(pageIndex); _runs.Remove(pageIndex);
+        }
+    }
+
+    private static List<int> AnnotationsOf(IReadOnlyList<int> indices) => indices.Where(IsAnnotation).Select(i => i - AnnotationBase).ToList();
+    private static List<int> ObjectsOf(IReadOnlyList<int> indices) => indices.Where(i => !IsAnnotation(i)).ToList();
+
     /// <summary>Moves things by <paramref name="shownDelta"/> (points, as seen on the page).</summary>
-    public void MovePageObjects(int pageIndex, IReadOnlyList<int> indices, Vector shownDelta) =>
-        ChangeObjects(pageIndex, indices, (map, obj) =>
+    public void MovePageObjects(int pageIndex, IReadOnlyList<int> indices, Vector shownDelta)
+    {
+        var annots = AnnotationsOf(indices);
+        if (annots.Count > 0) ChangeAnnotations(pageIndex, annots, b => new Rect(b.X + shownDelta.X, b.Y + shownDelta.Y, b.Width, b.Height));
+        var objects = ObjectsOf(indices);
+        if (objects.Count == 0) return;
+        ChangeObjects(pageIndex, objects, (map, obj) =>
         {
             var d = map.ToPage(new Point(shownDelta.X, shownDelta.Y)) - map.ToPage(new Point(0, 0));
             Pdfium.FPDFPageObj_Transform(obj, 1, 0, 0, 1, d.X, d.Y);
             Pdfium.FPDFPageObj_TransformClipPath(obj, 1, 0, 0, 1, d.X, d.Y);          // (the cut-out the picture sits in moves with it)
         });
+    }
 
     /// <summary>Stretches things so that what filled <paramref name="from"/> fills <paramref name="to"/> (both as seen on the page).</summary>
-    public void ScalePageObjects(int pageIndex, IReadOnlyList<int> indices, Rect from, Rect to) =>
-        ChangeObjects(pageIndex, indices, (map, obj) =>
+    public void ScalePageObjects(int pageIndex, IReadOnlyList<int> indices, Rect from, Rect to)
+    {
+        var annots = AnnotationsOf(indices);
+        if (annots.Count > 0)
+        {
+            double fx = from.Width < 0.01 ? 1 : to.Width / from.Width, fy = from.Height < 0.01 ? 1 : to.Height / from.Height;
+            ChangeAnnotations(pageIndex, annots, b => new Rect(to.X + (b.X - from.X) * fx, to.Y + (b.Y - from.Y) * fy, Math.Max(2, b.Width * fx), Math.Max(2, b.Height * fy)));
+        }
+        var objects = ObjectsOf(indices);
+        if (objects.Count == 0) return;
+        ChangeObjects(pageIndex, objects, (map, obj) =>
         {
             double sx = from.Width < 0.01 ? 1 : to.Width / from.Width, sy = from.Height < 0.01 ? 1 : to.Height / from.Height;
             Point Image(Point page)                                    // where a point of the page goes: to shown coordinates, scaled round the corner of the old box, back to the page
@@ -74,17 +204,21 @@ public sealed partial class PdfFile
             Pdfium.FPDFPageObj_Transform(obj, r1.X - r0.X, r1.Y - r0.Y, r2.X - r0.X, r2.Y - r0.Y, r0.X, r0.Y);
             Pdfium.FPDFPageObj_TransformClipPath(obj, r1.X - r0.X, r1.Y - r0.Y, r2.X - r0.X, r2.Y - r0.Y, r0.X, r0.Y);
         });
+    }
 
-    /// <summary>Takes things off the page for good (they are not in the saved file).</summary>
+    /// <summary>Takes things off the page for good (they are not in the saved file). Comments of the PDF are taken out of its list of comments.</summary>
     public void RemovePageObjects(int pageIndex, IReadOnlyList<int> indices)
     {
+        if (indices.Any(i => !IsAnnotation(i))) BakeTextSpacing();
         lock (Pdfium.Sync)
         {
             ThrowIfClosed();
             IntPtr page = LoadPageOrThrow(pageIndex);
             try
             {
-                foreach (int i in indices.Distinct().OrderByDescending(x => x))          // (from the last: the places of the others stay)
+                foreach (int i in indices.Where(IsAnnotation).Distinct().OrderByDescending(x => x))      // (the comments first, from the last: the places of the others stay)
+                    Pdfium.FPDFPage_RemoveAnnot(page, i - AnnotationBase);
+                foreach (int i in indices.Where(x => !IsAnnotation(x)).Distinct().OrderByDescending(x => x))          // (from the last: the places of the others stay)
                 {
                     IntPtr obj = Pdfium.FPDFPage_GetObject(page, i);
                     if (obj == IntPtr.Zero) continue;
@@ -120,6 +254,7 @@ public sealed partial class PdfFile
     /// <summary>Puts a copy made by <see cref="CopyPageObjects"/> on a page, moved by <paramref name="shownDelta"/> (points, as seen on the page). It comes in as one thing.</summary>
     public void PastePageObjects(int pageIndex, byte[] copy, Vector shownDelta)
     {
+        BakeTextSpacing();
         string temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "UtylixPaste-" + Guid.NewGuid().ToString("N") + ".pdf");
         File.WriteAllBytes(temp, copy);
         try
@@ -152,6 +287,7 @@ public sealed partial class PdfFile
     /// <summary>Changes the stacking of things on the page: mode 0 = to the very front, 1 = one step forward, 2 = one step back, 3 = to the very back. Returns where they are in the list afterwards.</summary>
     public List<int> ReorderPageObjects(int pageIndex, IReadOnlyList<int> indices, int mode)
     {
+        BakeTextSpacing();
         lock (Pdfium.Sync)
         {
             ThrowIfClosed();
@@ -209,6 +345,7 @@ public sealed partial class PdfFile
 
     private void ChangeObjects(int pageIndex, IReadOnlyList<int> indices, Action<PageMapping, IntPtr> change)
     {
+        BakeTextSpacing();
         lock (Pdfium.Sync)
         {
             ThrowIfClosed();
@@ -244,6 +381,7 @@ public sealed partial class PdfFile
     /// </summary>
     public void FlattenForms()
     {
+        BakeTextSpacing();
         lock (Pdfium.Sync)
         {
             ThrowIfClosed();

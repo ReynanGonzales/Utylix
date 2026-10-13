@@ -167,6 +167,7 @@ public static class PdfWatermarks
     {
         var wanted = new HashSet<string>(keys);
         int removed = 0;
+        pdf.BakeTextSpacing();
         lock (Pdfium.Sync)
         {
             IntPtr doc = pdf.Handle;

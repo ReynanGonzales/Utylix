@@ -29,6 +29,20 @@ public sealed partial class PdfWindow
         public override void ResizeTo(Rect r) => Box = r;
     }
 
+    /// <summary>
+    /// Before editing starts: the document's character and word spacing is turned into position adjustments that survive PDFium rewriting a page (see <see cref="PdfSpacingBake"/>),
+    /// so lines that are not touched do not come out narrower or wider. Nothing visible changes; a document without such spacing is left alone.
+    /// </summary>
+    private void BakeSpacingForEditing()
+    {
+        if (_pdf == null) return;
+        try
+        {
+            if (_pdf.BakeTextSpacing()) RefreshAfterPageChange(Array.Empty<int>(), keepView: true);      // (the document was swapped for the same one: drawn again, the view stays where it was)
+        }
+        catch (Exception e) when (e is IOException or ObjectDisposedException or InvalidOperationException) { /* the document stays as it is */ }
+    }
+
     private readonly Dictionary<int, List<PdfOwnField>> _ownFields = new();
     private bool _fieldsLifted;                      // a saved field was picked up: Save tidies the form
 
@@ -47,11 +61,56 @@ public sealed partial class PdfWindow
         catch (Exception e) when (e is IOException or ObjectDisposedException) { return new List<PdfPageObject>(); }
     }
 
-    /// <summary>The top thing drawn at this spot, or null.</summary>
+    /// <summary>Is the point on the thing? An outline with nothing inside (a revision cloud) counts only near its edge, so what lies inside it can still be picked.</summary>
+    private static bool HitsObject(PdfPageObject o, Point p)
+    {
+        if (!Grow(o.Box, 2).Contains(p)) return false;
+        if (!o.Hollow || o.Box.Width < 28 || o.Box.Height < 28) return true;
+        return !Grow(o.Box, -9).Contains(p);
+    }
+
+    /// <summary>The top thing drawn at this spot, or null. Comments of the PDF (callouts, clouds, strike-outs) lie on top of the page, so they are met first.</summary>
     private PageObjectItem? PickPageObject(int page, Point p)
     {
-        var hit = PageObjects(page).LastOrDefault(o => !IsBackdrop(o, page) && o.Box.Width + o.Box.Height > 1 && Grow(o.Box, 2).Contains(p));
+        var hit = PageObjects(page).LastOrDefault(o => !IsBackdrop(o, page) && o.Box.Width + o.Box.Height > 1 && HitsObject(o, p));
         return hit == null ? null : new PageObjectItem { Page = page, Indices = { hit.Index }, Box = hit.Box, Original = hit.Box };
+    }
+
+    /// <summary>The chosen thing when it is exactly one callout (free text comment) of the PDF: its place in the page's comments.</summary>
+    private bool TryChosenFreeText(out int annotIndex)
+    {
+        annotIndex = -1;
+        if (!_editing || _selected is not PageObjectItem { Indices.Count: 1 } po || !PdfFile.IsAnnotation(po.Indices[0])) return false;
+        var obj = PageObjects(po.Page).FirstOrDefault(o => o.Index == po.Indices[0]);
+        if (obj == null || PdfFile.AnnotationSubtype(obj) != PdfFile.SubtypeFreeText) return false;
+        annotIndex = po.Indices[0] - PdfFile.AnnotationBase;
+        return true;
+    }
+
+    /// <summary>
+    /// A callout of the PDF becomes a text box of Utylix: the comment leaves the PDF's comments and its words come back as text you can change, move, resize and delete
+    /// (it is page text once saved). The look is read from the comment: size and colour.
+    /// </summary>
+    private void EditFreeTextComment()
+    {
+        if (_pdf == null || !TryChosenFreeText(out int annot) || _selected is not PageObjectItem po) return;
+        int page = po.Page;
+        PdfFreeText? info;
+        try { info = _pdf.ReadFreeText(page, annot); }
+        catch (Exception e) when (e is IOException or ObjectDisposedException) { Toast("That comment can't be read: " + e.Message); return; }
+        if (info == null) { Toast("That comment can't be changed here (use Delete to remove it)"); return; }
+        Select(null);
+        bool done = PageOp(p => p.SetNote(page, annot, null), new[] { page }, "The comment's words are now a text box: change them, move them, or delete them. Undo puts the comment back", keepView: true);
+        if (!done) return;
+        var item = new TextItem
+        {
+            Page = page, Text = info.Text, FontSize = info.Size, Color = info.Color, Font = PdfFontKind.Sans,
+            TopLeft = new Point(info.Box.X + 2, info.Box.Y + 2), BoxWidth = Math.Max(20, info.Box.Width + 14),      // (a little room: the font here is not exactly the one the comment was written in)
+        };
+        _items.Add(item);                                             // (no step of its own: Undo goes back to the page as it was, with the comment on it)
+        _dirty = true; UpdateTitle(); UpdateEditButtons();
+        Select(item);
+        RenderItems(page);
     }
 
     /// <summary>Everything drawn completely inside a box (a drag on empty paper), as one choice; null when there is nothing.</summary>

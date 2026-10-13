@@ -2,162 +2,425 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using IdmClone.Engine;
 
 namespace IdmClone;
 
 /// <summary>
-/// "Edit the whole paragraph": the lines of a paragraph already in the PDF are taken together (same font, size and colour, lines one under the other at the same spacing, a short last line ends
-/// it), shown as one running text, and when the text is changed the words are laid out again to the same width and spacing. Done with the same line changes as Edit text: the first line keeps
-/// its start, the second line takes the rest of the lines (written one under the other), the remaining old lines are taken out.
+/// "Edit the whole paragraph": the lines of a paragraph already in the PDF are taken together whatever their looks are (a bold first word or a number in front of
+/// the text is fine: the number stays where it is), shown as one running text, and when the text is changed the words are laid out again to the same width and
+/// line spacing. Bold, italic and colour stay with the words they were on; new words take the look of the words next to them. Saved by taking the old pieces
+/// out and writing the new ones like the old ones (same font, size, colour).
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private sealed record Paragraph(List<PdfTextRun> Lines, double Left, double Right, double Advance);
+    /// <summary>One line of text of the page: its pieces left to right; a number or bullet in front ("5.5.1", "•") is kept apart as its label.</summary>
+    private sealed class ParaLine
+    {
+        public readonly List<PdfTextRun> Runs;
+        public readonly List<PdfTextRun> Labels = new();
+        public readonly List<PdfTextRun> Body = new();
+        public readonly double Baseline;
+        public readonly double Size;
+        public ParaLine(List<PdfTextRun> runs)
+        {
+            Runs = runs.OrderBy(r => r.Box.Left).ToList();
+            var widest = Runs.OrderByDescending(r => r.Box.Width).First();
+            Baseline = widest.Baseline.Y;
+            // a number / bullet, then a clear gap, then the words
+            int skip = 0;
+            if (Runs.Count > 1 && IsLabel(Runs[0].Text) && Runs[1].Box.Left - Runs[0].Box.Right >= 0.6 * Math.Max(4, Runs[0].Size)) { Labels.Add(Runs[0]); skip = 1; }
+            Body.AddRange(Runs.Skip(skip));
+            Size = (Body.Count > 0 ? Body : Runs).OrderByDescending(r => r.Box.Width).First().Size;
+        }
+        public bool HasLabel => Labels.Count > 0;
+        public double BodyLeft => Body.Count > 0 ? Body[0].Box.Left : Runs[0].Box.Left;
+        public double Right => Runs.Max(r => r.Box.Right);
+        public double BodyRight => Body.Count > 0 ? Body.Max(r => r.Box.Right) : Right;
+    }
+
+    private static readonly Regex NumberLabel = new(@"^[\(\[]?([0-9]{1,3}|[A-Za-z])([.\-][0-9]{1,3})*[.)\]:]?$", RegexOptions.Compiled);
+    private static bool IsLabel(string text)
+    {
+        string t = text.Replace(" ", "").Replace(" ", "");
+        return t.Length is > 0 and <= 12 && (NumberLabel.IsMatch(t) || (t.Length == 1 && "•·▪■□●○◦‣⁃-–—*".IndexOf(t[0]) >= 0));
+    }
+
+    private sealed record Paragraph(List<ParaLine> Lines, double Left, double Right, double Advance)
+    {
+        public double FirstStart => Lines[0].Body[0].Baseline.X;
+        public double FirstBaseline => Lines[0].Baseline;
+        public IEnumerable<PdfTextRun> Pieces => Lines.SelectMany(l => l.Body);
+    }
 
     private static bool SameLook(PdfTextRun a, PdfTextRun b) =>
         string.Equals(a.Family, b.Family, StringComparison.OrdinalIgnoreCase) && Math.Abs(a.Size - b.Size) < 0.3 && a.Bold == b.Bold && a.Italic == b.Italic
         && Math.Abs(a.Color.R - b.Color.R) + Math.Abs(a.Color.G - b.Color.G) + Math.Abs(a.Color.B - b.Color.B) < 60;
 
+    /// <summary>The text objects of a page that were already changed (by a line or paragraph edit): their old place is empty.</summary>
+    private HashSet<int> EditedRunIndices(int page)
+    {
+        var set = new HashSet<int>();
+        foreach (var i in _items)
+        {
+            if (i.Page != page) continue;
+            if (i is RunEditItem r) foreach (var x in r.Run.Parts?.Select(p => p.Index) ?? new[] { r.Run.Index }) set.Add(x);
+            else if (i is ParagraphItem pi) foreach (var s in pi.Sources) foreach (var x in s.Parts?.Select(p => p.Index) ?? new[] { s.Index }) set.Add(x);
+        }
+        return set;
+    }
+
+    /// <summary>The lines of the page, whatever their looks: pieces on one baseline side by side (a gap of three letters' width or more starts another line: columns).</summary>
+    private List<ParaLine> PageLines(int page)
+    {
+        var edited = EditedRunIndices(page);
+        var runs = Runs(page).Where(r => !edited.Contains(r.Index) && r.Text.Trim().Length > 0).OrderBy(r => r.Baseline.Y).ThenBy(r => r.Box.Left).ToList();
+        var rows = new List<List<PdfTextRun>>();
+        foreach (var r in runs)
+        {
+            var row = rows.FirstOrDefault(x => Math.Abs(x[0].Baseline.Y - r.Baseline.Y) <= 0.3 * Math.Max(4, r.Size));
+            if (row == null) rows.Add(new List<PdfTextRun> { r }); else row.Add(r);
+        }
+        var lines = new List<ParaLine>();
+        foreach (var row in rows)
+        {
+            var sorted = row.OrderBy(r => r.Box.Left).ToList();
+            var piece = new List<PdfTextRun>();
+            foreach (var r in sorted)
+            {
+                if (piece.Count > 0 && r.Box.Left - piece[^1].Box.Right > 3 * Math.Max(4, piece[^1].Size)) { lines.Add(new ParaLine(piece)); piece = new List<PdfTextRun>(); }
+                piece.Add(r);
+            }
+            if (piece.Count > 0) lines.Add(new ParaLine(piece));
+        }
+        return lines.OrderBy(l => l.Baseline).ThenBy(l => l.Runs[0].Box.Left).ToList();
+    }
+
     /// <summary>The paragraph the line belongs to (null when it is a single line on its own).</summary>
     private Paragraph? FindParagraph(int page, PdfTextRun start)
     {
-        var edited = new HashSet<int>(_items.OfType<RunEditItem>().Where(i => i.Page == page).SelectMany(i => i.Run.Parts?.Select(x => x.Index) ?? new[] { i.Run.Index }));
-        var runs = Runs(page).Where(r => !edited.Contains(r.Index) && SameLook(r, start) && r.Text.Trim().Length > 0).ToList();
-        double em = Math.Max(4, start.Size);
-        var chain = new List<PdfTextRun> { start };
+        var all = PageLines(page);
+        var startLine = all.FirstOrDefault(l => l.Runs.Any(r => ReferenceEquals(r, start) || r.Index == start.Index));
+        if (startLine == null) return null;
+        double em = Math.Max(4, startLine.Size);
+        double margin = startLine.BodyLeft;
+        var chain = new List<ParaLine> { startLine };
         double gap = 0;
-        // down
-        for (var cur = start; ;)
+
+        // down: the next lines (no number of their own: that would be the next paragraph), one step under the other at the same spacing
+        bool firstStep = true;
+        for (var cur = startLine; ;)
         {
-            var next = runs.Where(r => r != cur && r.Baseline.Y > cur.Baseline.Y + 0.8 * em && r.Baseline.Y <= cur.Baseline.Y + 2.3 * em
-                                       && Math.Abs(r.Box.Left - start.Box.Left) <= 0.7 * em && r.Box.Right > start.Box.Left && r.Box.Left < start.Box.Right + 40 * em)
-                           .OrderBy(r => r.Baseline.Y).FirstOrDefault();
+            double lo = firstStep ? margin - 3.5 * em : margin - 0.7 * em, hi = margin + 0.7 * em;
+            var next = all.Where(l => l != cur && !l.HasLabel && l.Baseline > cur.Baseline + 0.8 * em && l.Baseline <= cur.Baseline + 2.3 * em
+                                      && Math.Abs(l.Size - startLine.Size) <= 1.5 && l.BodyLeft >= lo && l.BodyLeft <= hi && l.Right > margin)
+                          .OrderBy(l => l.Baseline).ThenBy(l => Math.Abs(l.BodyLeft - margin)).FirstOrDefault();
             if (next == null) break;
-            double g = next.Baseline.Y - cur.Baseline.Y;
+            double g = next.Baseline - cur.Baseline;
             if (gap == 0) gap = g; else if (Math.Abs(g - gap) > 0.2 * gap + 0.6) break;
+            if (firstStep) { margin = next.BodyLeft; firstStep = false; }
             chain.Add(next); cur = next;
             if (chain.Count > 80) break;
         }
-        // up (the first line of a paragraph may start further in)
-        for (var cur = chain[0]; ;)
+        // up: the first line may start further in, or have a number in front (then it is the first line: stop there)
+        for (var cur = chain[0]; !cur.HasLabel;)
         {
-            var prev = runs.Where(r => r != cur && r.Baseline.Y < cur.Baseline.Y - 0.8 * em && r.Baseline.Y >= cur.Baseline.Y - 2.3 * em
-                                       && (r.Box.Left - start.Box.Left) <= 3.5 * em && (r.Box.Left - start.Box.Left) >= -0.7 * em && r.Box.Right > start.Box.Left)
-                           .OrderByDescending(r => r.Baseline.Y).FirstOrDefault();
+            var prev = all.Where(l => l != cur && l.Baseline < cur.Baseline - 0.8 * em && l.Baseline >= cur.Baseline - 2.3 * em
+                                      && Math.Abs(l.Size - startLine.Size) <= 1.5 && l.BodyLeft - margin <= 3.5 * em && l.BodyLeft - margin >= -0.7 * em && l.Right > margin)
+                          .OrderByDescending(l => l.Baseline).ThenBy(l => Math.Abs(l.BodyLeft - margin)).FirstOrDefault();
             if (prev == null) break;
-            double g = cur.Baseline.Y - prev.Baseline.Y;
+            double g = cur.Baseline - prev.Baseline;
             if (gap == 0) gap = g; else if (Math.Abs(g - gap) > 0.2 * gap + 0.6) break;
             chain.Insert(0, prev); cur = prev;
             if (chain.Count > 80) break;
         }
         if (chain.Count < 2) return null;
-        double left = chain.Skip(1).DefaultIfEmpty(chain[0]).Min(r => r.Box.Left), right = chain.Max(r => r.Box.Right);
+        double left = chain.Skip(1).Min(l => l.BodyLeft), right = chain.Max(l => l.BodyRight);
         // a line flows into the next one when the next line's first word would not have fitted on it (ragged or justified, the same test); a line that had room for it ended on purpose
-        var measure = MeasureFor(start);
-        double space = measure(" ");
         bool Flows(int k)
         {
-            string firstWord = chain[k + 1].Text.TrimStart().Split(' ')[0];
-            return right - chain[k].Box.Right < measure(firstWord) + space - 0.5;
+            var nextFirst = chain[k + 1].Body.FirstOrDefault();
+            if (nextFirst == null) return false;
+            var measure = MeasureFor(nextFirst);
+            string firstWord = nextFirst.Text.TrimStart().Split(' ')[0];
+            return right - chain[k].BodyRight < measure(firstWord) + measure(" ") - 0.5;
         }
-        int s = chain.IndexOf(start);
+        int s = chain.IndexOf(startLine);
         int from = s;
         while (from > 0 && Flows(from - 1)) from--;
         int to = s;
         while (to < chain.Count - 1 && Flows(to)) to++;
         var lines = chain.GetRange(from, to - from + 1);
-        if (lines.Count < 2) return null;
-        return new Paragraph(lines, left, right, gap > 0 ? gap : em * 1.2);
+        if (lines.Count < 2 || lines.Any(l => l.Body.Count == 0)) return null;
+        return new Paragraph(lines, lines.Count > 1 ? lines.Skip(1).Min(l => l.BodyLeft) : lines[0].BodyLeft, right, gap > 0 ? gap : em * 1.2);
     }
 
-    /// <summary>The width of a piece of text in the line's own font (points).</summary>
+    /// <summary>The width of a piece of text in the run's own font (points).</summary>
     private static Func<string, double> MeasureFor(PdfTextRun run)
     {
         var typeface = new Typeface(RunEditItem.Family(run), run.Italic ? FontStyles.Italic : FontStyles.Normal, run.Bold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
         return s => s.Length == 0 ? 0 : new FormattedText(s, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, run.Size, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace;
     }
 
-    private static string JoinLines(IReadOnlyList<PdfTextRun> lines)
+    // ---------- the paragraph as one text, a character at a time knowing which piece (look) it came from ----------
+    private static (string Text, List<PdfTextRun> Looks) JoinParagraph(IEnumerable<ParaLine> lines)
     {
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
+        var looks = new List<PdfTextRun>();
+        void Add(string s, PdfTextRun look) { foreach (char c in s) { sb.Append(c); looks.Add(look); } }
+        PdfTextRun? previous = null;
         foreach (var line in lines)
         {
-            string t = line.Text.Trim();
-            if (sb.Length > 0) { if (sb[^1] != '-' ) sb.Append(' '); }
-            sb.Append(t);
+            for (int k = 0; k < line.Body.Count; k++)
+            {
+                var run = line.Body[k];
+                string t = run.Text;
+                if (sb.Length == 0) t = t.TrimStart();
+                else
+                {
+                    bool prevSpace = sb[^1] == ' ', nextSpace = t.Length > 0 && t[0] == ' ';
+                    if (prevSpace && nextSpace) t = t.TrimStart();
+                    else if (!prevSpace && !nextSpace)
+                    {
+                        // a line ends: a space (but not after a hyphen, the word goes on); two pieces on one line: a space only when there is a gap between them
+                        bool joined = k == 0 ? sb[^1] == '-' : previous != null && run.Box.Left - previous.Box.Right <= 0.12 * run.Size;
+                        if (!joined) Add(" ", run);
+                    }
+                }
+                Add(t, run);
+                previous = run;
+            }
         }
-        return sb.ToString();
+        while (sb.Length > 0 && sb[^1] == ' ') { sb.Length--; looks.RemoveAt(looks.Count - 1); }
+        return (sb.ToString(), looks);
     }
 
-    /// <summary>The words laid out in lines of at most the given widths (the first line may have its own width): a new line starts where a word would stick out. A line break in the text stays one.</summary>
-    private static List<string> Wrap(string text, Func<string, double> width, double firstWidth, double otherWidth)
+    /// <summary>The look of every character of a changed text: what stayed keeps its look; new words take the look of the word they replace, or of the one before.</summary>
+    private static List<PdfTextRun> Restyle(string oldText, List<PdfTextRun> oldLooks, string newText)
     {
-        var lines = new List<string>();
+        int p = 0;
+        while (p < oldText.Length && p < newText.Length && oldText[p] == newText[p]) p++;
+        int s = 0;
+        while (s < oldText.Length - p && s < newText.Length - p && oldText[oldText.Length - 1 - s] == newText[newText.Length - 1 - s]) s++;
+        var result = new List<PdfTextRun>(newText.Length);
+        for (int i = 0; i < p; i++) result.Add(oldLooks[i]);
+        int oldChanged = oldText.Length - s - p;
+        PdfTextRun inherit = oldLooks.Count == 0 ? null! : oldChanged > 0 ? oldLooks[p] : oldLooks[Math.Clamp(p > 0 ? p - 1 : 0, 0, oldLooks.Count - 1)];
+        for (int i = p; i < newText.Length - s; i++) result.Add(inherit);
+        for (int i = 0; i < s; i++) result.Add(oldLooks[oldText.Length - s + i]);
+        return result;
+    }
+
+    /// <summary>A piece of the laid-out paragraph: its words, the piece whose look it has, and where it starts (x on the baseline) - points as shown.</summary>
+    private sealed record ParaSeg(string Text, PdfTextRun Look, double X, double Baseline);
+
+    /// <summary>The words laid out in lines: the first starts at <paramref name="firstStart"/>, the others at <paramref name="left"/>; a new line starts where a word would stick out past <paramref name="right"/>. A line break in the text stays one.</summary>
+    private static List<ParaSeg> Layout(string text, List<PdfTextRun> looks, double firstStart, double left, double right, double baseline, double advance)
+    {
+        var segs = new List<ParaSeg>();
+        var measures = new Dictionary<PdfTextRun, Func<string, double>>();
+        Func<string, double> M(PdfTextRun r) { if (!measures.TryGetValue(r, out var f)) measures[r] = f = MeasureFor(r); return f; }
+        double line = 0;
+        int pos = 0;
         foreach (string hard in text.Replace("\r\n", "\n").Split('\n'))
         {
-            var words = hard.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (words.Length == 0) { lines.Add(""); continue; }
-            string current = "";
-            foreach (string word in words)
+            double x = line == 0 && segs.Count == 0 ? firstStart : left;
+            double y = baseline + line * advance;
+            bool any = false;
+            int i = 0;
+            while (i < hard.Length)
             {
-                string tryText = current.Length == 0 ? word : current + " " + word;
-                double limit = lines.Count == 0 ? firstWidth : otherWidth;
-                if (current.Length > 0 && width(tryText) > limit) { lines.Add(current); current = word; }
-                else current = tryText;
+                while (i < hard.Length && hard[i] == ' ') i++;
+                if (i >= hard.Length) break;
+                int j = i;
+                while (j < hard.Length && hard[j] != ' ') j++;
+                // the word, in pieces of one look each
+                var pieces = new List<(string Text, PdfTextRun Look)>();
+                for (int k = i; k < j;)
+                {
+                    var look = looks[Math.Min(pos + k, looks.Count - 1)];
+                    int e = k + 1;
+                    while (e < j && ReferenceEquals(looks[Math.Min(pos + e, looks.Count - 1)], look)) e++;
+                    pieces.Add((hard[k..e], look));
+                    k = e;
+                }
+                double width = pieces.Sum(pc => M(pc.Look)(pc.Text));
+                var spaceLook = any && segs.Count > 0 ? segs[^1].Look : pieces[0].Look;
+                double space = any ? M(spaceLook)(" ") : 0;
+                if (any && x + space + width > right - 0.5)
+                {
+                    line++; y = baseline + line * advance; x = left; any = false; space = 0;
+                }
+                if (any)
+                {
+                    // the space after the words before: part of the piece they are in
+                    var last = segs[^1];
+                    segs[^1] = last with { Text = last.Text + " " };
+                    x += space;
+                }
+                foreach (var (t, look) in pieces)
+                {
+                    if (segs.Count > 0 && segs[^1].Baseline == y && SameLook(segs[^1].Look, look) && any) segs[^1] = segs[^1] with { Text = segs[^1].Text + t };
+                    else segs.Add(new ParaSeg(t, look, x, y));
+                    x += M(look)(t);
+                    any = true;
+                }
+                i = j;
             }
-            lines.Add(current);
+            pos += hard.Length + 1;
+            line++;
         }
-        return lines;
+        return segs;
     }
 
-    private void EditParagraphAt(PageView pv, Point p)
+    // ---------- the item ----------
+    /// <summary>A paragraph laid out again: the old pieces are hidden (and taken out when saved) and the new lines are shown (and written when saved).</summary>
+    private sealed class ParagraphItem : EditItem
     {
-        var run = RunAt(pv.Index, p);
-        if (run == null) { Toast("Click on a line of a paragraph (turned text can't be changed)"); return; }
-        var para = FindParagraph(pv.Index, run);
-        if (para == null) { EditTextAt(pv, p); Toast("That line stands on its own: change it here. A paragraph has several lines one under the other"); return; }
-        CloseTextBox(commit: true);
+        public List<PdfTextRun> Sources = new();
+        public List<(Rect Box, Color Cover)> Hide = new();
+        public List<ParaSeg> Segs = new();
+        public string OriginalText = "";
+        public string Text = "";
+        public List<PdfTextRun> Looks = new();
+        public double FirstStart, Left, Right, FirstBaseline, Advance;
+        public Vector Offset;
 
-        var first = para.Lines[0];
+        public override Rect Bounds
+        {
+            get
+            {
+                var r = Rect.Empty;
+                foreach (var h in Hide) r.Union(h.Box);
+                foreach (var s in Segs)
+                {
+                    var f = RunEditItem.Family(s.Look);
+                    r.Union(new Rect(s.X, s.Baseline - f.Baseline * s.Look.Size, Math.Max(4, MeasureFor(s.Look)(s.Text)), f.LineSpacing * s.Look.Size));
+                }
+                if (r.IsEmpty) return new Rect(0, 0, 4, 4);
+                r.Offset(Offset);
+                return r;
+            }
+        }
+        public override bool Hit(Point p) => Inflate(Bounds, 1).Contains(p);
+        public override EditItem Clone() => (ParagraphItem)MemberwiseClone();       // (a changed paragraph gets new lists: the old ones are never edited in place)
+        public override FrameworkElement Build()
+        {
+            var canvas = new Canvas();
+            foreach (var (box, cover) in Hide)
+            {
+                var rect = new Rectangle { Width = box.Width + 1.2, Height = box.Height + 1.2, Fill = new SolidColorBrush(cover) };
+                Canvas.SetLeft(rect, box.X - 0.6); Canvas.SetTop(rect, box.Y - 0.6);
+                canvas.Children.Add(rect);
+            }
+            foreach (var s in Segs)
+            {
+                var f = RunEditItem.Family(s.Look);
+                var t = new TextBlock
+                {
+                    Text = s.Text, FontFamily = f, FontSize = s.Look.Size, Foreground = new SolidColorBrush(s.Look.Color.A == 0 ? Colors.Black : s.Look.Color),
+                    FontWeight = s.Look.Bold ? FontWeights.Bold : FontWeights.Normal, FontStyle = s.Look.Italic ? FontStyles.Italic : FontStyles.Normal,
+                };
+                Canvas.SetLeft(t, s.X + Offset.X); Canvas.SetTop(t, s.Baseline - f.Baseline * s.Look.Size + Offset.Y);
+                canvas.Children.Add(t);
+            }
+            return canvas;
+        }
+        public override IEnumerable<PdfMark> Marks()
+        {
+            foreach (var src in Sources)
+                foreach (var part in src.Parts ?? new[] { src })
+                    yield return new PdfReplaceTextMark(Page, part.Index, part.Text, "");
+            foreach (var s in Segs)
+            {
+                var donor = s.Look.Parts?[0] ?? s.Look;
+                yield return new PdfPlaceTextMark(Page, donor.Index, donor.Text, s.Text, s.X + Offset.X, s.Baseline + Offset.Y);
+            }
+        }
+        public override void MoveBy(Vector d) => Offset += d;
+        public override void ResizeTo(Rect r) { }
+    }
+
+    private string? AskParagraphText(int pageNumber, int lineCount, string text, out bool accepted)
+    {
         var dlg = MakeDialog("Edit paragraph", 580);
-        var box = new TextBox { Text = JoinLines(para.Lines), AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 230, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top, Padding = new Thickness(6), Margin = new Thickness(0, 6, 0, 0) };
+        var box = new TextBox { Text = text, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 230, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top, Padding = new Thickness(6), Margin = new Thickness(0, 6, 0, 0) };
         Id("PdfParaText", box);
         var ok = new Button { Content = "Change the paragraph", Style = DialogStyle("DialogPrimary"), Margin = new Thickness(0, 0, 8, 0) }; Id("PdfParaOk", ok);
         var cancel = new Button { Content = "Cancel", Style = DialogStyle("DialogButton"), IsCancel = true };
-        bool accepted = false;
-        ok.Click += (_, _) => { accepted = true; dlg.Close(); };
+        bool done = false;
+        ok.Click += (_, _) => { done = true; dlg.Close(); };
         var root = new StackPanel { Margin = new Thickness(20) };
-        root.Children.Add(new TextBlock { Text = $"{para.Lines.Count} lines, on page {pv.Index + 1}", FontWeight = FontWeights.SemiBold });
+        root.Children.Add(new TextBlock { Text = $"{lineCount} lines, on page {pageNumber}", FontWeight = FontWeights.SemiBold });
         root.Children.Add(box);
-        root.Children.Add(new TextBlock { Text = "The words are laid out again to the same width and line spacing, in the same font, size and colour. Enter makes a line break of its own. A longer text grows downwards, so look at what is under it afterwards.", Opacity = 0.7, FontSize = 12, Margin = new Thickness(0, 10, 0, 0), TextWrapping = TextWrapping.Wrap });
+        root.Children.Add(new TextBlock
+        {
+            Text = "The words are laid out again to the same width and line spacing. Bold, italic and colour stay with the words they were on; new words take the look of the words next to them. " +
+                   "Enter makes a line break of its own. A longer text grows downwards, so look at what is under it afterwards.",
+            Opacity = 0.7, FontSize = 12, Margin = new Thickness(0, 10, 0, 0), TextWrapping = TextWrapping.Wrap,
+        });
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
         buttons.Children.Add(ok); buttons.Children.Add(cancel);
         root.Children.Add(buttons);
         dlg.Content = root;
         dlg.Loaded += (_, _) => { box.Focus(); box.CaretIndex = box.Text.Length; };
         dlg.ShowDialog();
-        if (!accepted) return;
-        string newText = box.Text;
-        if (newText == JoinLines(para.Lines)) return;                                  // (nothing changed)
+        accepted = done;
+        return done ? box.Text.Replace("\r\n", "\n").Replace('\r', '\n') : null;
+    }
 
-        // the same font as the line is drawn in, to measure the words
-        double width = para.Right - para.Left;
-        var lines = Wrap(newText, MeasureFor(first), para.Right - first.Baseline.X + 0.5, width + 0.5);
+    private void EditParagraphAt(PageView pv, Point p)
+    {
+        // a paragraph already laid out again in this session: open it again
+        var again = _items.OfType<ParagraphItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
+        if (again != null) { ReopenParagraph(pv, again); return; }
+
+        var run = RunAt(pv.Index, p);
+        if (run == null) { Toast("Click on a line of a paragraph (turned text can't be changed)"); return; }
+        var para = FindParagraph(pv.Index, run);
+        if (para == null) { EditTextAt(pv, p); Toast("That line stands on its own: change it here. A paragraph has several lines one under the other"); return; }
+        CloseTextBox(commit: true);
+
+        var (oldText, looks) = JoinParagraph(para.Lines);
+        string? newText = AskParagraphText(pv.Index + 1, para.Lines.Count, oldText, out bool accepted);
+        if (!accepted || newText == null || newText == oldText) return;
+        var newLooks = Restyle(oldText, looks, newText);
+        double firstStart = para.FirstStart;
+        var segs = Layout(newText, newLooks, firstStart, para.Left, para.Right, para.FirstBaseline, para.Advance);
 
         Snapshot();
-        RunEditItem Item(PdfTextRun r, string text, double? advance = null) =>
-            new() { Page = pv.Index, Run = r, NewText = text, Cover = CoverColour(pv, r.Box), AdvanceOverride = advance };
-        // line 1 keeps its own start (an indent stays); line 2 takes the rest of the lines (one under the other); the other old lines go
-        // (the covers of the lines that go come first, so the new lines that reach down over them are drawn on top)
-        for (int i = 2; i < para.Lines.Count; i++) _items.Add(Item(para.Lines[i], ""));
-        _items.Add(Item(para.Lines[1], lines.Count > 1 ? string.Join("\n", lines.Skip(1)) : "", para.Advance));
-        _items.Add(Item(para.Lines[0], lines.Count > 0 ? lines[0] : ""));
+        var item = new ParagraphItem
+        {
+            Page = pv.Index, Sources = para.Pieces.ToList(), Segs = segs, OriginalText = oldText, Text = newText, Looks = newLooks,
+            FirstStart = firstStart, Left = para.Left, Right = para.Right, FirstBaseline = para.FirstBaseline, Advance = para.Advance,
+        };
+        foreach (var src in item.Sources) item.Hide.Add((src.Box, CoverColour(pv, src.Box)));
+        _items.Add(item);
         _dirty = true; UpdateTitle(); UpdateEditButtons();
         RenderItems(pv.Index);
-        Toast($"Paragraph laid out again: {lines.Count} line{(lines.Count == 1 ? "" : "s")} (was {para.Lines.Count}). Undo takes it back; Save writes it");
+        int lineCount = segs.Select(s => s.Baseline).Distinct().Count();
+        Toast($"Paragraph laid out again: {lineCount} line{(lineCount == 1 ? "" : "s")} (was {para.Lines.Count}). Undo takes it back; Save writes it");
+    }
+
+    private void ReopenParagraph(PageView pv, ParagraphItem item)
+    {
+        CloseTextBox(commit: true);
+        string? newText = AskParagraphText(pv.Index + 1, item.Segs.Select(s => s.Baseline).Distinct().Count(), item.Text, out bool accepted);
+        if (!accepted || newText == null || newText == item.Text) return;
+        var newLooks = Restyle(item.Text, item.Looks, newText);
+        var segs = Layout(newText, newLooks, item.FirstStart, item.Left, item.Right, item.FirstBaseline, item.Advance);
+        Snapshot();
+        int at = _items.IndexOf(item);
+        var changed = (ParagraphItem)item.Clone();
+        changed.Segs = segs; changed.Text = newText; changed.Looks = newLooks;
+        if (at >= 0) _items[at] = changed;
+        _dirty = true; UpdateTitle(); UpdateEditButtons();
+        RenderItems(pv.Index);
     }
 }

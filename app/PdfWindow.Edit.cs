@@ -818,6 +818,7 @@ public sealed partial class PdfWindow
         if (_pdf == null || _path == null || _editing) return;
         if (!_pdf.CanEdit && !AskOwnerPassword()) return;
         if (_rotation != 0) { _rotation = 3; Rotate(); }              // (back to upright: editing works on the pages as they are)
+        BakeSpacingForEditing();                                       // (before any text is read for editing: see PdfSpacingBake)
         _editing = true;
         OutlinesChanged();
         _editBar.Visibility = Visibility.Visible;
@@ -996,7 +997,13 @@ public sealed partial class PdfWindow
             _toolHint.Visibility = Visibility.Visible;
         }
         if (item is LinkPick lp) { _toolHint.Text = (lp.Link.Uri != null ? "A link to " + lp.Link.Uri : "A link to page " + (lp.Link.Page + 1)) + ". Enter changes where it goes, Delete removes it."; _toolHint.Visibility = Visibility.Visible; }
-        if (item is PageObjectItem) { _toolHint.Text = "Already in the PDF: drag it to move it, the corner to resize it, Delete to remove it. Undo takes it back."; _toolHint.Visibility = Visibility.Visible; }
+        if (item is PageObjectItem commentPick && commentPick.Indices.All(PdfFile.IsAnnotation))
+        {
+            _toolHint.Text = TryChosenFreeText(out _) ? "A comment in the PDF: drag it to move it, double-click (or Enter) to change its words, Delete to remove it. Undo takes it back."
+                                                       : "A comment in the PDF: drag it to move it, the corner to resize it, Delete to remove it. Undo takes it back.";
+            _toolHint.Visibility = Visibility.Visible;
+        }
+        else if (item is PageObjectItem) { _toolHint.Text = "Already in the PDF: drag it to move it, the corner to resize it, Delete to remove it. Undo takes it back."; _toolHint.Visibility = Visibility.Visible; }
         if (fieldTool)
         {
             _toolHint.Text = "Text box and sign box: drag the size (or click). Check box and option: click. The colour is the edge of the field. They become real fillable fields when you Save.";
@@ -1323,6 +1330,7 @@ public sealed partial class PdfWindow
                 break;
             }
             case EditTool.Select:
+                if (e.ClickCount == 2 && _selected is PageObjectItem chosenComment && chosenComment.Page == pv.Index && chosenComment.Box.Contains(p) && TryChosenFreeText(out _)) { _dragPage = null; EditFreeTextComment(); return; }      // (double-click on a callout of the PDF: change its words)
                 if ((Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Control)) != 0 && ExtendChoice(pv, p)) { _dragPage = null; return; }       // (Shift / Ctrl + click: add to what is chosen)
                 if (_group.Count > 0 && (_group.Any(g => g.Page == pv.Index && g.Hit(p)) || (ItemAt(pv.Index, p) == null && InGroupFrame(pv.Index, p)))) { _drag = DragMode.GroupMove; _groupLast = p; break; }      // (several chosen: they all follow the mouse, also when the pointer is between them)
                 if (OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
@@ -1346,6 +1354,7 @@ public sealed partial class PdfWindow
                     if (PickPageObject(pv.Index, p) is { } picked) { Select(picked); _drag = DragMode.Move; _dragBox = picked.Bounds; break; }
                     _drag = DragMode.Marquee; _marquee = new Rect(p, p); _marqueePage = pv.Index; break;      // (an empty spot: drag a box round what you want)
                 }
+                if (item is ParagraphItem laid && e.ClickCount == 2) { ReopenParagraph(pv, laid); return; }
                 if (item is TextItem t && e.ClickCount == 2) { EditText(t, isNew: false); return; }
                 if (item is NoteItem n && e.ClickCount == 2) { OpenNote(n, isNew: false); return; }
                 if (item is ColumnsItem columns && e.ClickCount == 2) { EditColumns(columns); return; }
@@ -1798,6 +1807,7 @@ public sealed partial class PdfWindow
             case Key.Enter when _selected is TableItem tableSel: EditTable(tableSel); return true;
             case Key.Enter when _selected is FieldItem fieldSel: EditFieldOptions(fieldSel); return true;
             case Key.Enter when _selected is LinkPick linkSel: EditLink(linkSel); return true;
+            case Key.Enter when TryChosenFreeText(out _): EditFreeTextComment(); return true;
             case Key.Left or Key.Right or Key.Up or Key.Down when _selected != null:
             {
                 double step = shift ? 10 : 1;

@@ -52,6 +52,7 @@ public sealed partial class PdfWindow
     private void ArrangePageObjects(PageObjectItem po, ZMove move)
     {
         int page = po.Page;
+        if (po.Indices.Any(PdfFile.IsAnnotation)) { Toast("Comments of the PDF always lie on top of the page, so they can't be moved to the front or back"); return; }
         var indices = po.Indices.ToList();
         List<int> after = indices;
         var box = po.Box;

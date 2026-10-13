@@ -111,7 +111,7 @@ public sealed partial class PdfWindow
     /// <summary>The piece of text under the point that is still where the PDF has it (one already changed or moved has an item of its own: its old place is empty).</summary>
     private PdfTextRun? RunAt(int page, Point p)
     {
-        var edited = new HashSet<int>(_items.OfType<RunEditItem>().Where(i => i.Page == page).SelectMany(i => i.Run.Parts?.Select(x => x.Index) ?? new[] { i.Run.Index }));
+        var edited = EditedRunIndices(page);                       // (also what a paragraph edit took out)
         return Runs(page).LastOrDefault(r => { var b = r.Box; b.Inflate(1, 1); return !edited.Contains(r.Index) && b.Contains(p); });
     }
 
@@ -119,6 +119,8 @@ public sealed partial class PdfWindow
     {
         var existing = _items.OfType<RunEditItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
         if (existing != null) { EditRun(existing, isNew: false); return; }
+        var laidOut = _items.OfType<ParagraphItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
+        if (laidOut != null) { ReopenParagraph(pv, laidOut); return; }               // (a paragraph that was laid out again: change it again)
         var run = RunAt(pv.Index, p);
         if (run == null)
         {

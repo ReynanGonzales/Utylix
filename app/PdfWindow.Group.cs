@@ -134,6 +134,7 @@ public sealed partial class PdfWindow
     {
         if (_pdf == null) return;
         int page = po.Page;
+        if (po.Indices.Any(PdfFile.IsAnnotation)) { Toast("Comments of the PDF can't be joined with other things (they stay comments). Move or delete them one by one"); return; }
         var indices = po.Indices.ToList();
         byte[] clip;
         try { clip = _pdf.CopyPageObjects(page, indices); }

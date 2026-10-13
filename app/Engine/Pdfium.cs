@@ -170,6 +170,8 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern int FPDFAnnot_GetSubtype(IntPtr annot);
     [DllImport(Dll)] public static extern int FPDFAnnot_GetRect(IntPtr annot, out RectF rect);
     [DllImport(Dll)] public static extern int FPDFAnnot_SetRect(IntPtr annot, ref RectF rect);
+    /// <summary>colorType 0 = the annotation's colour (/C), 1 = its interior colour (/IC). Returns 0 when it has none.</summary>
+    [DllImport(Dll)] public static extern int FPDFAnnot_GetColor(IntPtr annot, int colorType, out uint r, out uint g, out uint b, out uint a);
     [DllImport(Dll)] public static extern int FPDFAnnot_SetColor(IntPtr annot, int type, uint r, uint g, uint b, uint a);
     [DllImport(Dll)] public static extern int FPDFAnnot_AppendAttachmentPoints(IntPtr annot, ref QuadF quad);
     [DllImport(Dll)] public static extern int FPDFAnnot_SetStringValue(IntPtr annot, [MarshalAs(UnmanagedType.LPStr)] string key, [MarshalAs(UnmanagedType.LPWStr)] string value);

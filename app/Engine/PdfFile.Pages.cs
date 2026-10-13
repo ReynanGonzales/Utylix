@@ -100,7 +100,7 @@ public sealed partial class PdfFile
     }
 
     /// <summary>Writes the document out and reads it in again: pages imported from other documents become its own (those can be closed).</summary>
-    public void Reload() => Restore(SaveToBytes());
+    public void Reload() { Restore(SaveToBytes()); _spacingBaked = false; }       // (pages of another file may have come in)
 
     /// <summary>Goes back to a state taken with <see cref="SaveToBytes"/> (the same file, same password).</summary>
     public void Restore(byte[] bytes)

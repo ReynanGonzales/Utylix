@@ -48,6 +48,7 @@ public static class PdfMarkWriter
     {
         FlattenedPages.Clear();
         var byPage = marks.GroupBy(m => m.Page).OrderBy(g => g.Key).ToList();
+        if (byPage.Count > 0) pdf.BakeTextSpacing();                   // (PDFium writes a changed page's text out again without its character / word spacing: see PdfSpacingBake)
         lock (Pdfium.Sync)
         {
             IntPtr doc = pdf.Handle;
@@ -62,8 +63,10 @@ public static class PdfMarkWriter
                     {
                         Pdfium.FPDF_GetPageSizeByIndexF(doc, group.Key, out var size);
                         var map = new PageMapping(page, size.Width, size.Height);
+                        var placed = group.OfType<PdfPlaceTextMark>().ToList();
+                        if (placed.Count > 0) PdfTextRuns.Place(doc, page, map, placed, fonts);        // (first of all: the pieces they copy the look of are still there)
                         var changes = group.OfType<PdfReplaceTextMark>().ToList();
-                        if (changes.Count > 0) PdfTextRuns.Replace(doc, page, map, changes, fonts);     // (first: it works with the page's own numbering of its pieces)
+                        if (changes.Count > 0) PdfTextRuns.Replace(doc, page, map, changes, fonts);     // (then: it works with the page's own numbering of its pieces)
                         var redactions = group.OfType<PdfRedactMark>().Select(r => r.Box).ToList();
                         if (redactions.Count > 0 && PdfRedactor.RemoveUnder(doc, page, map, new Size(size.Width, size.Height), redactions, fonts)) FlattenedPages.Add(group.Key);      // (then what is under the black boxes goes, before anything new is drawn)
                         foreach (var mark in group)
