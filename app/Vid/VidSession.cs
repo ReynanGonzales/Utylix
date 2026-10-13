@@ -333,12 +333,16 @@ public sealed class VidSession
             {
                 var mm = Project.MediaOf(c);
                 bool bounded = mm != null && mm.Kind != MediaKind.Image;          // pictures and titles have no "start of the file"
+                double oldStart = c.Start;
                 double ns = c.Start + delta;
                 c.In += delta * c.Speed;
                 c.Length -= delta;
                 c.Start = ns;
                 if (!bounded) c.In = 0;
                 else if (c.In < 0) { c.Length += c.In / c.Speed; c.Start -= c.In / c.Speed; c.In = 0; }
+                // keyframes stay at the same place on the timeline when the front of the clip moves
+                double shift = c.Start - oldStart;
+                if (Math.Abs(shift) > 1e-9) foreach (var list in c.Keys.Values) foreach (var k in list) k.T -= shift;
             }
         }
         if (commit) Do("Trim start", Apply); else Apply();
@@ -380,12 +384,15 @@ public sealed class VidSession
             {
                 var track = Project.TrackOf(c)!;
                 double leftLength = t - c.Start;
-                var right = new Clip
-                {
-                    Kind = c.Kind, MediaId = c.MediaId, Start = t, In = c.In + leftLength * c.Speed, Length = c.End - t, Speed = c.Speed,
-                    Volume = c.Volume, Opacity = c.Opacity, FadeIn = 0, FadeOut = c.FadeOut, X = c.X, Y = c.Y, Scale = c.Scale, Label = c.Label,
-                    Text = c.Text, TextSize = c.TextSize, TextColor = c.TextColor, TextBold = c.TextBold,
-                };
+                var right = JsonCopy(c);                       // everything the clip has (effects, keyframes, title words ...) goes to both halves
+                right.Id = Guid.NewGuid().ToString("N");
+                right.Start = t;
+                right.In = c.In + leftLength * c.Speed;
+                right.Length = c.End - t;
+                right.FadeIn = 0;
+                right.Transition = TransitionKind.None;        // the cut itself has no transition
+                // keyframes keep their place on the timeline: times are counted from each half's own start
+                foreach (var kv in right.Keys.Values) foreach (var k in kv) k.T -= leftLength;
                 if (c.LinkId != null)
                 {
                     if (!newLinks.TryGetValue(c.LinkId, out var nl)) newLinks[c.LinkId] = nl = Guid.NewGuid().ToString("N");

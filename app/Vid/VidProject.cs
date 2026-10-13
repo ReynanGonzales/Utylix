@@ -11,6 +11,35 @@ public enum MediaKind { Video, Audio, Image }
 public enum TrackKind { Video, Audio }
 public enum ClipKind { Media, Text }
 
+/// <summary>How a clip comes in over the clip before it on the same track.</summary>
+public enum TransitionKind { None, Dissolve, DipToBlack, WipeRight, WipeLeft, WipeDown, WipeUp }
+
+/// <summary>A value at a time (seconds from the start of the clip, on the timeline); between two keyframes the value moves in a straight line.</summary>
+public sealed class Keyframe
+{
+    public double T { get; set; }
+    public double V { get; set; }
+}
+
+/// <summary>An effect on a clip. A, B, C, D are its numbers (what they mean depends on <see cref="Type"/>, see VidEffects).</summary>
+public sealed class ClipEffect
+{
+    public string Type { get; set; } = "";
+    public bool On { get; set; } = true;
+    public double A { get; set; }
+    public double B { get; set; }
+    public double C { get; set; }
+    public double D { get; set; }
+}
+
+public sealed class Marker
+{
+    public double Time { get; set; }
+    public string Name { get; set; } = "";
+    /// <summary>Hex colour like #FF4D5E.</summary>
+    public string Color { get; set; } = "#22C55E";
+}
+
 /// <summary>A file the person brought in (kept once; clips on the timeline point at it by Id).</summary>
 public sealed class MediaItem
 {
@@ -53,8 +82,40 @@ public sealed class Clip
     public double TextSize { get; set; } = 0.09;
     public string TextColor { get; set; } = "#FFFFFF";
     public bool TextBold { get; set; } = true;
+    public string TextFont { get; set; } = "Segoe UI";
+    /// <summary>A dark box behind the words (opacity 0 = none).</summary>
+    public double TextBoxOpacity { get; set; }
+    public bool TextOutline { get; set; }
+    // ---- motion, effects, transition ----
+    /// <summary>Turn in degrees (clockwise).</summary>
+    public double Rotation { get; set; }
+    /// <summary>Animated properties: "X", "Y", "Scale", "Rotation", "Opacity", "Volume". A property with keyframes ignores its plain value.</summary>
+    public Dictionary<string, List<Keyframe>> Keys { get; set; } = new();
+    public List<ClipEffect> Effects { get; set; } = new();
+    public TransitionKind Transition { get; set; }
+    public double TransitionLength { get; set; } = 1;
 
     [JsonIgnore] public double End => Start + Length;
+
+    public bool IsAnimated(string prop) => Keys.TryGetValue(prop, out var k) && k.Count > 0;
+
+    /// <summary>The value of a property at a time on the timeline (the plain value when it has no keyframes).</summary>
+    public double ValueAt(string prop, double timelineTime, double plain)
+    {
+        if (!Keys.TryGetValue(prop, out var keys) || keys.Count == 0) return plain;
+        var sorted = keys.OrderBy(k => k.T).ToList();
+        double t = timelineTime - Start;
+        if (t <= sorted[0].T) return sorted[0].V;
+        for (int i = 1; i < sorted.Count; i++)
+        {
+            if (t <= sorted[i].T)
+            {
+                double span = Math.Max(1e-9, sorted[i].T - sorted[i - 1].T);
+                return sorted[i - 1].V + (sorted[i].V - sorted[i - 1].V) * (t - sorted[i - 1].T) / span;
+            }
+        }
+        return sorted[^1].V;
+    }
     /// <summary>How much of the file this clip uses.</summary>
     [JsonIgnore] public double SourceLength => Length * Speed;
 }
@@ -66,6 +127,11 @@ public sealed class Track
     public string Name { get; set; } = "";
     public bool Muted { get; set; }               // audio: silent; video: hidden
     public bool Locked { get; set; }
+    /// <summary>Only for sound tracks: only the soloed tracks are heard when any is soloed.</summary>
+    public bool Solo { get; set; }
+    /// <summary>Sound tracks: the track's own volume (0 .. 2) and balance (-1 left .. 1 right).</summary>
+    public double Volume { get; set; } = 1;
+    public double Pan { get; set; }
     public List<Clip> Clips { get; set; } = new();
 }
 
@@ -78,6 +144,10 @@ public sealed class VidProject
     public List<MediaItem> Media { get; set; } = new();
     /// <summary>Video tracks first (the LAST of them is drawn on top), then audio tracks.</summary>
     public List<Track> Tracks { get; set; } = new();
+    public List<Marker> Markers { get; set; } = new();
+    /// <summary>The work area (In / Out points): what Export "work area" renders, and what Lift / Extract cut out.</summary>
+    public double? WorkIn { get; set; }
+    public double? WorkOut { get; set; }
 
     [JsonIgnore] public string? Path { get; set; }
 
