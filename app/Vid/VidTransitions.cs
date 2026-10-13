@@ -72,6 +72,7 @@ public static class VidTransitionDefs
         [TransitionKind.NoiseDissolve] = p => $"lte({Hash("X", "Y")},{p})",
         [TransitionKind.Blocks] = p => $"lte({Hash("floor(X/(W/20))", "floor(Y/(W/20))")},{p})",
         [TransitionKind.BlocksLarge] = p => $"lte({Hash("floor(X/(W/8))", "floor(Y/(W/8))")},{p})",
-        [TransitionKind.Glitch] = p => $"lte({Hash("floor(Y/(H/24))", "floor(T*20)")},clip({p}*1.4-0.1,0,1))",
+        // bands of two different heights that come in one after the other in a random order (never going away again: a flicker would look like a mistake)
+        [TransitionKind.Glitch] = p => $"lte(min({Hash("floor(Y/(H/16))", "7")},{Hash("floor(Y/(H/41))", "3")}),{p})",
     };
 }

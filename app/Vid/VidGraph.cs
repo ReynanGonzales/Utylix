@@ -301,7 +301,7 @@ public static class VidGraph
         double ts = ts0 - shift;                                            // where its transition starts
         bool flip = tr is TransitionKind.FlipH or TransitionKind.FlipV;
         bool maskTransition = IsWipe(tr) || tr is TransitionKind.Iris or TransitionKind.BarnDoors or TransitionKind.BarnDoorsV || VidTransitionDefs.HasMask(tr) || flip;
-        bool fadeKind = tr is TransitionKind.Dissolve or TransitionKind.ZoomIn or TransitionKind.ZoomOut or TransitionKind.ZoomThrough or TransitionKind.BlurDissolve;
+        bool fadeKind = tr is TransitionKind.Dissolve or TransitionKind.ZoomIn or TransitionKind.ZoomOut or TransitionKind.ZoomThrough or TransitionKind.BlurDissolve or TransitionKind.Shake;
         bool spin = tr == TransitionKind.Spin;
         bool alpha = kOpacity != null || c.Opacity < 0.999 || c.FadeIn > 0 || c.FadeOut > 0 || rotated || maskTransition || fadeKind || spin;
         if (alpha) ch.Append(",format=yuva420p");
@@ -348,6 +348,9 @@ public static class VidGraph
             case TransitionKind.ZoomThrough:
             case TransitionKind.BlurDissolve:
                 ch.Append(FadeFilter(true, ts, trL, null));
+                break;
+            case TransitionKind.Shake:
+                ch.Append(FadeFilter(true, ts, trL * 0.4, null));         // it does not pop in: it fades in quickly while it shakes
                 break;
             case TransitionKind.DipToBlack:
                 ch.Append(FadeFilter(true, ts, trL / 2, "black"));
