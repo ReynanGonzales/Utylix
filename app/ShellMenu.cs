@@ -103,18 +103,18 @@ public static class ShellMenu
     private const string MemoryVerb = "Utylix.FreeMemory";
 
     /// <summary>Right-click on the desktop &gt; "Free up memory" (runs "Utylix.exe --free-memory": see MemoryToast).</summary>
-    public static void RegisterMemory(string dataDir, bool enabled)
+    public static void RegisterMemory(string dataDir, bool enabled, string? exePath = null)
     {
         try
         {
-            string exe = Environment.ProcessPath!;
+            string exe = exePath ?? Environment.ProcessPath!;
             string key = $@"Software\Classes\DesktopBackground\Shell\{MemoryVerb}";
             Registry.CurrentUser.DeleteSubKeyTree(key, throwOnMissingSubKey: false);
             if (!enabled) return;
             using var verb = Registry.CurrentUser.CreateSubKey(key);
             verb.SetValue("MUIVerb", "Free up memory");
             verb.SetValue("Icon", IconOf(exe));
-            verb.SetValue("Position", "Top");                    // (above the NVIDIA / Display / Personalize entries)
+            // (no "Position": it lands in the middle group with "Open Git GUI here" and NVIDIA Control Panel, the one the owner asked for)
             using var command = verb.CreateSubKey("command");
             command.SetValue("", $"\"{exe}\" --free-memory");
         }

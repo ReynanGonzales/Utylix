@@ -119,6 +119,9 @@ internal static partial class Installer
         if (desktopShortcut) MakeShortcut(DesktopLink(allUsers), exe);
         Thread.Sleep(400);
 
+        // the desktop right-click "Free up memory" is there right after the install (the installed program also writes it at every start)
+        ShellMenu.RegisterMemory(App.DataDir, true, exe);
+
         progress.Report((84, "Adding Utylix to Windows' list of apps…")); Thread.Sleep(500);
         using (var k = Root(allUsers).CreateSubKey(UninstallKey))
         {
@@ -453,6 +456,7 @@ internal static partial class Installer
             ShellMenu.RegisterBackground(dataDir, false);
             ShellMenu.RegisterPlayer(dataDir, false);
             ShellMenu.RegisterPdfTools(dataDir, false);
+            ShellMenu.RegisterMemory(dataDir, false);
             ShellMenu.RegisterTorrent(false);
             ShellMenu.RegisterViewer(null);
             ShellMenu.RegisterPdf(null);
