@@ -27,6 +27,7 @@ internal sealed class MemoryLimitsWindow : Window
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
     private readonly List<MemoryRule> _rules;
     private readonly Dictionary<MemoryRule, TextBlock> _now = new();
+    private readonly Dictionary<string, (TimeSpan Cpu, DateTime At)> _cpuBefore = new(StringComparer.OrdinalIgnoreCase);
     private bool _loading;
 
     public static void ShowPanel()
@@ -38,8 +39,8 @@ internal sealed class MemoryLimitsWindow : Window
 
     private MemoryLimitsWindow()
     {
-        Title = "Memory limits - Utylix";
-        Width = 760; Height = 640; MinWidth = 640; MinHeight = 420;
+        Title = "Memory limits - Utylix";   // (also the CPU settings: kept under this name so the tile, the tray item and --memory-limits stay the same)
+        Width = 940; Height = 640; MinWidth = 820; MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = (Brush)Application.Current.FindResource("BgBrush");
         Foreground = (Brush)Application.Current.FindResource("TextBrush");
@@ -52,19 +53,19 @@ internal sealed class MemoryLimitsWindow : Window
         _rules = MemoryLimits.Load(App.DataDir);
 
         var root = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
-        root.Children.Add(new TextBlock { Text = "Memory limits", FontSize = 22, FontWeight = FontWeights.SemiBold });
+        root.Children.Add(new TextBlock { Text = "Memory and CPU limits", FontSize = 22, FontWeight = FontWeights.SemiBold });
         root.Children.Add(new TextBlock
         {
-            Text = "Pick a program and a limit. When it uses more memory than that, Utylix gives back what it is not using right now (nothing is closed). " +
-                   "A program that really needs more will go over the limit again, so a limit that is too low only makes it stutter: for a game start with 500 MB or more.",
+            Text = "Pick a program. Memory: when it uses more than the limit, Utylix gives back what it is not using right now (nothing is closed); a limit that is too low only makes a game stutter, start with 500 MB or more, 0 = no memory limit. " +
+                   "CPU: lower its priority, put it in efficiency mode, or cap the share of the whole processor it may use. Nothing is closed.",
             Opacity = 0.75, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 14),
         });
 
         var header = new Grid { Margin = new Thickness(4, 0, 4, 4) };
-        foreach (var w in new[] { 34.0, 0, 100, 110, 130, 84 })
+        foreach (var w in new[] { 34.0, 0, 150, 100, 120, 160, 84 })
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = w == 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
         void Head(string text, int col) { var t = new TextBlock { Text = text, Opacity = 0.65, FontSize = 12 }; Grid.SetColumn(t, col); header.Children.Add(t); }
-        Head("On", 0); Head("Program", 1); Head("Using now", 2); Head("Limit (MB)", 3); Head("When over", 4);
+        Head("On", 0); Head("Program", 1); Head("Using now", 2); Head("Memory (MB)", 3); Head("When over", 4); Head("CPU", 5);
         root.Children.Add(header);
         root.Children.Add(_rows);
 
@@ -111,7 +112,7 @@ internal sealed class MemoryLimitsWindow : Window
         {
             var r = rule;
             var row = new Grid { Margin = new Thickness(0, 4, 0, 4), Background = new SolidColorBrush(Color.FromArgb(20, 128, 128, 128)) };
-            foreach (var w in new[] { 34.0, 0, 100, 110, 130, 84 })
+            foreach (var w in new[] { 34.0, 0, 150, 100, 120, 160, 84 })
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = w == 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
             var on = new CheckBox { IsChecked = r.Enabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), ToolTip = "Watch this program" };
             on.Click += (_, _) => { r.Enabled = on.IsChecked == true; Changed(); };
@@ -125,7 +126,7 @@ internal sealed class MemoryLimitsWindow : Window
             AutomationProperties.SetAutomationId(limit, "MemLimitMb_" + r.Exe);
             limit.TextChanged += (_, _) =>
             {
-                if (int.TryParse(limit.Text.Trim(), out int mb) && mb >= 20 && mb <= 65536) { r.LimitMb = mb; limit.ClearValue(Control.ForegroundProperty); limit.SetResourceReference(Control.ForegroundProperty, "TextBrush"); Changed(); }
+                if (int.TryParse(limit.Text.Trim(), out int mb) && (mb == 0 || (mb >= 20 && mb <= 65536))) { r.LimitMb = mb; limit.ClearValue(Control.ForegroundProperty); limit.SetResourceReference(Control.ForegroundProperty, "TextBrush"); Changed(); }
                 else limit.Foreground = Brushes.IndianRed;
             };
             var mode = new ComboBox { Width = 118, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
@@ -135,10 +136,23 @@ internal sealed class MemoryLimitsWindow : Window
             mode.SelectionChanged += (_, _) => { r.Deep = mode.SelectedIndex == 1; Changed(); };
             var removeText = new TextBlock { Text = "Remove" };
             removeText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            var cpu = new ComboBox { Width = 150, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
+            var caps = new[] { 75, 50, 25, 10 };
+            foreach (string item in new[] { "No change", "Lower priority", "Efficiency mode", "Cap at 75 %", "Cap at 50 %", "Cap at 25 %", "Cap at 10 %" }) cpu.Items.Add(item);
+            cpu.SelectedIndex = r.Cpu switch { 1 => 1, 2 => 2, 3 => 3 + Math.Max(0, Array.IndexOf(caps, caps.OrderBy(c => Math.Abs(c - r.CapPercent)).First())), _ => 0 };
+            cpu.ToolTip = "Lower priority: other programs get the processor first." + Environment.NewLine + "Efficiency mode: idle priority and the power-saving side of the CPU." + Environment.NewLine + "Cap: the most of the WHOLE processor it may use (a hard limit).";
+            AutomationProperties.SetAutomationId(cpu, "MemLimitCpu_" + r.Exe);
+            cpu.SelectionChanged += (_, _) =>
+            {
+                int i = cpu.SelectedIndex;
+                r.Cpu = i <= 0 ? 0 : i >= 3 ? 3 : i;
+                if (i >= 3) r.CapPercent = caps[i - 3];
+                Changed();
+            };
             var remove = new Button { Content = removeText, Style = (Style)Application.Current.FindResource("DialogButton"), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
             remove.Click += (_, _) => { _rules.Remove(r); BuildRows(); Changed(); };
-            Grid.SetColumn(on, 0); Grid.SetColumn(name, 1); Grid.SetColumn(now, 2); Grid.SetColumn(limit, 3); Grid.SetColumn(mode, 4); Grid.SetColumn(remove, 5);
-            foreach (UIElement u in new UIElement[] { on, name, now, limit, mode, remove }) row.Children.Add(u);
+            Grid.SetColumn(on, 0); Grid.SetColumn(name, 1); Grid.SetColumn(now, 2); Grid.SetColumn(limit, 3); Grid.SetColumn(mode, 4); Grid.SetColumn(cpu, 5); Grid.SetColumn(remove, 6);
+            foreach (UIElement u in new UIElement[] { on, name, now, limit, mode, cpu, remove }) row.Children.Add(u);
             _rows.Children.Add(row);
         }
         _loading = false;
@@ -182,7 +196,7 @@ internal sealed class MemoryLimitsWindow : Window
         string exe = MemoryLimits.CleanExe(pathOrName);
         if (exe.Length == 0) return;
         if (_rules.Any(r => r.Exe.Equals(exe, StringComparison.OrdinalIgnoreCase))) { UMessage.Show(this, $"{exe} is already in the list.", "Memory limits", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-        _rules.Add(new MemoryRule { Exe = exe, LimitMb = 500, Enabled = true });
+        _rules.Add(new MemoryRule { Exe = exe, LimitMb = 500, Enabled = true, Cpu = 0, CapPercent = 50 });
         BuildRows();
         Changed();
     }
@@ -205,18 +219,24 @@ internal sealed class MemoryLimitsWindow : Window
         foreach (var (rule, text) in _now)
         {
             long best = 0;
+            var cpuTotal = TimeSpan.Zero;
             string name = System.IO.Path.GetFileNameWithoutExtension(rule.Exe);
             try
             {
                 foreach (var p in Process.GetProcessesByName(name))
                 {
-                    try { p.Refresh(); best = Math.Max(best, p.WorkingSet64); } catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+                    try { p.Refresh(); best = Math.Max(best, p.WorkingSet64); cpuTotal += p.TotalProcessorTime; } catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
                     finally { p.Dispose(); }
                 }
             }
             catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
-            text.Text = best == 0 ? "not running" : (best / (1024 * 1024)) + " MB";
-            text.Foreground = best > rule.LimitMb * 1024L * 1024L ? Brushes.Orange : (Brush)FindResource("TextBrush");
+            string cpuText = "";
+            var nowAt = DateTime.UtcNow;
+            if (best > 0 && _cpuBefore.TryGetValue(rule.Exe, out var before) && cpuTotal >= before.Cpu && (nowAt - before.At).TotalSeconds > 0.5)
+                cpuText = $"  ·  CPU {Math.Min(100.0, 100.0 * (cpuTotal - before.Cpu).TotalSeconds / (nowAt - before.At).TotalSeconds / Environment.ProcessorCount):0} %";
+            _cpuBefore[rule.Exe] = (cpuTotal, nowAt);
+            text.Text = best == 0 ? "not running" : (best / (1024 * 1024)) + " MB" + cpuText;
+            text.Foreground = rule.LimitMb > 0 && best > rule.LimitMb * 1024L * 1024L ? Brushes.Orange : (Brush)FindResource("TextBrush");
         }
         bool active = _rules.Any(r => r.Enabled);
         var status = MemoryLimits.LoadStatus(App.DataDir);

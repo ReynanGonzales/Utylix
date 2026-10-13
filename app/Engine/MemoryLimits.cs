@@ -12,12 +12,17 @@ namespace IdmClone.Engine;
 public sealed class MemoryRule
 {
     public string Exe { get; set; } = "";
+    /// <summary>0 = no memory limit (the rule may only be about the processor).</summary>
     public int LimitMb { get; set; } = 200;
     public bool Deep { get; set; }
     public bool Enabled { get; set; } = true;
+    /// <summary>What to do about the processor use of this program (see CpuLimiter): 0 nothing, 1 lower priority, 2 efficiency mode, 3 cap.</summary>
+    public int Cpu { get; set; }
+    /// <summary>For Cpu = 3: the most processor the program may use, in percent of the whole CPU.</summary>
+    public int CapPercent { get; set; } = 50;
 }
 
-public sealed class GuardRow { public string Exe { get; set; } = ""; public long WorkingMb { get; set; } public string LastTrim { get; set; } = ""; public int Trims { get; set; } }
+public sealed class GuardRow { public string Exe { get; set; } = ""; public long WorkingMb { get; set; } public string LastTrim { get; set; } = ""; public int Trims { get; set; } public bool CpuApplied { get; set; } }
 public sealed class GuardStatus { public bool Elevated { get; set; } public DateTime Updated { get; set; } public List<GuardRow> Rows { get; set; } = new(); }
 
 /// <summary>The list of limits (memory-limits.json in the data folder). The guard re-reads it whenever it changes.</summary>
@@ -42,7 +47,7 @@ public static class MemoryLimits
         try
         {
             var list = JsonSerializer.Deserialize<List<MemoryRule>>(File.ReadAllText(FileIn(dataDir)), Options) ?? new();
-            foreach (var r in list) { r.Exe = CleanExe(r.Exe); r.LimitMb = Math.Clamp(r.LimitMb, 20, 65536); }
+            foreach (var r in list) { r.Exe = CleanExe(r.Exe); r.LimitMb = r.LimitMb <= 0 ? 0 : Math.Clamp(r.LimitMb, 20, 65536); r.Cpu = Math.Clamp(r.Cpu, 0, 3); r.CapPercent = Math.Clamp(r.CapPercent, 1, 100); }
             return list.Where(r => r.Exe.Length > 0).ToList();
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
@@ -134,10 +139,13 @@ public static class MemoryGuard
     private static void Loop(string dataDir, bool ownerIsMutex)
     {
         Mutex? mutex = null;
+        bool owned = false;
+        var cpuDone = new Dictionary<int, (string Exe, CpuMode Mode, int Cap, CpuLimiter.Applied? Result)>();
         try
         {
             mutex = new Mutex(true, MutexName, out bool first);
-            if (!first) { mutex.Dispose(); return; }
+            if (!first) return;                                  // (another guard is running: this one is not needed)
+            owned = true;
             _heldMutex = mutex;
             bool elevated = MemoryCleaner.IsElevated;
             var cooldown = new Dictionary<int, DateTime>();
@@ -159,6 +167,15 @@ public static class MemoryGuard
 
                 var rows = new List<GuardRow>();
                 bool freedAll = false;
+                // processor settings that no longer match a rule (rule removed, switched off or changed) are taken back
+                foreach (int pid in cpuDone.Keys.ToList())
+                {
+                    var d = cpuDone[pid];
+                    var rule = active.FirstOrDefault(r => r.Exe.Equals(d.Exe, StringComparison.OrdinalIgnoreCase));
+                    if (rule != null && (CpuMode)rule.Cpu == d.Mode && rule.CapPercent == d.Cap) continue;
+                    if (d.Result != null) { try { CpuLimiter.Revert(pid, d.Result); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { } }
+                    cpuDone.Remove(pid);
+                }
                 foreach (var rule in active)
                 {
                     string name = Path.GetFileNameWithoutExtension(rule.Exe);
@@ -173,7 +190,11 @@ public static class MemoryGuard
                             p.Refresh();
                             long ws = p.WorkingSet64;
                             biggest = Math.Max(biggest, ws);
-                            if (ws <= rule.LimitMb * 1024L * 1024L) continue;
+                            // the processor: once per program (again when it was restarted: a new process id)
+                            var mode = (CpuMode)rule.Cpu;
+                            if (mode != CpuMode.None && !cpuDone.ContainsKey(p.Id))
+                                cpuDone[p.Id] = (rule.Exe, mode, rule.CapPercent, CpuLimiter.Apply(p.Id, mode, rule.CapPercent));
+                            if (rule.LimitMb <= 0 || ws <= rule.LimitMb * 1024L * 1024L) continue;
                             double wait = rule.Deep ? 60 : 20;                     // (a limit the program needs more than keeps being passed: do not thrash)
                             if (cooldown.TryGetValue(p.Id, out var last) && (DateTime.UtcNow - last).TotalSeconds < wait) continue;
                             cooldown[p.Id] = DateTime.UtcNow;
@@ -186,9 +207,23 @@ public static class MemoryGuard
                         finally { p.Dispose(); }
                     }
                     trims.TryGetValue(rule.Exe, out var tr);
-                    rows.Add(new GuardRow { Exe = rule.Exe, WorkingMb = biggest / (1024 * 1024), Trims = tr.Count, LastTrim = tr.Count > 0 ? tr.Last.ToString("HH:mm:ss") : "" });
+                    rows.Add(new GuardRow
+                    {
+                        Exe = rule.Exe, WorkingMb = biggest / (1024 * 1024), Trims = tr.Count, LastTrim = tr.Count > 0 ? tr.Last.ToString("HH:mm:ss") : "",
+                        CpuApplied = cpuDone.Values.Any(v => v.Exe.Equals(rule.Exe, StringComparison.OrdinalIgnoreCase) && v.Result != null),
+                    });
                 }
                 foreach (int dead in cooldown.Keys.Where(k => (DateTime.UtcNow - cooldown[k]).TotalMinutes > 10).ToList()) cooldown.Remove(dead);
+                // programs that closed: forget them (their job object is closed)
+                foreach (int pid in cpuDone.Keys.ToList())
+                {
+                    bool alive;
+                    try { using var q = Process.GetProcessById(pid); alive = !q.HasExited; }
+                    catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { alive = false; }
+                    if (alive) continue;
+                    if (cpuDone[pid].Result is { } done && done.Job != IntPtr.Zero) { try { CpuLimiter.Revert(pid, done); } catch (Exception e) when (e is System.ComponentModel.Win32Exception) { } }
+                    cpuDone.Remove(pid);
+                }
                 try
                 {
                     File.WriteAllText(MemoryLimits.StatusFileIn(dataDir), System.Text.Json.JsonSerializer.Serialize(new GuardStatus { Elevated = elevated, Updated = DateTime.Now, Rows = rows }));
@@ -199,9 +234,11 @@ public static class MemoryGuard
         }
         finally
         {
-            try { mutex?.ReleaseMutex(); } catch (ApplicationException) { }
-            mutex?.Dispose();
-            _heldMutex = null;
+            // the guard ends: what it set on programs is taken back (a cap would otherwise stay on a game that keeps running)
+            try { foreach (var (pid, d) in cpuDone) if (d.Result != null) CpuLimiter.Revert(pid, d.Result); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+            try { if (owned) mutex?.ReleaseMutex(); } catch (Exception e) when (e is ApplicationException or ObjectDisposedException) { }
+            try { mutex?.Dispose(); } catch (ObjectDisposedException) { }
+            if (owned) _heldMutex = null;
         }
     }
 }
