@@ -47,6 +47,12 @@ public sealed class Clip
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
     public string? Label { get; set; }
+    // ---- title (Kind = Text) ----
+    public string Text { get; set; } = "";
+    /// <summary>Letter height as a fraction of the picture height.</summary>
+    public double TextSize { get; set; } = 0.09;
+    public string TextColor { get; set; } = "#FFFFFF";
+    public bool TextBold { get; set; } = true;
 
     [JsonIgnore] public double End => Start + Length;
     /// <summary>How much of the file this clip uses.</summary>

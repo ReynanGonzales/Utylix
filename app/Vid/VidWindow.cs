@@ -34,7 +34,7 @@ public sealed partial class VidWindow : Window
     private bool _syncingScroll;
     private string? _binSelected;
     private int _binSignature;
-    private static string AutosavePath => Path.Combine(App.DataDir, "vid", "autosave.utvid");
+    private static string AutosavePath => Path.Combine(App.DataDir, "autosave.utvid");
     private static readonly string[] MediaFilter =
     {
         "Video, sound and pictures|*.mp4;*.mkv;*.mov;*.avi;*.webm;*.wmv;*.m4v;*.flv;*.ts;*.mts;*.m2ts;*.3gp;*.mpg;*.mpeg;*.gif;*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg;*.opus;*.wma;*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.tif;*.tiff",
@@ -98,7 +98,7 @@ public sealed partial class VidWindow : Window
             try { if (File.Exists(AutosavePath)) File.Delete(AutosavePath); } catch (IOException) { }
         };
         Loaded += async (_, _) => await StartAsync(file);
-        _autosave.Start();
+        ApplyAutosaveSetting();
         OnProjectChanged();
     }
 
@@ -214,6 +214,7 @@ public sealed partial class VidWindow : Window
         _undoBtn = MakeButton("", "", "Undo (Ctrl+Z)", () => _s.Undo(), id: "VidUndo");
         _redoBtn = MakeButton("", "", "Redo (Ctrl+Y)", () => _s.Redo(), id: "VidRedo");
         left.Children.Add(_undoBtn); left.Children.Add(_redoBtn);
+        left.Children.Add(MakeButton("", "Settings", "The editor's settings: colours, export and recovery copies", OpenSettings, id: "VidSettings"));
         DockPanel.SetDock(left, Dock.Left);
         top.Children.Add(left);
         var export = MakeButton("", "Export", "Make the finished video (Ctrl+E)", Export, primary: true, id: "VidExport");
@@ -303,6 +304,7 @@ public sealed partial class VidWindow : Window
         tools.Children.Add(MakeButton("", "Delete", "Delete the chosen clips (Delete)", () => _s.Delete(false), id: "VidDelete"));
         tools.Children.Add(MakeButton("", "Delete and close the gap", "Delete and pull what follows left (Shift+Delete)", () => _s.Delete(true), id: "VidRipple"));
         tools.Children.Add(MakeButton("", "Duplicate", "Copy after itself (Ctrl+D)", () => _s.Duplicate(), id: "VidDuplicate"));
+        tools.Children.Add(MakeButton("", "Title", "Add a text title at the playhead (T)", AddTitle, id: "VidAddTitle"));
         tools.Children.Add(new Border { Width = 1, Margin = new Thickness(6, 4, 12, 4), Background = (Brush)FindResource("LineBrush") });
         tools.Children.Add(MakeButton("", "Video track", "Add a picture track", () => _s.AddTrack(TrackKind.Video), id: "VidAddVideoTrack"));
         tools.Children.Add(MakeButton("", "Sound track", "Add a sound track", () => _s.AddTrack(TrackKind.Audio), id: "VidAddAudioTrack"));
@@ -558,6 +560,13 @@ public sealed partial class VidWindow : Window
     }
 
     // ---------- editing commands ----------
+    private void AddTitle()
+    {
+        var c = _s.AddText(_s.Playhead);
+        _s.Select(new[] { c });
+        _timeline.EnsureVisible(c.Start);
+    }
+
     private void DoSplit()
     {
         if (!_s.Split(_s.Playhead)) SetStatus("Put the playhead on a clip to cut it there.");
@@ -612,6 +621,7 @@ public sealed partial class VidWindow : Window
         {
             case Key.Space: _player.Toggle(); UpdatePlayGlyph(); e.Handled = true; break;
             case Key.S: DoSplit(); e.Handled = true; break;
+            case Key.T: AddTitle(); e.Handled = true; break;
             case Key.Delete: case Key.Back: _s.Delete(shift); e.Handled = true; break;
             case Key.Left: SeekTo(_s.Playhead - (shift ? 1 : frame)); e.Handled = true; break;
             case Key.Right: SeekTo(_s.Playhead + (shift ? 1 : frame)); e.Handled = true; break;
@@ -690,6 +700,24 @@ public sealed partial class VidWindow : Window
         {
             UMessage.Show(this, "This project could not be opened:\n\n" + e.Message, "Utylix Vid Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    // ---------- settings ----------
+    private void OpenSettings()
+    {
+        var w = new VidSettingsWindow(this);
+        w.ShowDialog();
+        ApplyAutosaveSetting();
+        _timeline.InvalidateVisual();
+        RefreshInspector();
+        UpdatePlayGlyph();
+    }
+
+    private void ApplyAutosaveSetting()
+    {
+        int secs = VidSettings.Current.AutosaveSeconds;
+        _autosave.Stop();
+        if (secs > 0) { _autosave.Interval = TimeSpan.FromSeconds(secs); _autosave.Start(); }
     }
 
     // ---------- export ----------

@@ -19,7 +19,7 @@ public sealed class VidExportWindow : Window
     private readonly ProgressBar _bar = new() { Height = 8, Minimum = 0, Maximum = 100, Margin = new Thickness(0, 14, 0, 4), Visibility = Visibility.Collapsed };
     private readonly TextBlock _state = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private readonly Button _go, _cancel, _show, _play;
-    private readonly CheckBox _gpu = new() { Content = "Use the video card when there is one (much faster)", IsChecked = true, Margin = new Thickness(0, 4, 0, 0) };
+    private readonly CheckBox _gpu = new() { Content = "Use the video card when there is one (much faster)", IsChecked = VidSettings.Current.UseGpu, Margin = new Thickness(0, 4, 0, 0) };
     private readonly List<(RadioButton Chip, int Height)> _sizes = new();
     private readonly List<(RadioButton Chip, int Level)> _quality = new();
     private CancellationTokenSource? _cts;
@@ -72,7 +72,7 @@ public sealed class VidExportWindow : Window
         var quality = new WrapPanel();
         foreach (var (label, level) in new[] { ("High (big file)", 0), ("Balanced", 1), ("Small file", 2) })
         {
-            var rb = new RadioButton { Content = label, Style = chip, GroupName = "quality", IsChecked = level == 1 };
+            var rb = new RadioButton { Content = label, Style = chip, GroupName = "quality", IsChecked = level == VidSettings.Current.Quality };
             _quality.Add((rb, level));
             quality.Children.Add(rb);
         }
@@ -80,7 +80,8 @@ public sealed class VidExportWindow : Window
         stack.Children.Add(_gpu);
 
         stack.Children.Add(new TextBlock { Text = "Save as", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 6) });
-        string folder = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+        string folder = VidSettings.Current.ExportFolder;
+        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) folder = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
         if (!Directory.Exists(folder)) folder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         _file.Text = Path.Combine(folder, Sanitize(suggestedName) + ".mp4");
         System.Windows.Automation.AutomationProperties.SetAutomationId(_file, "VidExportFile");
@@ -178,6 +179,10 @@ public sealed class VidExportWindow : Window
         _gpu.IsEnabled = true; _file.IsEnabled = true;
         if (error == null)
         {
+            // what was chosen here is what the next export starts with
+            var s = VidSettings.Current;
+            s.Quality = opts.Quality; s.UseGpu = opts.Gpu; s.ExportFolder = Path.GetDirectoryName(path) ?? "";
+            s.Save();
             long size = new FileInfo(path).Length;
             _state.Text = $"Done in {sw.Elapsed.TotalSeconds:0} s  ·  {size / 1048576.0:0.#} MB  ·  {path}";
             _bar.Value = 100;

@@ -278,8 +278,9 @@ public sealed class VidTimeline : FrameworkElement
     {
         var m = _session.Project.MediaOf(c);
         bool isAudio = track.Kind == TrackKind.Audio;
-        Color baseColor = isAudio ? Color.FromRgb(0x0F, 0x9D, 0x91) : m?.Kind == MediaKind.Image ? Color.FromRgb(0x8B, 0x5C, 0xF6) : accent;
-        Color fill = Mix(C("CardBrush"), baseColor, dark ? 0.55 : 0.65);
+        bool isText = c.Kind == ClipKind.Text;
+        Color baseColor = isText ? Color.FromRgb(0xD9, 0x68, 0x0F) : isAudio ? Color.FromRgb(0x0F, 0x9D, 0x91) : m?.Kind == MediaKind.Image ? Color.FromRgb(0x8B, 0x5C, 0xF6) : accent;
+        Color fill = Mix(C("CardBrush"), baseColor, dark ? 0.55 : 0.85);
         byte alpha = (byte)(track.Muted ? 90 : ghost ? 200 : 255);
         var rect = new Rect(r.X + 0.5, r.Y + 1.5, Math.Max(2, r.Width - 1), r.Height - 3);
         var clip = new RectangleGeometry(rect, 5, 5);
@@ -331,13 +332,13 @@ public sealed class VidTimeline : FrameworkElement
         dc.Pop(); // opacity
         // name strip
         dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, 0, 0, 0)), null, new Rect(rect.X, rect.Y, rect.Width, 17));
-        string label = (c.Label ?? m?.Name ?? "") + (Math.Abs(c.Speed - 1) > 0.001 ? $"  {c.Speed:0.##}x" : "");
+        string label = isText ? "T  " + (c.Text ?? "").Split('\n')[0] : (c.Label ?? m?.Name ?? "") + (Math.Abs(c.Speed - 1) > 0.001 ? $"  {c.Speed:0.##}x" : "");
         if (rect.Width > 30) dc.DrawText(Text(label, 11, Brushes.White, rect.Width - 8), new Point(rect.X + 5, rect.Y + 1.5));
         // fades
         if (c.FadeIn > 0) dc.DrawLine(new Pen(Brushes.White, 1.2), new Point(rect.X, rect.Bottom - 2), new Point(rect.X + c.FadeIn * _pps, rect.Y + 18));
         if (c.FadeOut > 0) dc.DrawLine(new Pen(Brushes.White, 1.2), new Point(rect.Right - c.FadeOut * _pps, rect.Y + 18), new Point(rect.Right, rect.Bottom - 2));
         dc.Pop();
-        var border = selected ? new Pen(Brushes.White, 2) : new Pen(new SolidColorBrush(Mix(fill, Colors.Black, 0.35)), 1);
+        var border = selected ? new Pen(dark ? Brushes.White : new SolidColorBrush(C("TextBrush")), 2) : new Pen(new SolidColorBrush(Mix(fill, Colors.Black, 0.35)), 1);
         dc.DrawRoundedRectangle(null, border, rect, 5, 5);
         if (selected) dc.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(accent), 1), new Rect(rect.X - 1, rect.Y - 1, rect.Width + 2, rect.Height + 2), 6, 6);
     }

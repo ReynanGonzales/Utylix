@@ -194,6 +194,27 @@ public sealed class VidSession
         return added;
     }
 
+    /// <summary>A title on the top-most unlocked picture track.</summary>
+    public Clip AddText(double at, string text = "Your title")
+    {
+        Clip? made = null;
+        Do("Add a title", () =>
+        {
+            var track = Project.Tracks.LastOrDefault(t => t.Kind == TrackKind.Video && !t.Locked) ?? FirstTrack(TrackKind.Video);
+            double start = Math.Max(0, at);
+            if (!IsFree(track, start, start + 4))
+            {
+                // something is already there on the top layer: the title gets a layer of its own, right at the playhead
+                int n = Project.Tracks.Count(t => t.Kind == TrackKind.Video) + 1;
+                track = new Track { Kind = TrackKind.Video, Name = "Video " + n };
+                Project.Tracks.Insert(Project.Tracks.FindLastIndex(x => x.Kind == TrackKind.Video) + 1, track);
+            }
+            made = new Clip { Kind = ClipKind.Text, Text = text, Label = text, Start = start, Length = 4 };
+            track.Clips.Add(made);
+        });
+        return made!;
+    }
+
     // ---------- moving ----------
     /// <summary>
     /// Moves clips by a time and a number of tracks (clamped, and pushed to the nearest free place when it would overlap another clip).
@@ -310,11 +331,14 @@ public sealed class VidSession
         {
             foreach (var c in all)
             {
+                var mm = Project.MediaOf(c);
+                bool bounded = mm != null && mm.Kind != MediaKind.Image;          // pictures and titles have no "start of the file"
                 double ns = c.Start + delta;
                 c.In += delta * c.Speed;
                 c.Length -= delta;
                 c.Start = ns;
-                if (c.In < 0) { c.Length += c.In / c.Speed; c.Start -= c.In / c.Speed; c.In = 0; }
+                if (!bounded) c.In = 0;
+                else if (c.In < 0) { c.Length += c.In / c.Speed; c.Start -= c.In / c.Speed; c.In = 0; }
             }
         }
         if (commit) Do("Trim start", Apply); else Apply();
@@ -357,6 +381,7 @@ public sealed class VidSession
                 {
                     Kind = c.Kind, MediaId = c.MediaId, Start = t, In = c.In + leftLength * c.Speed, Length = c.End - t, Speed = c.Speed,
                     Volume = c.Volume, Opacity = c.Opacity, FadeIn = 0, FadeOut = c.FadeOut, X = c.X, Y = c.Y, Scale = c.Scale, Label = c.Label,
+                    Text = c.Text, TextSize = c.TextSize, TextColor = c.TextColor, TextBold = c.TextBold,
                 };
                 if (c.LinkId != null)
                 {

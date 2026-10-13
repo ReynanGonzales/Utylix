@@ -146,6 +146,74 @@ public sealed partial class VidWindow
         _inspector.Children.Add(Hint($"{clips} clip{(clips == 1 ? "" : "s")}  ·  {VidTimeline.TimeText(p.Duration)} long  ·  {p.Media.Count} file{(p.Media.Count == 1 ? "" : "s")}"));
     }
 
+    private static readonly string[] TitleColors = { "#FFFFFF", "#000000", "#FFD43B", "#FF4D5E", "#4ADE80", "#38BDF8", "#8B5CF6", "#FB923C" };
+
+    private void BuildTextPanel(List<Clip> texts, Clip primary)
+    {
+        _inspector.Children.Add(Heading("Title"));
+        var box = new TextBox
+        {
+            Text = primary.Text, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76, MaxHeight = 160, Padding = new Thickness(8, 6, 8, 6),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 0, 0, 6),
+        };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(box, "VidInspText");
+        bool committed = false;
+        void Commit()
+        {
+            if (committed || box.Text == primary.Text) return;
+            committed = true;
+            string t = box.Text;
+            _s.SetProperty(texts, "Title text", c => { c.Text = t; c.Label = t.Split('\n')[0]; });
+        }
+        box.LostKeyboardFocus += (_, _) => Commit();
+        box.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) { Commit(); _timeline.Focus(); e.Handled = true; }
+            else if (e.Key == Key.Escape) { box.Text = primary.Text; _timeline.Focus(); e.Handled = true; }
+        };
+        _inspector.Children.Add(box);
+        _inspector.Children.Add(Hint("Click outside the box (or Ctrl+Enter) to apply."));
+
+        _inspector.Children.Add(Heading("Time", 4));
+        NumberRow("Starts at", "s", primary.Start, "0.00", v => _s.Move(texts, Math.Max(0, v) - primary.Start, 0, true), "VidInspStart");
+        NumberRow("Length", "s", primary.Length, "0.00", v =>
+        {
+            double want = Math.Max(VidSession.MinLength, v);
+            _s.Do("Length", () => _s.TrimEnd(new[] { primary }, primary.Start + want, commit: false));
+        }, "VidInspLength");
+
+        _inspector.Children.Add(Heading("Look", 8));
+        SliderRow("Letter size", primary.TextSize, 0.02, 0.3, v => $"{v * 100:0} %", v => { foreach (var c in texts) c.TextSize = Math.Round(v, 3); }, "Letter size", "VidInspTextSize");
+        var colours = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+        foreach (string hex in TitleColors)
+        {
+            var color = (Color)ColorConverter.ConvertFromString(hex);
+            bool on = string.Equals(primary.TextColor, hex, StringComparison.OrdinalIgnoreCase);
+            var sw = new Button
+            {
+                Width = 26, Height = 26, Margin = new Thickness(0, 0, 6, 6), Background = new SolidColorBrush(color), Cursor = Cursors.Hand, ToolTip = hex,
+                BorderThickness = new Thickness(on ? 3 : 1),
+                Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
+                    "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><Border CornerRadius='13' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}'/></ControlTemplate>"),
+            };
+            sw.SetResourceReference(Control.BorderBrushProperty, on ? "AccentBrush" : "MutedBrush");
+            System.Windows.Automation.AutomationProperties.SetAutomationId(sw, "VidTitleColor" + hex.Substring(1));
+            sw.Click += (_, _) => _s.SetProperty(texts, "Title colour", c => c.TextColor = hex);
+            colours.Children.Add(sw);
+        }
+        _inspector.Children.Add(colours);
+        var bold = new CheckBox { Content = "Bold", IsChecked = primary.TextBold, Margin = new Thickness(0, 0, 0, 8) };
+        bold.Checked += (_, _) => { if (!_inspectorBuilding) _s.SetProperty(texts, "Bold", c => c.TextBold = true); };
+        bold.Unchecked += (_, _) => { if (!_inspectorBuilding) _s.SetProperty(texts, "Bold", c => c.TextBold = false); };
+        _inspector.Children.Add(bold);
+        SliderRow("Position across", primary.X, 0, 1, v => $"{v * 100:0} %", v => { foreach (var c in texts) c.X = Math.Round(v, 3); }, "Position", "VidInspX");
+        SliderRow("Position down", primary.Y, 0, 1, v => $"{v * 100:0} %", v => { foreach (var c in texts) c.Y = Math.Round(v, 3); }, "Position", "VidInspY");
+        SliderRow("Opacity", primary.Opacity, 0, 1, v => $"{v * 100:0} %", v => { foreach (var c in texts) c.Opacity = Math.Round(v, 2); }, "Opacity", "VidInspOpacity");
+        _inspector.Children.Add(Heading("Fades", 8));
+        NumberRow("Fade in", "s", primary.FadeIn, "0.0#", v => _s.SetProperty(texts, "Fade in", c => c.FadeIn = Math.Clamp(v, 0, Math.Max(0, c.Length - c.FadeOut))), "VidInspFadeIn");
+        NumberRow("Fade out", "s", primary.FadeOut, "0.0#", v => _s.SetProperty(texts, "Fade out", c => c.FadeOut = Math.Clamp(v, 0, Math.Max(0, c.Length - c.FadeIn))), "VidInspFadeOut");
+    }
+
     private void BuildClipPanel(List<Clip> sel)
     {
         var project = _s.Project;
@@ -153,6 +221,7 @@ public sealed partial class VidWindow
         var videos = sel.Where(c => tracks[c]?.Kind == TrackKind.Video).ToList();
         var sounds = sel.Where(c => tracks[c]?.Kind == TrackKind.Audio).ToList();
         var primary = videos.OrderBy(c => c.Start).FirstOrDefault() ?? sounds.OrderBy(c => c.Start).First();
+        if (primary.Kind == ClipKind.Text) { BuildTextPanel(sel.Where(c => c.Kind == ClipKind.Text).ToList(), primary); return; }
         var media = project.MediaOf(primary);
         bool image = media?.Kind == MediaKind.Image;
 

@@ -34,27 +34,22 @@ public partial class App
         };
         AppDomain.CurrentDomain.UnhandledException += (_, ev) => LogError(ev.ExceptionObject as Exception);
 
+        // The editor's settings are its own (%APPDATA%\UtylixVid\settings.json, changed in the editor's Settings window): Utylix's settings file
+        // is never read or written here. Only the big ffmpeg program is shared, so it isn't downloaded twice.
         string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        string dataDir = Path.Combine(appData, "Utylix");
+        string dataDir = Path.Combine(appData, "UtylixVid");
         string? toolsDir = null;
         for (int i = 0; i < args.Length - 1; i++)
         {
             if (args[i] == "--data") dataDir = args[i + 1];
             if (args[i] == "--tools") toolsDir = args[i + 1];
         }
-        Tools.Dir = toolsDir ?? Path.Combine(dataDir, "tools");
+        string utylixTools = Path.Combine(appData, "Utylix", "tools");
+        string ownTools = Path.Combine(dataDir, "tools");
+        Tools.Dir = toolsDir ?? (File.Exists(Path.Combine(ownTools, "ffmpeg", "ffmpeg.exe")) ? ownTools : utylixTools);
         DataDir = dataDir;
-
-        // the theme and accent the person chose in Utylix (read from its settings file; this process never writes them)
-        string theme = "system", accent = "blue";
-        try
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(dataDir, "config.json")));
-            if (doc.RootElement.TryGetProperty("Theme", out var t) && t.ValueKind == JsonValueKind.String) theme = t.GetString() ?? theme;
-            if (doc.RootElement.TryGetProperty("Accent", out var a) && a.ValueKind == JsonValueKind.String) accent = a.GetString() ?? accent;
-        }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { /* first run: the system theme */ }
-        ApplyTheme(theme, accent);
+        VidSettings.Load(dataDir);
+        ApplyTheme(VidSettings.Current.Theme, VidSettings.Current.Accent);
 
         string? file = args.FirstOrDefault(a => !a.StartsWith("--") && File.Exists(a));
         var window = new VidWindow(file);
