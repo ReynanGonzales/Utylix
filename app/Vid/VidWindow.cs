@@ -87,6 +87,9 @@ public sealed partial class VidWindow : Window
         };
         _timeline.FilesDropped += (files, t) => _ = ImportAsync(files, addToTimeline: true, at: t);
         _timeline.ClipActivated += c => _timeline.Focus();
+        _timeline.RulerContextRequested += ShowRulerMenu;
+        _timeline.TrackMenuRequested += ShowTrackMenu;
+        _timeline.MarkerActivated += RenameMarkerPrompt;
 
         AllowDrop = true;
         Drop += (_, e) => { if (e.Data.GetData(DataFormats.FileDrop) is string[] files) _ = ImportAsync(files, addToTimeline: !_s.Project.AllClips.Any()); };
@@ -180,7 +183,7 @@ public sealed partial class VidWindow : Window
         if (glyph.Length > 0)
             content.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 14, Foreground = fg, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, label.Length > 0 ? 7 : 0, 0) });
         if (label.Length > 0) content.Children.Add(new TextBlock { Text = label, Foreground = fg, VerticalAlignment = VerticalAlignment.Center });
-        var b = new Button { Content = content, ToolTip = tip, Margin = new Thickness(0, 0, 6, 0), Padding = new Thickness(label.Length > 0 ? 12 : 9, 6, label.Length > 0 ? 12 : 9, 6) };
+        var b = new Button { Content = content, ToolTip = tip, Margin = new Thickness(0, 0, 6, 0), MinWidth = 0, Padding = new Thickness(label.Length > 0 ? 12 : 9, 6, label.Length > 0 ? 12 : 9, 6) };
         b.Style = (Style)FindResource(primary ? "DialogPrimary" : "DialogButton");
         b.Click += (_, _) => click();
         if (id != null) System.Windows.Automation.AutomationProperties.SetAutomationId(b, id);
@@ -320,7 +323,7 @@ public sealed partial class VidWindow : Window
         row.MouseLeftButtonDown += (_, e) =>
         {
             _binSelected = m.Id;
-            if (e.ClickCount == 2) { AddToTimeline(m, EndOfTimeline(), null); e.Handled = true; return; }
+            if (e.ClickCount == 2) { LoadSource(m); e.Handled = true; return; }
             down = e.GetPosition(row); pressed = true;
             foreach (Border b in _bin.Children.OfType<Border>()) b.Background = Brushes.Transparent;
             row.SetResourceReference(Border.BackgroundProperty, "TrackBrush");
@@ -337,6 +340,7 @@ public sealed partial class VidWindow : Window
         };
         row.MouseLeftButtonUp += (_, _) => pressed = false;
         var menu = new ContextMenu { Style = (Style)FindResource("ThemedMenu") };
+        menu.Items.Add(Item("Open in the Source monitor", () => LoadSource(m)));
         menu.Items.Add(Item("Add to the end of the timeline", () => AddToTimeline(m, EndOfTimeline(), null)));
         menu.Items.Add(Item("Add at the playhead", () => AddToTimeline(m, _s.Playhead, null)));
         menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedSeparator") });
@@ -480,27 +484,50 @@ public sealed partial class VidWindow : Window
                 case Key.N: NewProject(); e.Handled = true; return;
                 case Key.K: DoSplit(); e.Handled = true; return;
                 case Key.I: ImportDialog(); e.Handled = true; return;
-                case Key.E: Export(); e.Handled = true; return;
+                case Key.E: if (shift) ExportFrame(); else Export(); e.Handled = true; return;
                 case Key.D: if (!typing) { _s.Duplicate(); e.Handled = true; } return;
                 case Key.A: if (!typing) { _s.Select(_s.Project.AllClips); e.Handled = true; } return;
+                case Key.C: if (!typing) { _s.Copy(); SetStatus("Copied."); e.Handled = true; } return;
+                case Key.X: if (!typing && shift) { _s.ClearWorkArea(); e.Handled = true; } else if (!typing) { _s.Cut(); e.Handled = true; } return;
+                case Key.V: if (!typing) { PasteClips(); e.Handled = true; } return;
             }
             return;
         }
         if (typing) { if (k == Key.Escape) { Keyboard.ClearFocus(); _timeline.Focus(); e.Handled = true; } return; }
-        double frame = 1.0 / (_s.Project.Fps > 0 ? _s.Project.Fps : 30);
+        double frame = 1.0 / Fps;
         switch (k)
         {
-            case Key.Space: _player.Toggle(); UpdatePlayGlyph(); if (!_player.IsPlaying) _meters.Reset(); e.Handled = true; break;
+            case Key.Space:
+                if (_sourceActive && _srcMedia != null) SrcToggle();
+                else { _player.Toggle(); UpdatePlayGlyph(); if (!_player.IsPlaying) _meters.Reset(); }
+                e.Handled = true; break;
+            case Key.K: if (_player.IsPlaying) { _player.Pause(); UpdatePlayGlyph(); _meters.Reset(); } e.Handled = true; break;
+            case Key.L: if (!_player.IsPlaying) { _player.Play(); UpdatePlayGlyph(); } e.Handled = true; break;
             case Key.S: DoSplit(); e.Handled = true; break;
             case Key.T: AddTitle(); e.Handled = true; break;
             case Key.V: SetTool(VidTool.Select); e.Handled = true; break;
+            case Key.A: SetTool(VidTool.TrackForward); e.Handled = true; break;
+            case Key.B: SetTool(VidTool.Ripple); e.Handled = true; break;
+            case Key.N: SetTool(VidTool.Rolling); e.Handled = true; break;
             case Key.C: SetTool(VidTool.Razor); e.Handled = true; break;
+            case Key.Y: SetTool(VidTool.Slip); e.Handled = true; break;
             case Key.H: SetTool(VidTool.Hand); e.Handled = true; break;
+            case Key.I: MarkIn(); e.Handled = true; break;
+            case Key.O: MarkOut(); e.Handled = true; break;
+            case Key.M: AddMarkerHere(); e.Handled = true; break;
+            case Key.OemSemicolon: DoLift(); e.Handled = true; break;
+            case Key.OemQuotes: DoExtract(); e.Handled = true; break;
+            case Key.OemComma: SrcPlace(false); e.Handled = true; break;
+            case Key.OemPeriod: SrcPlace(true); e.Handled = true; break;
             case Key.Up: GoToEdit(-1); e.Handled = true; break;
             case Key.Down: GoToEdit(1); e.Handled = true; break;
             case Key.Delete: case Key.Back: _s.Delete(shift); e.Handled = true; break;
-            case Key.Left: SeekTo(_s.Playhead - (shift ? 1 : frame)); e.Handled = true; break;
-            case Key.Right: SeekTo(_s.Playhead + (shift ? 1 : frame)); e.Handled = true; break;
+            case Key.Left:
+                if (_sourceActive && _srcMedia != null) SrcSeek(_src.Playhead - (shift ? 1 : 1.0 / SrcFps)); else SeekTo(_s.Playhead - (shift ? 1 : frame));
+                e.Handled = true; break;
+            case Key.Right:
+                if (_sourceActive && _srcMedia != null) SrcSeek(_src.Playhead + (shift ? 1 : 1.0 / SrcFps)); else SeekTo(_s.Playhead + (shift ? 1 : frame));
+                e.Handled = true; break;
             case Key.Home: SeekTo(0); _timeline.Offset = 0; e.Handled = true; break;
             case Key.End: SeekTo(_s.Project.Duration); _timeline.EnsureVisible(_s.Project.Duration); e.Handled = true; break;
             case Key.OemPlus: case Key.Add: ZoomBy(1.25); e.Handled = true; break;
@@ -603,7 +630,8 @@ public sealed partial class VidWindow : Window
     {
         if (_s.Project.Duration <= 0.05) { UMessage.Show(this, "The timeline is empty. Add something to it first.", "Utylix Vid Editor"); return; }
         if (_player.IsPlaying) { _player.Pause(); UpdatePlayGlyph(); }
-        var w = new VidExportWindow(_s.Project, Path.GetFileNameWithoutExtension(_s.Project.Path ?? "My video")) { Owner = this };
+        var work = _s.Project.WorkIn != null || _s.Project.WorkOut != null ? _s.WorkRange() : ((double, double)?)null;
+        var w = new VidExportWindow(_s.Project, Path.GetFileNameWithoutExtension(_s.Project.Path ?? "My video"), work) { Owner = this };
         _exporting = true;
         try { w.ShowDialog(); }
         finally { _exporting = false; }

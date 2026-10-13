@@ -9,7 +9,7 @@ namespace IdmClone.Vid;
 /// The project being edited plus everything about editing it: selection, playhead, undo / redo and the edit operations
 /// (add, move, trim, split, delete, ripple). The window and the timeline only ask this class to change things.
 /// </summary>
-public sealed class VidSession
+public sealed partial class VidSession
 {
     public const double MinLength = 0.1;
     private const int UndoLimit = 120;
@@ -505,6 +505,9 @@ public sealed class VidSession
     public double[] SnapPoints(ICollection<Clip>? exclude = null)
     {
         var list = new List<double> { 0, Playhead };
+        foreach (var m in Project.Markers) list.Add(m.Time);
+        if (Project.WorkIn is double wi) list.Add(wi);
+        if (Project.WorkOut is double wo) list.Add(wo);
         foreach (var c in Project.AllClips)
         {
             if (exclude != null && exclude.Contains(c)) continue;

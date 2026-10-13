@@ -66,13 +66,16 @@ public sealed class VidPlayer : IDisposable
         EnsureBitmap();
     }
 
+    /// <summary>1 = as big as the program monitor needs (up to 960 wide), 0.5 and 0.25 = quicker previews on a slow PC.</summary>
+    public double PreviewScale { get; set; } = 1;
+
     private void EnsureBitmap()
     {
         var p = _session.Project;
         double aspect = (double)p.Width / Math.Max(1, p.Height);
-        int w = Math.Min(MaxPreviewWidth, Math.Max(160, p.Width));
+        int w = (int)Math.Round(Math.Min(MaxPreviewWidth, Math.Max(160, p.Width)) * Math.Clamp(PreviewScale, 0.2, 1));
         int h = (int)Math.Round(w / aspect);
-        if (h > 540) { h = 540; w = (int)Math.Round(h * aspect); }
+        if (h > 540 * Math.Clamp(PreviewScale, 0.2, 1)) { h = (int)Math.Round(540 * Math.Clamp(PreviewScale, 0.2, 1)); w = (int)Math.Round(h * aspect); }
         w = Math.Max(2, w / 2 * 2); h = Math.Max(2, h / 2 * 2);
         if (Bitmap != null && w == PreviewWidth && h == PreviewHeight) return;
         PreviewWidth = w; PreviewHeight = h;

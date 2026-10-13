@@ -74,9 +74,9 @@ public static class VidGraph
     /// <summary>A Windows path as a filter option value inside single quotes: forward slashes, and the colon of the drive escaped.</summary>
     private static string FilterPath(string path) => path.Replace('\\', '/').Replace(":", "\\:");
 
-    public static FfJob Video(VidProject p, double t0, double t1, int w, int h, string pixFmt) => Build(p, t0, t1, w, h, pixFmt, video: true, audio: false);
-    public static FfJob Audio(VidProject p, double t0, double t1) => Build(p, t0, t1, 0, 0, "yuv420p", video: false, audio: true);
-    public static FfJob Both(VidProject p, double t0, double t1, int w, int h, string pixFmt) => Build(p, t0, t1, w, h, pixFmt, video: true, audio: true);
+    public static FfJob Video(VidProject p, double t0, double t1, int w, int h, string pixFmt, int gifFps = 0) => Build(p, t0, t1, w, h, pixFmt, video: true, audio: false, gifFps);
+    public static FfJob Audio(VidProject p, double t0, double t1) => Build(p, t0, t1, 0, 0, "yuv420p", video: false, audio: true, 0);
+    public static FfJob Both(VidProject p, double t0, double t1, int w, int h, string pixFmt) => Build(p, t0, t1, w, h, pixFmt, video: true, audio: true, 0);
 
     private sealed class Ctx
     {
@@ -112,7 +112,7 @@ public static class VidGraph
     private static bool IsWipe(TransitionKind k) => k is TransitionKind.WipeRight or TransitionKind.WipeLeft or TransitionKind.WipeDown or TransitionKind.WipeUp;
 
     // ---------- the whole graph ----------
-    private static FfJob Build(VidProject p, double t0, double t1, int w, int h, string pixFmt, bool video, bool audio)
+    private static FfJob Build(VidProject p, double t0, double t1, int w, int h, string pixFmt, bool video, bool audio, int gifFps)
     {
         double dur = Math.Max(0.04, t1 - t0);
         var job = new FfJob { Duration = dur };
@@ -131,7 +131,9 @@ public static class VidGraph
                     else if (c.Kind == ClipKind.Media) AddVideoClip(x, track, c);
                 }
             }
-            script.Append($"[{x.Last}]format={pixFmt}[vout];\n");
+            if (gifFps > 0)
+                script.Append($"[{x.Last}]format=rgb24,fps={gifFps},split[gs0][gs1];[gs0]palettegen=stats_mode=diff[gpal];[gs1][gpal]paletteuse=dither=bayer:bayer_scale=4[vout];\n");
+            else script.Append($"[{x.Last}]format={pixFmt}[vout];\n");
             job.VideoLabel = "vout";
         }
 

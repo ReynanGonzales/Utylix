@@ -10,7 +10,7 @@ using System.Windows.Media;
 namespace IdmClone.Vid;
 
 /// <summary>The tool chosen in the tools column: selection (V), razor (C), hand (H).</summary>
-public enum VidTool { Select, Razor, Hand }
+public enum VidTool { Select, Razor, Hand, Ripple, Rolling, Slip, TrackForward }
 
 /// <summary>
 /// The timeline: ruler, track headers and the clips, drawn by hand. Click a clip to choose it, drag it to move it (also to another track), drag its
@@ -18,7 +18,7 @@ public enum VidTool { Select, Razor, Hand }
 /// </summary>
 public sealed class VidTimeline : FrameworkElement
 {
-    public const double HeaderWidth = 128;
+    public const double HeaderWidth = 150;
     public const double RulerHeight = 28;
     private const double VideoRow = 58, AudioRow = 44, Gap = 3, EdgeGrab = 7;
 
@@ -28,7 +28,7 @@ public sealed class VidTimeline : FrameworkElement
     private double _pps = 70;               // pixels per second
     private double _offset;                 // seconds at the left edge of the clip area
 
-    private enum Drag { None, Playhead, Move, TrimStart, TrimEnd, Pan }
+    private enum Drag { None, Playhead, Move, TrimStart, TrimEnd, Pan, Marquee, RippleStart, RippleEnd, Roll, SlipClip }
     private Drag _drag;
     private Point _downPoint;
     private double _downTime;
@@ -40,6 +40,12 @@ public sealed class VidTimeline : FrameworkElement
     private double _dropTime = -1; private int _dropRow = -1;
     private double _panOffset;
     private double _razorX = -1;
+    private Rect? _marquee;
+    private Point _marqueeStart;
+    private double _ghostTime = -1;
+    private Clip? _rollLeft;
+    private double _slipDelta;
+    private HashSet<string> _marqueeBase = new();
 
     public VidTool Tool { get; set; } = VidTool.Select;
     public bool SnapEnabled { get; set; } = true;
@@ -81,6 +87,12 @@ public sealed class VidTimeline : FrameworkElement
     public event Action<string[], double>? FilesDropped;
     public event Action<Clip>? ClipActivated;
     public event Action? Interacted;
+    /// <summary>Right-click on the ruler: where (time).</summary>
+    public event Action<double>? RulerContextRequested;
+    /// <summary>Right-click on a track's header.</summary>
+    public event Action<Track>? TrackMenuRequested;
+    /// <summary>A marker on the ruler was double-clicked.</summary>
+    public event Action<Marker>? MarkerActivated;
 
     public void ZoomToFit()
     {
@@ -181,6 +193,7 @@ public sealed class VidTimeline : FrameworkElement
         dc.DrawRectangle(card, null, new Rect(0, 0, W, RulerHeight));
         dc.DrawLine(new Pen(line, 1), new Point(0, RulerHeight), new Point(W, RulerHeight));
         DrawRuler(dc, W, muted, line);
+        DrawMarkersAndWorkArea(dc, W, H, accent);
 
         // clips
         var selected = _session.Selected;
@@ -220,6 +233,12 @@ public sealed class VidTimeline : FrameworkElement
             dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(60, accent.R, accent.G, accent.B)), new Pen(new SolidColorBrush(accent), 1.5), new Rect(TimeToX(_dropTime), top, 90, h));
         }
 
+        // ripple / rolling / slip feedback: the edge as it would be
+        if (_ghostTime >= 0)
+            dc.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15)), 2), new Point(TimeToX(_ghostTime), RulerHeight), new Point(TimeToX(_ghostTime), H));
+        if (_marquee is Rect mq)
+            dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(40, accent.R, accent.G, accent.B)), new Pen(new SolidColorBrush(accent), 1) { DashStyle = DashStyles.Dash }, mq);
+
         // razor guide: where the cut would be
         if (Tool == VidTool.Razor && _razorX >= HeaderWidth)
             dc.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15)), 1) { DashStyle = DashStyles.Dash }, new Point(_razorX, RulerHeight), new Point(_razorX, H));
@@ -242,10 +261,55 @@ public sealed class VidTimeline : FrameworkElement
             double top = RowTop(rows, i), h = RowHeight(rows[i]);
             var t = rows[i];
             dc.DrawRectangle(card, new Pen(line, 1), new Rect(0.5, top, HeaderWidth - 6, h));
-            dc.DrawText(Text(t.Name, 12.5, text, HeaderWidth - 60), new Point(10, top + 6));
+            dc.DrawText(Text(t.Name, 12.5, text, HeaderWidth - (t.Kind == TrackKind.Audio ? 96 : 70)), new Point(10, top + 6));
             dc.DrawText(Text(t.Kind == TrackKind.Video ? "picture" : "sound", 10.5, muted), new Point(10, top + h - 18));
             DrawToggle(dc, ToggleRect(top, 0), t.Kind == TrackKind.Video ? "" : "", t.Muted, accent, muted);
+            if (t.Kind == TrackKind.Audio) DrawSolo(dc, ToggleRect(top, 2), t.Solo, accent, muted);
             DrawToggle(dc, ToggleRect(top, 1), "", t.Locked, accent, muted);
+        }
+    }
+
+    private void DrawSolo(DrawingContext dc, Rect r, bool on, Color accent, Brush muted)
+    {
+        if (on) dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15)), null, r, 5, 5);
+        var ft = new FormattedText("S", CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal), 12,
+            on ? Brushes.Black : muted, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        dc.DrawText(ft, new Point(r.X + (r.Width - ft.Width) / 2, r.Y + (r.Height - ft.Height) / 2));
+    }
+
+    /// <summary>The coloured flags of markers on the ruler, and the In / Out range (shaded over the ruler and tracks).</summary>
+    private void DrawMarkersAndWorkArea(DrawingContext dc, double W, double H, Color accent)
+    {
+        var p = _session.Project;
+        if (p.WorkIn != null || p.WorkOut != null)
+        {
+            double a = p.WorkIn ?? 0, b = p.WorkOut ?? p.Duration;
+            double x0 = Math.Max(HeaderWidth, TimeToX(a)), x1 = Math.Min(W, TimeToX(b));
+            if (x1 > x0)
+            {
+                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(34, accent.R, accent.G, accent.B)), null, new Rect(x0, RulerHeight, x1 - x0, Math.Max(0, H - RulerHeight)));
+                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, accent.R, accent.G, accent.B)), null, new Rect(x0, RulerHeight - 5, x1 - x0, 5));
+            }
+        }
+        foreach (var m in p.Markers)
+        {
+            double x = TimeToX(m.Time);
+            if (x < HeaderWidth - 8 || x > W + 8) continue;
+            Color col;
+            try { col = (Color)ColorConverter.ConvertFromString(m.Color); } catch (FormatException) { col = Colors.LimeGreen; }
+            var flag = new StreamGeometry();
+            using (var g = flag.Open())
+            {
+                g.BeginFigure(new Point(x, RulerHeight), true, true);
+                g.LineTo(new Point(x - 6, RulerHeight - 9), true, false);
+                g.LineTo(new Point(x - 6, 3), true, false);
+                g.LineTo(new Point(x + 6, 3), true, false);
+                g.LineTo(new Point(x + 6, RulerHeight - 9), true, false);
+            }
+            flag.Freeze();
+            dc.DrawGeometry(new SolidColorBrush(col), null, flag);
+            dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(120, col.R, col.G, col.B)), 1) { DashStyle = DashStyles.Dot }, new Point(x, RulerHeight), new Point(x, H));
+            if (!string.IsNullOrEmpty(m.Name)) dc.DrawText(Text(m.Name, 10.5, new SolidColorBrush(col), 120), new Point(x + 8, 3));
         }
     }
 
@@ -292,7 +356,7 @@ public sealed class VidTimeline : FrameworkElement
     {
         if (t < 0) t = 0;
         long cs = (long)Math.Round(t * 100);                          // hundredths, rounded once so 0.995 shows as 1.00, not 0.99
-        long whole = fraction ? cs / 100 : (long)Math.Floor(t);
+        long whole = fraction ? cs / 100 : (long)Math.Floor(t + 1e-6);          // (1.9999999 from adding steps is 2)
         int h = (int)(whole / 3600), m = (int)(whole / 60) % 60, s = (int)(whole % 60);
         string head = h > 0 ? $"{h}:{m:00}:{s:00}" : $"{m}:{s:00}";
         return fraction ? head + "." + (cs % 100).ToString("00") : head;
@@ -361,6 +425,26 @@ public sealed class VidTimeline : FrameworkElement
         // fades
         if (c.FadeIn > 0) dc.DrawLine(new Pen(Brushes.White, 1.2), new Point(rect.X, rect.Bottom - 2), new Point(rect.X + c.FadeIn * _pps, rect.Y + 18));
         if (c.FadeOut > 0) dc.DrawLine(new Pen(Brushes.White, 1.2), new Point(rect.Right - c.FadeOut * _pps, rect.Y + 18), new Point(rect.Right, rect.Bottom - 2));
+        // the way the clip comes in
+        if (c.Transition != TransitionKind.None)
+        {
+            double tw = Math.Max(6, c.TransitionLength * _pps);
+            dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(120, 255, 255, 255)), null, new Rect(rect.X, rect.Y + 17, Math.Min(tw, rect.Width), rect.Height - 17));
+            if (rect.Width > 20) dc.DrawText(Text("\u21C6", 11, Brushes.Black), new Point(rect.X + 3, rect.Y + 19));
+        }
+        // effects and keyframes
+        if (c.Effects.Count > 0 && rect.Width > 60)
+            dc.DrawText(Text("fx", 11, new SolidColorBrush(Color.FromRgb(0xC4, 0xB5, 0xFD))), new Point(rect.Right - 18, rect.Y + 1.5));
+        foreach (var list in c.Keys.Values)
+            foreach (var k in list)
+            {
+                double kx = TimeToX(c.Start + k.T);
+                if (kx < rect.X + 2 || kx > rect.Right - 2) continue;
+                var d = new StreamGeometry();
+                using (var g = d.Open()) { g.BeginFigure(new Point(kx, rect.Bottom - 12), true, true); g.LineTo(new Point(kx + 4, rect.Bottom - 8), true, false); g.LineTo(new Point(kx, rect.Bottom - 4), true, false); g.LineTo(new Point(kx - 4, rect.Bottom - 8), true, false); }
+                d.Freeze();
+                dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15)), new Pen(Brushes.Black, 0.8), d);
+            }
         dc.Pop();
         var border = selected ? new Pen(dark ? Brushes.White : new SolidColorBrush(C("TextBrush")), 2) : new Pen(new SolidColorBrush(Mix(fill, Colors.Black, 0.35)), 1);
         dc.DrawRoundedRectangle(null, border, rect, 5, 5);
@@ -398,6 +482,8 @@ public sealed class VidTimeline : FrameworkElement
 
         if (p.Y < RulerHeight)
         {
+            var hitMarker = _session.Project.Markers.FirstOrDefault(m => Math.Abs(TimeToX(m.Time) - p.X) <= 7);
+            if (hitMarker != null && e.ClickCount == 2) { MarkerActivated?.Invoke(hitMarker); e.Handled = true; return; }
             _drag = Drag.Playhead;
             CaptureMouse();
             PlayheadDragged?.Invoke(Math.Max(0, XToTime(p.X)), false);
@@ -413,6 +499,7 @@ public sealed class VidTimeline : FrameworkElement
                 var track = rows[hr];
                 if (ToggleRect(top, 0).Contains(p)) { _session.Do(track.Muted ? "Unmute track" : "Mute track", () => track.Muted = !track.Muted); e.Handled = true; return; }
                 if (ToggleRect(top, 1).Contains(p)) { _session.Do(track.Locked ? "Unlock track" : "Lock track", () => track.Locked = !track.Locked); e.Handled = true; return; }
+                if (track.Kind == TrackKind.Audio && ToggleRect(top, 2).Contains(p)) { _session.Do(track.Solo ? "Unsolo track" : "Solo track", () => track.Solo = !track.Solo); e.Handled = true; return; }
             }
             return;
         }
@@ -435,13 +522,60 @@ public sealed class VidTimeline : FrameworkElement
             e.Handled = true;
             return;
         }
+        // the editing tools that work on an edge or on the inside of a clip
+        if (Tool is VidTool.Ripple or VidTool.Rolling or VidTool.Slip or VidTool.TrackForward)
+        {
+            // a cut between two clips is grabbed from either side
+            if (clip == null)
+            {
+                double tt = XToTime(p.X);
+                var r2 = row >= 0 ? rows[row] : null;
+                var near = r2?.Clips.FirstOrDefault(c => Math.Abs(TimeToX(c.End) - p.X) <= EdgeGrab);
+                if (near != null && Tool != VidTool.Slip) { clip = near; zone = Drag.TrimEnd; }
+            }
+            if (clip == null) { e.Handled = true; return; }
+            if (rows[row].Locked) { e.Handled = true; return; }
+            if (Tool == VidTool.TrackForward)
+            {
+                var fwd = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)
+                    ? _session.Project.Tracks.SelectMany(t2 => _session.SelectForward(t2, clip.Start))
+                    : _session.SelectForward(rows[row], clip.Start);
+                _session.Select(fwd);
+                e.Handled = true;
+                return;
+            }
+            _dragClip = clip;
+            _dragClips = new List<Clip> { clip };
+            _editBefore = _session.BeginEdit();
+            _slipDelta = 0;
+            if (Tool == VidTool.Slip) { _session.Select(_session.WithLinked(new[] { clip })); _drag = Drag.SlipClip; }
+            else if (Tool == VidTool.Rolling)
+            {
+                // the cut nearest to the press: the end of this clip when pressed in its right half, else the end of the clip before it
+                bool rightHalf = p.X > (TimeToX(clip.Start) + TimeToX(clip.End)) / 2;
+                var left = rightHalf ? clip : rows[row].Clips.FirstOrDefault(c => Math.Abs(c.End - clip.Start) < 0.002);
+                if (left == null || _session.RightNeighbour(left) == null) { e.Handled = true; _editBefore = null; return; }
+                _rollLeft = left;
+                _drag = Drag.Roll;
+                _ghostTime = left.End;
+            }
+            else
+            {
+                bool endSide = zone == Drag.TrimEnd || (zone == Drag.Move && p.X > (TimeToX(clip.Start) + TimeToX(clip.End)) / 2);
+                _drag = endSide ? Drag.RippleEnd : Drag.RippleStart;
+                _ghostTime = endSide ? clip.End : clip.Start;
+            }
+            CaptureMouse();
+            e.Handled = true;
+            return;
+        }
         if (clip == null)
         {
-            // empty space: nothing chosen any more, and the playhead goes there
-            if (!(Keyboard.Modifiers.HasFlag(ModifierKeys.Control) || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))) _session.ClearSelection();
-            _drag = Drag.Playhead;
+            // empty space: a drag chooses everything inside the box; a plain click clears the choice and puts the playhead there
+            _marqueeBase = new HashSet<string>(Keyboard.Modifiers.HasFlag(ModifierKeys.Control) || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? _session.Selected : Enumerable.Empty<string>());
+            _marqueeStart = p;
+            _drag = Drag.Marquee;
             CaptureMouse();
-            PlayheadDragged?.Invoke(Math.Max(0, XToTime(p.X)), false);
             return;
         }
         bool locked = rows[row].Locked;
@@ -473,6 +607,9 @@ public sealed class VidTimeline : FrameworkElement
                 return;
             }
             if (Tool == VidTool.Hand) { Cursor = Cursors.ScrollAll; return; }
+            if (Tool is VidTool.Ripple or VidTool.Rolling) { Cursor = Cursors.SizeWE; return; }
+            if (Tool == VidTool.Slip) { Cursor = clip != null ? Cursors.ScrollWE : Cursors.Arrow; return; }
+            if (Tool == VidTool.TrackForward) { Cursor = Cursors.Arrow; return; }
             Cursor = p.Y < RulerHeight ? Cursors.Hand : zone is Drag.TrimStart or Drag.TrimEnd ? Cursors.SizeWE : clip != null ? Cursors.SizeAll : Cursors.Arrow;
             return;
         }
@@ -485,6 +622,41 @@ public sealed class VidTimeline : FrameworkElement
                 break;
             case Drag.Pan:
                 Offset = Math.Max(0, _panOffset - (p.X - _downPoint.X) / _pps);
+                break;
+            case Drag.Marquee:
+            {
+                if (!_moved && (Math.Abs(p.X - _marqueeStart.X) > 4 || Math.Abs(p.Y - _marqueeStart.Y) > 4)) _moved = true;
+                if (!_moved) break;
+                double x0 = Math.Max(HeaderWidth, Math.Min(p.X, _marqueeStart.X)), x1 = Math.Max(p.X, _marqueeStart.X);
+                double y0 = Math.Min(p.Y, _marqueeStart.Y), y1 = Math.Max(p.Y, _marqueeStart.Y);
+                _marquee = new Rect(x0, y0, Math.Max(1, x1 - x0), Math.Max(1, y1 - y0));
+                var picked = new List<Clip>();
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    double top = RowTop(rows, i), h = RowHeight(rows[i]);
+                    if (top + h < y0 || top > y1) continue;
+                    foreach (var c in rows[i].Clips)
+                        if (TimeToX(c.End) >= x0 && TimeToX(c.Start) <= x1) picked.Add(c);
+                }
+                var ids = new HashSet<string>(_marqueeBase);
+                foreach (var c in _session.WithLinked(picked)) ids.Add(c.Id);
+                _session.Select(_session.Project.AllClips.Where(c => ids.Contains(c.Id)));
+                InvalidateVisual();
+                EdgeScroll(p.X);
+                break;
+            }
+            case Drag.RippleStart:
+            case Drag.RippleEnd:
+                if (_dragClip != null) { _ghostTime = Snap(t, _dragClips); InvalidateVisual(); }
+                break;
+            case Drag.Roll:
+                _ghostTime = Math.Max(0, Snap(t, _dragClips));
+                InvalidateVisual();
+                break;
+            case Drag.SlipClip:
+                _slipDelta = -(p.X - _downPoint.X) / _pps;                      // the picture follows the mouse: its start in the file moves the other way
+                _ghostTime = -1;
+                InvalidateVisual();
                 break;
             case Drag.Move:
             {
@@ -571,6 +743,38 @@ public sealed class VidTimeline : FrameworkElement
             case Drag.TrimEnd:
                 if (_editBefore != null) _session.CommitEdit(_editBefore, "Trim");
                 break;
+            case Drag.Marquee:
+                if (!_moved)
+                {
+                    // a plain click on empty space
+                    if (!(Keyboard.Modifiers.HasFlag(ModifierKeys.Control) || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))) _session.ClearSelection();
+                    PlayheadDragged?.Invoke(Math.Max(0, XToTime(p.X)), true);
+                }
+                _marquee = null;
+                _moved = false;
+                InvalidateVisual();
+                break;
+            case Drag.RippleEnd:
+                if (_dragClip != null && _ghostTime >= 0) _session.RippleTrimEnd(_dragClip, _ghostTime);
+                _ghostTime = -1;
+                InvalidateVisual();
+                break;
+            case Drag.RippleStart:
+                if (_dragClip != null && _ghostTime >= 0) _session.RippleTrimStart(_dragClip, _ghostTime - _dragClip.Start);
+                _ghostTime = -1;
+                InvalidateVisual();
+                break;
+            case Drag.Roll:
+                if (_rollLeft != null && _ghostTime >= 0) _session.Roll(_rollLeft, _ghostTime);
+                _rollLeft = null;
+                _ghostTime = -1;
+                InvalidateVisual();
+                break;
+            case Drag.SlipClip:
+                if (_dragClip != null && Math.Abs(_slipDelta) > 1e-6) _session.Slip(new[] { _dragClip }, _slipDelta);
+                _slipDelta = 0;
+                InvalidateVisual();
+                break;
         }
         _editBefore = null;
         _dragClip = null;
@@ -582,6 +786,8 @@ public sealed class VidTimeline : FrameworkElement
         Focus();
         var p = e.GetPosition(this);
         var rows = Rows();
+        if (p.Y < RulerHeight) { RulerContextRequested?.Invoke(Math.Max(0, XToTime(p.X))); e.Handled = true; return; }
+        if (p.X < HeaderWidth) { int hr = RowAt(p.Y, rows); if (hr >= 0) TrackMenuRequested?.Invoke(rows[hr]); e.Handled = true; return; }
         var (clip, _, _) = HitTest(p, rows);
         if (clip != null && !_session.Selected.Contains(clip.Id)) _session.Select(_session.WithLinked(new[] { clip }));
         ContextMenuRequested?.Invoke(clip, Math.Max(0, XToTime(p.X)));
