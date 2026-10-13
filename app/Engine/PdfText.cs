@@ -226,6 +226,17 @@ internal static class PdfTextReader
                     // (a letter outside the basic plane takes two places in a .NET string: both get its box)
                     foreach (char c in s) { sb.Append(c); boxes.Add(box); }
                 }
+
+                // A space is drawn with no glyph, so nothing can tell its height but the font's own box: the same oversized one as above (55 pt for 10 pt text), and a
+                // selected phrase, a highlight or an underline that includes the space became a tall block. A space is as tall as the letter next to it.
+                for (int i = 0; i < boxes.Count; i++)
+                {
+                    if (boxes[i].IsEmpty || sb[i] != ' ') continue;
+                    int near = i > 0 && !boxes[i - 1].IsEmpty && sb[i - 1] != ' ' ? i - 1 : i + 1 < boxes.Count && !boxes[i + 1].IsEmpty && sb[i + 1] != ' ' ? i + 1 : -1;
+                    if (near < 0) continue;
+                    var nb = boxes[near]; var sbx = boxes[i];
+                    if (sbx.Height > 1.8 * nb.Height + 1) boxes[i] = new Rect(sbx.X, nb.Y, sbx.Width, nb.Height);
+                }
             }
 
             // links: the PDF's own, and web addresses written in the text
