@@ -27,7 +27,8 @@ public sealed partial class VidWindow : Window
     private VidTimeline _timeline = null!;
     private Image _picture = null!;
     private TextBlock _timeLabel = null!, _canvasLabel = null!, _status = null!, _playGlyph = null!;
-    private StackPanel _bin = null!, _inspector = null!;
+    private Panel _bin = null!;
+    private StackPanel _inspector = null!;
     private Button _undoBtn = null!, _redoBtn = null!;
     private ScrollBar _hScroll = null!;
     private readonly DispatcherTimer _refresh, _autosave, _binTimer;
@@ -69,12 +70,14 @@ public sealed partial class VidWindow : Window
         _picture.Source = _player.Bitmap;
         _player.BitmapChanged += () => _picture.Source = _player.Bitmap;
         _player.Position += t => { _timeline.EnsureVisible(t); _timeline.InvalidateVisual(); UpdateTime(); };
+        _picture.SizeChanged += (_, _) => RefreshOverlay();
         _player.Stopped += () => { UpdatePlayGlyph(); UpdateTime(); _meters.Reset(); };
         _player.Levels += (l, r) => _meters.SetLevels(l, r);
         _player.Problem += msg => SetStatus(msg);
 
         _s.Changed += OnProjectChanged;
         _s.SelectionChanged += RefreshInspector;
+        _s.SelectionChanged += RefreshOverlay;
         _cache.Updated += () => { _binTimer.Stop(); _binTimer.Start(); };
         _timeline.ViewChanged += SyncScroll;
         _timeline.SizeChanged += (_, _) => SyncScroll();
@@ -219,9 +222,16 @@ public sealed partial class VidWindow : Window
         _timeLabel.Text = now;
         _tlTimeLabel.Text = now;
         _durationLabel.Text = VidTimeline.Timecode(_s.Project.Duration, Fps);
+        if (_programScrub != null)
+        {
+            _programScrub.Duration = Math.Max(1, _s.Project.Duration);
+            _programScrub.Position = _s.Playhead;
+            _programScrub.In = _s.Project.WorkIn; _programScrub.Out = _s.Project.WorkOut;
+            _programScrub.InvalidateVisual();
+        }
     }
 
-    private void UpdatePlayGlyph() => _playGlyph.Text = _player.IsPlaying ? "" : "";
+    private void UpdatePlayGlyph() { _playGlyph.Text = _player.IsPlaying ? "" : ""; RefreshOverlay(); }
 
     private void SyncScroll()
     {
@@ -252,6 +262,8 @@ public sealed partial class VidWindow : Window
         _s.Playhead = Math.Clamp(t, 0, Math.Max(_s.Project.Duration, t));
         _timeline.InvalidateVisual();
         UpdateTime();
+        RefreshOverlay();
+        if (_s.SelectedClips.Any(c => c.Keys.Count > 0)) RefreshInspector();
         _player.ShowFrame(_s.Playhead);
     }
 
@@ -259,6 +271,7 @@ public sealed partial class VidWindow : Window
     {
         UpdateTitle();
         UpdateTime();
+        RefreshOverlay();
         _undoBtn.IsEnabled = _s.CanUndo;
         _redoBtn.IsEnabled = _s.CanRedo;
         _undoBtn.ToolTip = _s.CanUndo ? "Undo " + _s.NextUndoLabel + " (Ctrl+Z)" : "Nothing to undo";
@@ -283,19 +296,6 @@ public sealed partial class VidWindow : Window
     }
 
     // ---------- the media bin ----------
-    private void RebuildBin()
-    {
-        _bin.Children.Clear();
-        if (_s.Project.Media.Count == 0)
-        {
-            var hint = new TextBlock { Text = "Bring in videos, sounds and pictures with Import, or drop files here. Drag them onto the timeline, or double-click to add them.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6, 4, 6, 0) };
-            hint.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-            _bin.Children.Add(hint);
-            return;
-        }
-        foreach (var m in _s.Project.Media) _bin.Children.Add(BinRow(m));
-    }
-
     private UIElement BinRow(MediaItem m)
     {
         var grid = new Grid();
@@ -482,15 +482,17 @@ public sealed partial class VidWindow : Window
         {
             switch (k)
             {
-                case Key.Z: if (!typing) { _s.Undo(); e.Handled = true; } return;
+                case Key.Z: if (!typing) { if (shift) _s.Redo(); else _s.Undo(); e.Handled = true; } return;
                 case Key.Y: if (!typing) { _s.Redo(); e.Handled = true; } return;
                 case Key.S: SaveProject(shift); e.Handled = true; return;
                 case Key.O: OpenProject(); e.Handled = true; return;
                 case Key.N: NewProject(); e.Handled = true; return;
-                case Key.K: DoSplit(); e.Handled = true; return;
+                case Key.K: if (shift) { if (!_s.SplitClips(_s.Project.AllClips, _s.Playhead)) SetStatus("Put the playhead on a clip to cut it there."); } else DoSplit(); e.Handled = true; return;
+                case Key.M: Export(); e.Handled = true; return;
+                case Key.T: AddTitle(); e.Handled = true; return;
                 case Key.I: ImportDialog(); e.Handled = true; return;
                 case Key.E: if (shift) ExportFrame(); else Export(); e.Handled = true; return;
-                case Key.D: if (!typing) { if (shift) AddTransitionAtPlayhead(); else _s.Duplicate(); e.Handled = true; } return;
+                case Key.D: if (!typing) { if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) _s.Duplicate(); else AddTransitionAtPlayhead(); e.Handled = true; } return;
                 case Key.A: if (!typing) { _s.Select(_s.Project.AllClips); e.Handled = true; } return;
                 case Key.C: if (!typing) { _s.Copy(); SetStatus("Copied."); e.Handled = true; } return;
                 case Key.X: if (!typing && shift) { _s.ClearWorkArea(); e.Handled = true; } else if (!typing) { _s.Cut(); e.Handled = true; } return;
@@ -517,9 +519,12 @@ public sealed partial class VidWindow : Window
             case Key.C: SetTool(VidTool.Razor); e.Handled = true; break;
             case Key.Y: SetTool(VidTool.Slip); e.Handled = true; break;
             case Key.H: SetTool(VidTool.Hand); e.Handled = true; break;
-            case Key.I: MarkIn(); e.Handled = true; break;
-            case Key.O: MarkOut(); e.Handled = true; break;
-            case Key.M: AddMarkerHere(); e.Handled = true; break;
+            case Key.I: if (shift) SeekTo(_s.Project.WorkIn ?? 0); else MarkIn(); e.Handled = true; break;
+            case Key.O: if (shift) SeekTo(_s.Project.WorkOut ?? _s.Project.Duration); else MarkOut(); e.Handled = true; break;
+            case Key.M: if (shift) GoToMarker(1); else AddMarkerHere(); e.Handled = true; break;
+            case Key.Q: RippleTrimToPlayhead(false); e.Handled = true; break;
+            case Key.W: RippleTrimToPlayhead(true); e.Handled = true; break;
+            case Key.D: SelectClipAtPlayhead(); e.Handled = true; break;
             case Key.OemSemicolon: DoLift(); e.Handled = true; break;
             case Key.OemQuotes: DoExtract(); e.Handled = true; break;
             case Key.OemComma: SrcPlace(false); e.Handled = true; break;
@@ -528,10 +533,10 @@ public sealed partial class VidWindow : Window
             case Key.Down: GoToEdit(1); e.Handled = true; break;
             case Key.Delete: case Key.Back: _s.Delete(shift); e.Handled = true; break;
             case Key.Left:
-                if (_sourceActive && _srcMedia != null) SrcSeek(_src.Playhead - (shift ? 1 : 1.0 / SrcFps)); else SeekTo(_s.Playhead - (shift ? 1 : frame));
+                if (_sourceActive && _srcMedia != null) SrcSeek(_src.Playhead - (shift ? 5.0 / SrcFps : 1.0 / SrcFps)); else SeekTo(_s.Playhead - (shift ? 5 * frame : frame));
                 e.Handled = true; break;
             case Key.Right:
-                if (_sourceActive && _srcMedia != null) SrcSeek(_src.Playhead + (shift ? 1 : 1.0 / SrcFps)); else SeekTo(_s.Playhead + (shift ? 1 : frame));
+                if (_sourceActive && _srcMedia != null) SrcSeek(_src.Playhead + (shift ? 5.0 / SrcFps : 1.0 / SrcFps)); else SeekTo(_s.Playhead + (shift ? 5 * frame : frame));
                 e.Handled = true; break;
             case Key.Home: SeekTo(0); _timeline.Offset = 0; e.Handled = true; break;
             case Key.End: SeekTo(_s.Project.Duration); _timeline.EnsureVisible(_s.Project.Duration); e.Handled = true; break;

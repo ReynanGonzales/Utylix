@@ -67,6 +67,25 @@ public sealed partial class VidWindow
         }
     }
 
+    /// <summary>Q / W: trim the clip under the playhead so that its start (Q) or end (W) is at the playhead, and close the gap (ripple).</summary>
+    private void RippleTrimToPlayhead(bool end)
+    {
+        var track = _s.Project.Tracks.Where(t => t.Kind == TrackKind.Video).Reverse().FirstOrDefault(t => t.Clips.Any(c => c.Start < _s.Playhead - 0.01 && c.End > _s.Playhead + 0.01))
+                    ?? _s.Project.Tracks.FirstOrDefault(t => t.Clips.Any(c => c.Start < _s.Playhead - 0.01 && c.End > _s.Playhead + 0.01));
+        var clip = track?.Clips.FirstOrDefault(c => c.Start < _s.Playhead - 0.01 && c.End > _s.Playhead + 0.01);
+        if (clip == null) { SetStatus("Put the playhead on a clip first."); return; }
+        if (end) _s.RippleTrimEnd(clip, _s.Playhead);
+        else _s.RippleTrimStart(clip, _s.Playhead - clip.Start);
+    }
+
+    /// <summary>D: choose the clip under the playhead (the top-most one).</summary>
+    private void SelectClipAtPlayhead()
+    {
+        var hit = VisibleOnTop().FirstOrDefault();
+        if (hit == null) { SetStatus("There is no clip under the playhead."); return; }
+        _s.Select(_s.WithLinked(new[] { hit }));
+    }
+
     // ---------- In / Out ----------
     private void MarkIn()
     {

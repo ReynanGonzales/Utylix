@@ -10,8 +10,8 @@ namespace IdmClone.Vid;
 /// </summary>
 public sealed class VidSettings
 {
-    /// <summary>"system", "dark" or "light".</summary>
-    public string Theme { get; set; } = "system";
+    /// <summary>"premiere" (the default), "system", "dark" or "light".</summary>
+    public string Theme { get; set; } = "premiere";
     public string Accent { get; set; } = "blue";
     /// <summary>Export with the video card's encoder when it works.</summary>
     public bool UseGpu { get; set; } = true;

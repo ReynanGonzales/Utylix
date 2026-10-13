@@ -16,6 +16,13 @@ public sealed partial class VidWindow
 {
     private TextBlock _durationLabel = null!, _tlTimeLabel = null!, _programTitle = null!, _timelineTitle = null!, _projectTitle = null!, _qualityText = null!;
     private VidMeters _meters = null!;
+    private ColumnDefinition _topLeftColumn = null!, _bottomLeftColumn = null!;
+    private readonly Dictionary<string, (Border Tab, TextBlock Label)> _workspaceTabs = new();
+    private string _workspace = "Editing";
+    private TextBlock _zoomText = null!;
+    private VidScrub _programScrub = null!;
+    private double _monitorZoomPct;
+    private bool _safeMargins;
     private ToggleButton _snapToggle = null!;
     private readonly Dictionary<VidTool, ToggleButton> _toolButtons = new();
 
@@ -63,9 +70,12 @@ public sealed partial class VidWindow
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        var head = new DockPanel { LastChildFill = true };
-        titleBlock = new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 12, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-        var tab = new Border { Child = titleBlock, BorderThickness = new Thickness(0, 0, 0, 2) };
+        var head = new DockPanel { LastChildFill = false };
+        titleBlock = new TextBlock { Text = title, FontWeight = FontWeights.Normal, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 6, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+        var tabContent = new StackPanel { Orientation = Orientation.Horizontal };
+        tabContent.Children.Add(titleBlock);
+        tabContent.Children.Add(new TextBlock { Text = "\uE700", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 11, Opacity = 0.65, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) });
+        var tab = new Border { Child = tabContent, BorderThickness = new Thickness(0, 0, 0, 2) };
         tab.SetResourceReference(Border.BorderBrushProperty, "AccentBrush");
         DockPanel.SetDock(tab, Dock.Left);
         head.Children.Add(tab);
@@ -78,6 +88,40 @@ public sealed partial class VidWindow
         grid.Children.Add(headBorder);
         grid.Children.Add(body);
         return Card(grid);
+    }
+
+    /// <summary>A small drop-down like Premiere's "Fit" and "Full" boxes in the Program monitor: its text and a chevron, a menu on click.</summary>
+    private Button Dropdown(string text, out TextBlock label, string id, params (string Label, Action Click)[] items)
+    {
+        var content = new StackPanel { Orientation = Orientation.Horizontal };
+        label = new TextBlock { Text = text, FontSize = 13 };
+        content.Children.Add(label);
+        content.Children.Add(new TextBlock { Text = "\uE70D", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 9, Margin = new Thickness(6, 2, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        var b = new Button { Content = content, Style = (Style)XamlReader.Parse(FlatButtonStyle), Margin = new Thickness(0, 0, 4, 0) };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(b, id);
+        b.Click += (_, _) => ShowMenu(b, items.Select(i => (i.Label, (Action?)i.Click, (string?)null)).ToArray());
+        return b;
+    }
+
+    /// <summary>The picture at a fixed size in the Program monitor (percent of the sequence's own size), or fitted (0).</summary>
+    private void SetMonitorZoom(double pct)
+    {
+        _monitorZoomPct = pct;
+        _zoomText.Text = pct <= 0 ? "Fit" : pct.ToString("0") + " %";
+        ApplyMonitorZoom();
+    }
+
+    private void SetPreviewQuality(double scale, string name)
+    {
+        _player.PreviewScale = scale;
+        _qualityText.Text = name;
+        _player.Refresh();
+    }
+
+    private void ToggleSafeMargins()
+    {
+        _safeMargins = !_safeMargins;
+        RefreshOverlay();
     }
 
     private Button FlatButton(string text, Action<Button> click, string? id = null)
@@ -143,78 +187,117 @@ public sealed partial class VidWindow
     private void BuildPremiereUi()
     {
         var root = new Grid();
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(40) });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });                   // menu bar
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(38) });                   // workspace bar
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 240 });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1.05, GridUnitType.Star), MinHeight = 210 });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0.95, GridUnitType.Star), MinHeight = 210 });
         Content = root;
 
-        // ----- menu bar -----
-        var bar = new DockPanel { Margin = new Thickness(10, 0, 10, 0) };
-        var logo = new System.Windows.Controls.Image { Width = 22, Height = 22, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
-        try { logo.Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/vid.png")); } catch (Exception e) when (e is System.IO.IOException or NotSupportedException or UriFormatException) { }
-        bar.Children.Add(logo);
+        // ----- menu bar: File Edit Clip Sequence Markers Graphics View Window Help (Premiere's order) -----
+        var bar = new DockPanel { Margin = new Thickness(8, 0, 10, 0) };
         var menus = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         menus.Children.Add(FlatButton("File", b => ShowMenu(b,
             ("New project", NewProject, "Ctrl+N"), ("Open project…", OpenProject, "Ctrl+O"), ("-", null, null),
             ("Save", () => SaveProject(false), "Ctrl+S"), ("Save as…", () => SaveProject(true), "Ctrl+Shift+S"), ("-", null, null),
-            ("Import media…", ImportDialog, "Ctrl+I"), ("Export media…", Export, "Ctrl+E"), ("Export frame…", ExportFrame, "Ctrl+Shift+E"), ("-", null, null),
+            ("Import media…", ImportDialog, "Ctrl+I"), ("Export media…", Export, "Ctrl+M"), ("Export frame…", ExportFrame, "Ctrl+Shift+E"), ("-", null, null),
             ("Exit", Close, null)), "VidMenuFile"));
         menus.Children.Add(FlatButton("Edit", b => ShowMenu(b,
-            ("Undo", () => _s.Undo(), "Ctrl+Z"), ("Redo", () => _s.Redo(), "Ctrl+Y"), ("-", null, null),
+            ("Undo", () => _s.Undo(), "Ctrl+Z"), ("Redo", () => _s.Redo(), "Ctrl+Shift+Z"), ("-", null, null),
             ("Cut", () => _s.Cut(), "Ctrl+X"), ("Copy", () => _s.Copy(), "Ctrl+C"), ("Paste", () => PasteClips(), "Ctrl+V"),
-            ("Duplicate", () => _s.Duplicate(), "Ctrl+D"), ("Delete", () => _s.Delete(false), "Del"), ("Ripple delete", () => _s.Delete(true), "Shift+Del"), ("-", null, null),
+            ("Duplicate", () => _s.Duplicate(), "Ctrl+Alt+D"), ("Clear", () => _s.Delete(false), "Del"), ("Ripple delete", () => _s.Delete(true), "Shift+Del"), ("-", null, null),
             ("Select all", () => _s.Select(_s.Project.AllClips), "Ctrl+A"), ("-", null, null),
             ("Settings…", OpenSettings, null)), "VidMenuEdit"));
         menus.Children.Add(FlatButton("Clip", b => ShowMenu(b,
-            ("Split at the playhead", DoSplit, "S"), ("Add a title", AddTitle, "T"), ("-", null, null),
-            ("Lift (remove In to Out, leave a gap)", () => DoLift(), ";"), ("Extract (remove In to Out, close the gap)", () => DoExtract(), "'"), ("-", null, null),
             ("Remove the background (AI)…", RemoveBackground, null), ("-", null, null),
-            ("Add the default transition at the playhead", AddTransitionAtPlayhead, "Ctrl+Shift+D"),
-            ("Add the cross dissolve", () => ApplyTransition(TransitionKind.Dissolve), null), ("Remove the transition", () => ApplyTransition(TransitionKind.None), null), ("-", null, null),
-            ("Speed 0.5×", () => SetSelectedSpeed(0.5), null), ("Speed 1× (normal)", () => SetSelectedSpeed(1), null), ("Speed 2×", () => SetSelectedSpeed(2), null)), "VidMenuClip"));
+            ("Speed 0.5×", () => SetSelectedSpeed(0.5), null), ("Speed 1× (normal)", () => SetSelectedSpeed(1), null), ("Speed 2×", () => SetSelectedSpeed(2), null), ("-", null, null),
+            ("Apply the default video transition", AddTransitionAtPlayhead, "Ctrl+D"),
+            ("Add the cross dissolve", () => ApplyTransition(TransitionKind.Dissolve), null), ("Remove the transition", () => ApplyTransition(TransitionKind.None), null)), "VidMenuClip"));
         menus.Children.Add(FlatButton("Sequence", b => ShowMenu(b,
+            ("Add edit (split at the playhead)", DoSplit, "Ctrl+K"),
+            ("Lift", () => DoLift(), ";"), ("Extract", () => DoExtract(), "'"), ("-", null, null),
             ("Mark In", MarkIn, "I"), ("Mark Out", MarkOut, "O"), ("Clear In and Out", () => _s.ClearWorkArea(), "Ctrl+Shift+X"), ("-", null, null),
             ("Add a video track", () => _s.AddTrack(TrackKind.Video), null), ("Add a sound track", () => _s.AddTrack(TrackKind.Audio), null), ("-", null, null),
-            ("Previous edit point", () => GoToEdit(-1), "Up"), ("Next edit point", () => GoToEdit(1), "Down"), ("-", null, null),
-            ("Zoom in", () => ZoomBy(1.25), "+"), ("Zoom out", () => ZoomBy(0.8), "-"), ("Fit the whole sequence", () => _timeline.ZoomToFit(), "\\")), "VidMenuSequence"));
+            ("Go to the previous edit point", () => GoToEdit(-1), "Up"), ("Go to the next edit point", () => GoToEdit(1), "Down"), ("-", null, null),
+            ("Zoom in", () => ZoomBy(1.25), "+"), ("Zoom out", () => ZoomBy(0.8), "-"), ("Zoom to sequence", () => _timeline.ZoomToFit(), "\\")), "VidMenuSequence"));
         menus.Children.Add(FlatButton("Markers", b => ShowMenu(b,
-            ("Add a marker", AddMarkerHere, "M"), ("Previous marker", () => GoToMarker(-1), null), ("Next marker", () => GoToMarker(1), null), ("-", null, null),
+            ("Add marker", AddMarkerHere, "M"), ("Go to the previous marker", () => GoToMarker(-1), "Ctrl+Shift+M"), ("Go to the next marker", () => GoToMarker(1), "Shift+M"), ("-", null, null),
             ("Clear all markers", () => _s.ClearMarkers(), null)), "VidMenuMarkers"));
+        menus.Children.Add(FlatButton("Graphics", b => ShowMenu(b,
+            ("New title (text)", AddTitle, "Ctrl+T"), ("-", null, null),
+            ("Edit the chosen title", () => { var c = _s.SelectedClips.FirstOrDefault(x => x.Kind == ClipKind.Text); if (c != null) StartInplaceEdit(c); else SetStatus("Choose a title first."); }, null)), "VidMenuGraphics"));
+        menus.Children.Add(FlatButton("View", b => ShowMenu(b,
+            ("Show safe margins", ToggleSafeMargins, null), ("-", null, null),
+            ("Playback quality: Full", () => SetPreviewQuality(1, "Full"), null), ("Playback quality: 1/2", () => SetPreviewQuality(0.5, "1/2"), null), ("Playback quality: 1/4", () => SetPreviewQuality(0.25, "1/4"), null), ("-", null, null),
+            ("Zoom: Fit", () => SetMonitorZoom(0), null), ("Zoom: 100 %", () => SetMonitorZoom(100), null)), "VidMenuView"));
+        menus.Children.Add(FlatButton("Window", b => ShowMenu(b,
+            ("Workspaces: Assembly", () => SetWorkspace("Assembly"), null), ("Workspaces: Editing", () => SetWorkspace("Editing"), null), ("Workspaces: Color", () => SetWorkspace("Color"), null),
+            ("Workspaces: Effects", () => SetWorkspace("Effects"), null), ("Workspaces: Audio", () => SetWorkspace("Audio"), null), ("Workspaces: Graphics", () => SetWorkspace("Graphics"), null), ("-", null, null),
+            ("Source monitor", () => { _selectTopLeft(0); }, null), ("Effect Controls", () => { _selectTopLeft(1); }, null), ("-", null, null),
+            ("Project", () => { _selectBottomLeft(0); }, null), ("Effects", () => { _selectBottomLeft(1); }, null)), "VidMenuWindow"));
         menus.Children.Add(FlatButton("Help", b => ShowMenu(b, ("Keyboard shortcuts…", ShowShortcuts, null)), "VidMenuHelp"));
         bar.Children.Add(menus);
-
-        var rightBar = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        DockPanel.SetDock(rightBar, Dock.Right);
-        _undoBtn = MakeButton("", "", "Undo (Ctrl+Z)", () => _s.Undo(), id: "VidUndo");
-        _redoBtn = MakeButton("", "", "Redo (Ctrl+Y)", () => _s.Redo(), id: "VidRedo");
-        _undoBtn.Margin = new Thickness(0, 0, 4, 0); _redoBtn.Margin = new Thickness(0, 0, 10, 0);
-        var export = MakeButton("", "Export", "Make the finished video (Ctrl+E)", Export, primary: true, id: "VidExport");
-        export.Margin = new Thickness(0);
-        rightBar.Children.Add(_undoBtn); rightBar.Children.Add(_redoBtn); rightBar.Children.Add(export);
-        bar.Children.Add(rightBar);
-        _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 14, 0), TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Right };
+        _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 4, 0), TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Right };
         _status.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         bar.Children.Add(_status);
-        var barBorder = new Border { Child = bar, BorderThickness = new Thickness(0, 0, 0, 1) };
-        barBorder.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
+        var barBorder = new Border { Child = bar };
         barBorder.SetResourceReference(Border.BackgroundProperty, "CardBrush");
         Grid.SetRow(barBorder, 0);
         root.Children.Add(barBorder);
 
+        // ----- workspace bar: Home, Learning ... Libraries, and the Export button on the right -----
+        var wsGrid = new Grid { Margin = new Thickness(10, 0, 10, 0) };
+        wsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        wsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        wsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var homeGlyph = Glyph("\uE80F", 17);
+        homeGlyph.Margin = new Thickness(0, 0, 14, 0);
+        homeGlyph.ToolTip = "Utylix Vid Editor";
+        wsGrid.Children.Add(homeGlyph);
+        var tabs = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Stretch };
+        foreach (var name in new[] { "Learning", "Assembly", "Editing", "Color", "Effects", "Audio", "Graphics", "Captions", "Libraries" })
+        {
+            string ws = name;
+            bool available = ws is "Assembly" or "Editing" or "Color" or "Effects" or "Audio" or "Graphics";
+            var label = new TextBlock { Text = ws, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 14, 0), Opacity = available ? 0.85 : 0.45 };
+            var tab = new Border { Child = label, Background = Brushes.Transparent, Cursor = available ? Cursors.Hand : Cursors.Arrow, BorderThickness = new Thickness(0, 0, 0, 2), BorderBrush = Brushes.Transparent };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(tab, "VidWs" + ws);
+            tab.ToolTip = available ? null : ws + " is not part of Utylix Vid Editor.";
+            tab.MouseLeftButtonUp += (_, _) => { if (available) SetWorkspace(ws); };
+            _workspaceTabs[ws] = (tab, label);
+            tabs.Children.Add(tab);
+        }
+        Grid.SetColumn(tabs, 1);
+        wsGrid.Children.Add(tabs);
+        var rightBar = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        _undoBtn = MakeButton("\uE7A7", "", "Undo (Ctrl+Z)", () => _s.Undo(), id: "VidUndo");
+        _redoBtn = MakeButton("\uE7A6", "", "Redo (Ctrl+Shift+Z)", () => _s.Redo(), id: "VidRedo");
+        _undoBtn.Margin = new Thickness(0, 0, 4, 0); _redoBtn.Margin = new Thickness(0, 0, 10, 0);
+        var export = MakeButton("\uE896", "Export", "Export media (Ctrl+M)", Export, primary: true, id: "VidExport");
+        export.Margin = new Thickness(0);
+        rightBar.Children.Add(_undoBtn); rightBar.Children.Add(_redoBtn); rightBar.Children.Add(export);
+        Grid.SetColumn(rightBar, 2);
+        wsGrid.Children.Add(rightBar);
+        var wsBorder = new Border { Child = wsGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
+        wsBorder.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
+        wsBorder.SetResourceReference(Border.BackgroundProperty, "BgBrush");
+        Grid.SetRow(wsBorder, 1);
+        root.Children.Add(wsBorder);
+
         // ----- top: Source / Effect Controls | Program monitor -----
         var top = new Grid { Margin = new Thickness(8, 8, 8, 0) };
-        top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(400), MinWidth = 300 });
+        _topLeftColumn = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 };
+        top.ColumnDefinitions.Add(_topLeftColumn);
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 360 });
-        Grid.SetRow(top, 1);
+        Grid.SetRow(top, 2);
         root.Children.Add(top);
 
         var inspScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         _inspector = new StackPanel { Margin = new Thickness(12, 8, 12, 12) };
         inspScroll.Content = _inspector;
         var topLeft = TabbedPanel(new[] { "Source", "Effect Controls" }, new UIElement[] { BuildSourceMonitor(), inspScroll }, out _, out _selectTopLeft);
-        _selectTopLeft(1);
+        _selectTopLeft(0);
         Grid.SetColumn(topLeft, 0);
         top.Children.Add(topLeft);
         top.Children.Add(Splitter(1));
@@ -227,57 +310,55 @@ public sealed partial class VidWindow
         var screen = new Border { Background = Brushes.Black, ClipToBounds = true };
         _picture = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, SnapsToDevicePixels = true };
         RenderOptions.SetBitmapScalingMode(_picture, BitmapScalingMode.HighQuality);
-        screen.Child = _picture;
+        BuildMonitorOverlay(screen, _picture);
         Grid.SetRow(screen, 0);
         monitor.Children.Add(screen);
 
-        var times = new Grid { Margin = new Thickness(12, 8, 12, 0) };
-        times.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        times.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        times.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        _timeLabel = new TextBlock { FontFamily = new FontFamily("Consolas"), FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = TimecodeBrush, VerticalAlignment = VerticalAlignment.Center };
+        // under the picture, like Premiere's Program monitor: timecode, Fit, ..., Full, wrench, duration; a scrub bar; then the transport row
+        var times = new Grid { Margin = new Thickness(10, 7, 10, 0) };
+        for (int i = 0; i < 6; i++) times.ColumnDefinitions.Add(new ColumnDefinition { Width = i == 2 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
+        _timeLabel = new TextBlock { FontFamily = new FontFamily("Consolas"), FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = TimecodeBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 14, 0) };
         System.Windows.Automation.AutomationProperties.SetAutomationId(_timeLabel, "VidTime");
-        _canvasLabel = new TextBlock { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        _canvasLabel.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-        _durationLabel = new TextBlock { FontFamily = new FontFamily("Consolas"), FontSize = 15, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        _canvasLabel = new TextBlock();
+        var fit = Dropdown("Fit", out _zoomText, "VidZoom",
+            ("Fit", () => SetMonitorZoom(0)), ("10 %", () => SetMonitorZoom(10)), ("25 %", () => SetMonitorZoom(25)), ("50 %", () => SetMonitorZoom(50)),
+            ("75 %", () => SetMonitorZoom(75)), ("100 %", () => SetMonitorZoom(100)), ("150 %", () => SetMonitorZoom(150)), ("200 %", () => SetMonitorZoom(200)));
+        var full = Dropdown("Full", out _qualityText, "VidQuality",
+            ("Full", () => SetPreviewQuality(1, "Full")), ("1/2", () => SetPreviewQuality(0.5, "1/2")), ("1/4", () => SetPreviewQuality(0.25, "1/4")));
+        var wrench = FlatButton("", b => ShowMenu(b,
+            (_safeMargins ? "Hide safe margins" : "Show safe margins", ToggleSafeMargins, null), ("-", null, null), ("Settings…", OpenSettings, null)), "VidMonitorWrench");
+        ((TextBlock)wrench.Content).FontFamily = new FontFamily("Segoe MDL2 Assets");
+        _durationLabel = new TextBlock { FontFamily = new FontFamily("Consolas"), FontSize = 15, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
         _durationLabel.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         System.Windows.Automation.AutomationProperties.SetAutomationId(_durationLabel, "VidDuration");
-        Grid.SetColumn(_canvasLabel, 1); Grid.SetColumn(_durationLabel, 2);
-        times.Children.Add(_timeLabel); times.Children.Add(_canvasLabel); times.Children.Add(_durationLabel);
+        Grid.SetColumn(fit, 1); Grid.SetColumn(full, 3); Grid.SetColumn(wrench, 4); Grid.SetColumn(_durationLabel, 5);
+        times.Children.Add(_timeLabel); times.Children.Add(fit); times.Children.Add(full); times.Children.Add(wrench); times.Children.Add(_durationLabel);
         Grid.SetRow(times, 1);
         monitor.Children.Add(times);
 
-        var controls = new Grid { Margin = new Thickness(10, 6, 10, 8) };
-        controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        controls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var marks = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left };
-        marks.Children.Add(MakeButton("", "In", "Mark In (I)", MarkIn, id: "VidMarkIn"));
-        marks.Children.Add(MakeButton("", "Out", "Mark Out (O)", MarkOut, id: "VidMarkOut"));
-        marks.Children.Add(MakeButton("", "", "Add a marker (M)", AddMarkerHere, id: "VidAddMarker"));
-        controls.Children.Add(marks);
-        var transport = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        transport.Children.Add(MakeButton("", "", "Previous edit point (Up)", () => GoToEdit(-1), id: "VidToStart"));
+        var lower = new StackPanel();
+        _programScrub = new VidScrub { Margin = new Thickness(10, 2, 10, 0) };
+        _programScrub.Seek += t => SeekTo(t);
+        lower.Children.Add(_programScrub);
+        var transport = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 8) };
+        transport.Children.Add(MakeButton("", "", "Add a marker (M)", AddMarkerHere, id: "VidAddMarker"));
+        transport.Children.Add(MakeButton("", "{", "Mark In (I)", MarkIn, id: "VidMarkIn"));
+        transport.Children.Add(MakeButton("", "}", "Mark Out (O)", MarkOut, id: "VidMarkOut"));
+        transport.Children.Add(new Border { Width = 1, Margin = new Thickness(4, 6, 10, 6), Background = (Brush)FindResource("LineBrush") });
+        transport.Children.Add(MakeButton("", "", "Go to In (Shift+I)", () => SeekTo(_s.Project.WorkIn ?? 0), id: "VidToStart"));
         transport.Children.Add(MakeButton("", "", "Back one frame (Left)", () => SeekTo(_s.Playhead - 1.0 / Fps), id: "VidBack"));
         var play = MakeButton("", "", "Play / pause (Space)", () => { _timeline.Focus(); _sourceActive = false; if (_srcPlayer.IsPlaying) _srcPlayer.Pause(); _player.Toggle(); UpdatePlayGlyph(); }, id: "VidPlay");
         _playGlyph = (TextBlock)((StackPanel)play.Content).Children[0];
         transport.Children.Add(play);
         transport.Children.Add(MakeButton("", "", "Forward one frame (Right)", () => SeekTo(_s.Playhead + 1.0 / Fps), id: "VidForward"));
-        transport.Children.Add(MakeButton("", "", "Next edit point (Down)", () => GoToEdit(1), id: "VidToEnd"));
-        Grid.SetColumn(transport, 1);
-        controls.Children.Add(transport);
-        var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        right.Children.Add(MakeButton("", "", "Lift: remove what is between In and Out and leave a gap (;)", () => DoLift(), id: "VidLift"));
-        right.Children.Add(MakeButton("", "", "Extract: remove what is between In and Out and close the gap (')", () => DoExtract(), id: "VidExtract"));
-        right.Children.Add(MakeButton("", "", "Export this frame as a picture (Ctrl+Shift+E)", ExportFrame, id: "VidFrame"));
-        var quality = MakeButton("", "Full", "Preview quality: Full, 1/2, 1/4 (a lower one plays smoother on a slow PC)", CyclePreviewQuality, id: "VidQuality");
-        _qualityText = (TextBlock)((StackPanel)quality.Content).Children[1];
-        quality.Margin = new Thickness(0);
-        right.Children.Add(quality);
-        Grid.SetColumn(right, 2);
-        controls.Children.Add(right);
-        Grid.SetRow(controls, 2);
-        monitor.Children.Add(controls);
+        transport.Children.Add(MakeButton("", "", "Go to Out (Shift+O)", () => SeekTo(_s.Project.WorkOut ?? _s.Project.Duration), id: "VidToEnd"));
+        transport.Children.Add(new Border { Width = 1, Margin = new Thickness(10, 6, 10, 6), Background = (Brush)FindResource("LineBrush") });
+        transport.Children.Add(MakeButton("", "", "Lift: remove what is between In and Out and leave a gap (;)", () => DoLift(), id: "VidLift"));
+        transport.Children.Add(MakeButton("", "", "Extract: remove what is between In and Out and close the gap (')", () => DoExtract(), id: "VidExtract"));
+        transport.Children.Add(MakeButton("", "", "Export this frame as a picture (Ctrl+Shift+E)", ExportFrame, id: "VidFrame"));
+        lower.Children.Add(transport);
+        Grid.SetRow(lower, 2);
+        monitor.Children.Add(lower);
         monitor.PreviewMouseDown += (_, _) => { _sourceActive = false; };
         var programPanel = Panel("Program: Sequence", monitor, out _programTitle);
         Grid.SetColumn(programPanel, 2);
@@ -285,30 +366,20 @@ public sealed partial class VidWindow
 
         // ----- splitter between the rows -----
         var rowSplit = new GridSplitter { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch, Background = Brushes.Transparent, ResizeDirection = GridResizeDirection.Rows, ResizeBehavior = GridResizeBehavior.PreviousAndNext };
-        Grid.SetRow(rowSplit, 2);
+        Grid.SetRow(rowSplit, 3);
         root.Children.Add(rowSplit);
 
         // ----- bottom: Project / Effects | tools | Timeline -----
         var bottom = new Grid { Margin = new Thickness(8, 0, 8, 8) };
-        bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(340), MinWidth = 240 });
+        _bottomLeftColumn = new ColumnDefinition { Width = new GridLength(470), MinWidth = 240 };
+        bottom.ColumnDefinitions.Add(_bottomLeftColumn);
         bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
         bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46) });
         bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 400 });
-        Grid.SetRow(bottom, 3);
+        Grid.SetRow(bottom, 4);
         root.Children.Add(bottom);
 
-        var binScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        _bin = new StackPanel { Margin = new Thickness(8, 8, 8, 8) };
-        binScroll.Content = _bin;
-        var binGrid = new Grid();
-        binGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        binGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Grid.SetRow(binScroll, 0);
-        binGrid.Children.Add(binScroll);
-        var binTools = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 6, 8, 6) };
-        binTools.Children.Add(MakeButton("", "Import", "Bring in videos, sounds and pictures (Ctrl+I)", () => ImportDialog(), id: "VidImport"));
-        Grid.SetRow(binTools, 1);
-        binGrid.Children.Add(binTools);
+        var binGrid = BuildProjectPanelBody();
         var bottomLeft = TabbedPanel(new[] { "Project", "Effects" }, new UIElement[] { binGrid, BuildEffectsPanel() }, out var bl, out _selectBottomLeft);
         _projectTitle = bl[0];
         Grid.SetColumn(bottomLeft, 0);
@@ -358,9 +429,9 @@ public sealed partial class VidWindow
         var zoom = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         zoom.Children.Add(MakeButton("", "", "Zoom out (-)", () => ZoomBy(0.8)));
         zoom.Children.Add(MakeButton("", "", "Zoom in (+)", () => ZoomBy(1.25)));
-        var fit = MakeButton("", "", "Fit: show the whole sequence (\\)", () => _timeline.ZoomToFit(), id: "VidFit");
-        fit.Margin = new Thickness(0);
-        zoom.Children.Add(fit);
+        var fitAll = MakeButton("", "", "Fit: show the whole sequence (\\)", () => _timeline.ZoomToFit(), id: "VidFit");
+        fitAll.Margin = new Thickness(0);
+        zoom.Children.Add(fitAll);
         DockPanel.SetDock(zoom, Dock.Right);
         tlHead.Children.Add(zoom);
         tlHead.Children.Add(iconBar);
@@ -369,7 +440,7 @@ public sealed partial class VidWindow
 
         _timeline = new VidTimeline(_s, _cache);
         var tlScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = _timeline };
-        _meters = new VidMeters { Width = 34, Margin = new Thickness(6, 4, 6, 4) };
+        _meters = new VidMeters { Width = 58, Margin = new Thickness(6, 4, 6, 4) };
         var tlBody = new DockPanel();
         DockPanel.SetDock(_meters, Dock.Right);
         tlBody.Children.Add(_meters);
@@ -384,6 +455,7 @@ public sealed partial class VidWindow
         Grid.SetColumn(timelinePanel, 3);
         timelinePanel.PreviewMouseDown += (_, _) => { _sourceActive = false; };
         bottom.Children.Add(timelinePanel);
+        SetWorkspace("Editing");
     }
 
     private GridSplitter Splitter(int column)
@@ -395,6 +467,53 @@ public sealed partial class VidWindow
         };
         Grid.SetColumn(s, column);
         return s;
+    }
+
+    /// <summary>Premiere-style workspaces: the same panels, arranged for the job (which tabs are in front, how wide the panels are).</summary>
+    private void SetWorkspace(string name)
+    {
+        _workspace = name;
+        foreach (var kv in _workspaceTabs)
+        {
+            bool on = kv.Key == name;
+            kv.Value.Tab.SetResourceReference(Border.BorderBrushProperty, on ? "AccentBrush" : "BgBrush");
+            if (on) kv.Value.Tab.SetResourceReference(Border.BorderBrushProperty, "AccentBrush"); else kv.Value.Tab.BorderBrush = Brushes.Transparent;
+            kv.Value.Label.Opacity = on ? 1 : (kv.Key is "Learning" or "Captions" or "Libraries" ? 0.45 : 0.85);
+            if (on) kv.Value.Label.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush"); else kv.Value.Label.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+        }
+        switch (name)
+        {
+            case "Assembly":
+                _selectTopLeft(0); _selectBottomLeft(0);
+                _topLeftColumn.Width = new GridLength(1, GridUnitType.Star);
+                _bottomLeftColumn.Width = new GridLength(760);
+                break;
+            case "Color":
+                _selectTopLeft(1); _selectBottomLeft(1);
+                _topLeftColumn.Width = new GridLength(0.8, GridUnitType.Star);
+                _bottomLeftColumn.Width = new GridLength(330);
+                break;
+            case "Effects":
+                _selectTopLeft(1); _selectBottomLeft(1);
+                _topLeftColumn.Width = new GridLength(0.8, GridUnitType.Star);
+                _bottomLeftColumn.Width = new GridLength(560);
+                break;
+            case "Audio":
+                _selectTopLeft(1); _selectBottomLeft(0);
+                _topLeftColumn.Width = new GridLength(0.8, GridUnitType.Star);
+                _bottomLeftColumn.Width = new GridLength(330);
+                break;
+            case "Graphics":
+                _selectTopLeft(1); _selectBottomLeft(0);
+                _topLeftColumn.Width = new GridLength(0.9, GridUnitType.Star);
+                _bottomLeftColumn.Width = new GridLength(330);
+                break;
+            default:                                                  // Editing
+                _selectTopLeft(0); _selectBottomLeft(0);
+                _topLeftColumn.Width = new GridLength(1, GridUnitType.Star);
+                _bottomLeftColumn.Width = new GridLength(470);
+                break;
+        }
     }
 
     private double Fps => _s.Project.Fps > 0 ? _s.Project.Fps : 30;
@@ -464,16 +583,22 @@ public sealed class VidMeters : FrameworkElement
         if (w < 8 || h < 20) return;
         var track = (Brush)Application.Current.FindResource("TrackBrush");
         var muted = (Brush)Application.Current.FindResource("MutedBrush");
-        double bar = Math.Floor((w - 6) / 2);
+        double scaleW = 24;                                         // room for the dB numbers on the left, like Premiere's
+        double bar = Math.Floor((w - scaleW - 6) / 2);
         double top = 4, usable = h - 22;
+        double Frac(double v) => v <= 0.0001 ? 0 : Math.Clamp((20 * Math.Log10(v) + 48) / 48, 0, 1);
+        for (int db = 0; db >= -48; db -= 6)
+        {
+            double y = top + usable - (db + 48) / 48.0 * usable;
+            var t = new FormattedText(db.ToString(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 9, muted, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            dc.DrawText(t, new Point(Math.Max(0, scaleW - 4 - t.Width), Math.Min(h - 24, Math.Max(0, y - t.Height / 2))));
+        }
         for (int i = 0; i < 2; i++)
         {
-            double x = 1 + i * (bar + 4);
+            double x = scaleW + i * (bar + 4);
             dc.DrawRectangle(track, null, new Rect(x, top, bar, usable));
             double level = i == 0 ? _l : _r;
             double hold = i == 0 ? _holdL : _holdR;
-            // level 0..1 is the sample peak; the scale is in dB from -48 to 0
-            double Frac(double v) => v <= 0.0001 ? 0 : Math.Clamp((20 * Math.Log10(v) + 48) / 48, 0, 1);
             double fh = Frac(level) * usable;
             var lg = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
             lg.GradientStops.Add(new GradientStop(Color.FromRgb(0xEF, 0x44, 0x44), 0));
@@ -486,6 +611,6 @@ public sealed class VidMeters : FrameworkElement
             if (hold > 0.001) dc.DrawRectangle(muted, null, new Rect(x, hy, bar, 1.5));
         }
         var ft = new FormattedText("L  R", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 10, muted, VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        dc.DrawText(ft, new Point((w - ft.Width) / 2, h - 15));
+        dc.DrawText(ft, new Point(scaleW + (w - scaleW - ft.Width) / 2, h - 15));
     }
 }

@@ -134,6 +134,8 @@ public sealed class Track
     public string Name { get; set; } = "";
     public bool Muted { get; set; }               // audio: silent; video: hidden
     public bool Locked { get; set; }
+    /// <summary>Premiere's track targeting: insert, overwrite, paste and "add edit" go to the targeted tracks.</summary>
+    public bool Targeted { get; set; } = true;
     /// <summary>Only for sound tracks: only the soloed tracks are heard when any is soloed.</summary>
     public bool Solo { get; set; }
     /// <summary>Sound tracks: the track's own volume (0 .. 2) and balance (-1 left .. 1 right).</summary>

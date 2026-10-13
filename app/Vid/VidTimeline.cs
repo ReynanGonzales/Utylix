@@ -20,7 +20,7 @@ public sealed class VidTimeline : FrameworkElement
 {
     public const double HeaderWidth = 150;
     public const double RulerHeight = 28;
-    private const double VideoRow = 58, AudioRow = 44, Gap = 3, EdgeGrab = 7;
+    private const double VideoRow = 42, AudioRow = 34, Gap = 2, EdgeGrab = 7, MixRow = 26;
 
     private readonly VidSession _session;
     private readonly VidMediaCache _cache;
@@ -139,11 +139,27 @@ public sealed class VidTimeline : FrameworkElement
 
     private static double RowHeight(Track t) => t.Kind == TrackKind.Video ? VideoRow : AudioRow;
 
+    private (double VideoBlock, int VideoCount) VideoPart(List<Track> rows)
+    {
+        double block = 0; int n = 0;
+        foreach (var r in rows) { if (r.Kind != TrackKind.Video) break; block += RowHeight(r) + Gap; n++; }
+        return (block, n);
+    }
+
+    /// <summary>The top of a row. Picture tracks end at a divider that sits about 40 % down the panel; sound tracks start below it.</summary>
     private double RowTop(List<Track> rows, int index)
     {
-        double y = RulerHeight + 4;
-        for (int i = 0; i < index; i++) y += RowHeight(rows[i]) + Gap;
-        return y;
+        var (videoBlock, vCount) = VideoPart(rows);
+        double region = Math.Max(videoBlock + 8, Math.Max(0, ActualHeight - RulerHeight) * 0.40);
+        if (index < vCount)
+        {
+            double y = RulerHeight + region - videoBlock;
+            for (int i = 0; i < index; i++) y += RowHeight(rows[i]) + Gap;
+            return y;
+        }
+        double ya = RulerHeight + region + 6;
+        for (int i = vCount; i < index; i++) ya += RowHeight(rows[i]) + Gap;
+        return ya;
     }
 
     private int RowAt(double y, List<Track> rows)
@@ -159,7 +175,10 @@ public sealed class VidTimeline : FrameworkElement
     protected override Size MeasureOverride(Size available)
     {
         var rows = Rows();
-        double h = RowTop(rows, rows.Count) + 12;
+        var (videoBlock, vCount) = VideoPart(rows);
+        double audioBlock = 0;
+        for (int i = vCount; i < rows.Count; i++) audioBlock += RowHeight(rows[i]) + Gap;
+        double h = RulerHeight + videoBlock + 8 + 6 + audioBlock + MixRow + 14;
         return new Size(double.IsInfinity(available.Width) ? 600 : available.Width, h);
     }
 
@@ -278,7 +297,7 @@ public sealed class VidTimeline : FrameworkElement
         double px = TimeToX(_session.Playhead);
         if (px >= HeaderWidth - 1 && px <= W)
         {
-            var red = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
+            var red = new SolidColorBrush(Color.FromRgb(0x4C, 0x9B, 0xFF));          // (Premiere's playhead is blue)
             dc.DrawLine(new Pen(red, 1.5), new Point(px, 0), new Point(px, H));
             var tri = new StreamGeometry();
             using (var g = tri.Open()) { g.BeginFigure(new Point(px - 6, 0), true, true); g.LineTo(new Point(px + 6, 0), true, false); g.LineTo(new Point(px, 10), true, false); }
@@ -287,17 +306,58 @@ public sealed class VidTimeline : FrameworkElement
         }
         // the header column covers whatever scrolled under it
         dc.DrawRectangle(bg, null, new Rect(0, RulerHeight + 1, HeaderWidth - 6, Math.Max(0, H - RulerHeight)));
+        var project = _session.Project;
         for (int i = 0; i < rows.Count; i++)
         {
             double top = RowTop(rows, i), h = RowHeight(rows[i]);
             var t = rows[i];
-            dc.DrawRectangle(card, new Pen(line, 1), new Rect(0.5, top, HeaderWidth - 6, h));
-            dc.DrawText(Text(t.Name, 12.5, text, HeaderWidth - (t.Kind == TrackKind.Audio ? 96 : 70)), new Point(10, top + 6));
-            dc.DrawText(Text(t.Kind == TrackKind.Video ? "picture" : "sound", 10.5, muted), new Point(10, top + h - 18));
-            DrawToggle(dc, ToggleRect(top, 0), t.Kind == TrackKind.Video ? "" : "", t.Muted, accent, muted);
-            if (t.Kind == TrackKind.Audio) DrawSolo(dc, ToggleRect(top, 2), t.Solo, accent, muted);
-            DrawToggle(dc, ToggleRect(top, 1), "", t.Locked, accent, muted);
+            dc.DrawRectangle(card, null, new Rect(0, top, HeaderWidth - 6, h));
+            dc.DrawLine(new Pen(line, 1), new Point(0, top + h + Gap / 2.0), new Point(HeaderWidth - 6, top + h + Gap / 2.0));
+            DrawGlyph(dc, LockRect(top, h), t.Locked ? "\uE72E" : "\uE785", t.Locked ? text : muted);
+            int number = project.Tracks.Where(k => k.Kind == t.Kind).ToList().IndexOf(t) + 1;
+            var tr = TargetRect(top, h);
+            if (t.Targeted) dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(0x1B, 0x6F, 0xC4)), null, tr, 3, 3);
+            else dc.DrawRoundedRectangle(null, new Pen(line, 1), tr, 3, 3);
+            var lbl = Text((t.Kind == TrackKind.Video ? "V" : "A") + number, 11, t.Targeted ? Brushes.White : muted);
+            dc.DrawText(lbl, new Point(tr.X + (tr.Width - lbl.Width) / 2, tr.Y + (tr.Height - lbl.Height) / 2));
+            if (t.Kind == TrackKind.Video)
+            {
+                DrawGlyph(dc, MuteRect(top, h), t.Muted ? "\uE7B4" : "\uE7B3", t.Muted ? muted : text);        // eye / eye off
+            }
+            else
+            {
+                DrawLetter(dc, MuteRect(top, h), "M", t.Muted, Color.FromRgb(0x1B, 0x6F, 0xC4), muted);
+                DrawLetter(dc, SoloRect(top, h), "S", t.Solo, Color.FromRgb(0xE8, 0xC1, 0x1D), muted);
+                DrawGlyph(dc, new Rect(SoloRect(top, h).X + 22, SoloRect(top, h).Y, 20, SoloRect(top, h).Height), "\uE720", muted);
+            }
         }
+        // the Mix row: where the master volume of the sequence sits
+        if (rows.Count > 0)
+        {
+            double mixTop = RowTop(rows, rows.Count);
+            dc.DrawRectangle(card, null, new Rect(0, mixTop, HeaderWidth - 6, MixRow));
+            DrawGlyph(dc, new Rect(8, mixTop + (MixRow - 16) / 2, 16, 16), "\uE785", muted);
+            dc.DrawText(Text("Mix", 11, muted), new Point(34, mixTop + 6));
+            dc.DrawText(Text("0.0", 11, new SolidColorBrush(Color.FromRgb(0x4C, 0x9B, 0xFF))), new Point(88, mixTop + 6));
+        }
+    }
+
+    private static Rect LockRect(double top, double h) => new(7, top + (h - 18) / 2, 18, 18);
+    private static Rect TargetRect(double top, double h) => new(30, top + (h - 20) / 2, 32, 20);
+    private static Rect MuteRect(double top, double h) => new(70, top + (h - 22) / 2, 22, 22);
+    private static Rect SoloRect(double top, double h) => new(94, top + (h - 22) / 2, 22, 22);
+
+    private void DrawGlyph(DrawingContext dc, Rect r, string glyph, Brush brush)
+    {
+        var ft = new FormattedText(glyph, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Segoe MDL2 Assets"), 12, brush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        dc.DrawText(ft, new Point(r.X + (r.Width - ft.Width) / 2, r.Y + (r.Height - ft.Height) / 2));
+    }
+
+    private void DrawLetter(DrawingContext dc, Rect r, string letter, bool on, Color onColor, Brush off)
+    {
+        if (on) dc.DrawRoundedRectangle(new SolidColorBrush(onColor), null, r, 4, 4);
+        var ft = new FormattedText(letter, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 12, on ? Brushes.White : off, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        dc.DrawText(ft, new Point(r.X + (r.Width - ft.Width) / 2, r.Y + (r.Height - ft.Height) / 2));
     }
 
     private void DrawSolo(DrawingContext dc, Rect r, bool on, Color accent, Brush muted)
@@ -312,15 +372,13 @@ public sealed class VidTimeline : FrameworkElement
     private void DrawMarkersAndWorkArea(DrawingContext dc, double W, double H, Color accent)
     {
         var p = _session.Project;
-        if (p.WorkIn != null || p.WorkOut != null)
+        double wa = p.WorkIn ?? 0, wb = p.WorkOut ?? Math.Max(p.Duration, 0.01);
+        double wx0 = Math.Max(HeaderWidth, TimeToX(wa)), wx1 = Math.Min(W, TimeToX(wb));
+        if (wx1 > wx0)
         {
-            double a = p.WorkIn ?? 0, b = p.WorkOut ?? p.Duration;
-            double x0 = Math.Max(HeaderWidth, TimeToX(a)), x1 = Math.Min(W, TimeToX(b));
-            if (x1 > x0)
-            {
-                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(34, accent.R, accent.G, accent.B)), null, new Rect(x0, RulerHeight, x1 - x0, Math.Max(0, H - RulerHeight)));
-                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, accent.R, accent.G, accent.B)), null, new Rect(x0, RulerHeight - 5, x1 - x0, 5));
-            }
+            if (p.WorkIn != null || p.WorkOut != null)
+                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(30, accent.R, accent.G, accent.B)), null, new Rect(wx0, RulerHeight, wx1 - wx0, Math.Max(0, H - RulerHeight)));
+            dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xF2, 0xD1, 0x3E)), null, new Rect(wx0, RulerHeight - 3, wx1 - wx0, 3));
         }
         foreach (var m in p.Markers)
         {
@@ -356,7 +414,7 @@ public sealed class VidTimeline : FrameworkElement
     private void DrawRuler(DrawingContext dc, double W, Brush muted, Brush line)
     {
         double[] steps = { 0.04, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600 };
-        double major = steps.FirstOrDefault(s => s * _pps >= 80);
+        double major = steps.FirstOrDefault(s => s * _pps >= 118);
         if (major == 0) major = 3600;
         double minor = major / 5;
         double t0 = Math.Floor(_offset / minor) * minor;
@@ -368,7 +426,7 @@ public sealed class VidTimeline : FrameworkElement
             if (x < HeaderWidth) continue;
             bool isMajor = Math.Abs(Math.IEEERemainder(t, major)) < minor / 4;
             dc.DrawLine(isMajor ? penMajor : pen, new Point(x, RulerHeight - (isMajor ? 10 : 5)), new Point(x, RulerHeight));
-            if (isMajor) dc.DrawText(Text(TimeText(t, major < 1), 11, muted), new Point(x + 4, 4));
+            if (isMajor) dc.DrawText(Text(Timecode(t, _session.Project.Fps), 11, muted), new Point(x + 4, 4));
         }
     }
 
@@ -398,11 +456,12 @@ public sealed class VidTimeline : FrameworkElement
         var m = _session.Project.MediaOf(c);
         bool isAudio = track.Kind == TrackKind.Audio;
         bool isText = c.Kind == ClipKind.Text;
-        Color baseColor = isText ? Color.FromRgb(0xD9, 0x68, 0x0F) : isAudio ? Color.FromRgb(0x0F, 0x9D, 0x91) : m?.Kind == MediaKind.Image ? Color.FromRgb(0x8B, 0x5C, 0xF6) : accent;
-        Color fill = Mix(C("CardBrush"), baseColor, dark ? 0.55 : 0.85);
+        // Premiere's clip colours: pictures and sound in blues, stills a little paler, titles pink
+        Color fill = isText ? Color.FromRgb(0xE4, 0x8C, 0xDD) : isAudio ? Color.FromRgb(0x62, 0x8F, 0xCF) : m?.Kind == MediaKind.Image ? Color.FromRgb(0x94, 0xAC, 0xE6) : Color.FromRgb(0x73, 0x9F, 0xDF);
+        Color edge = Mix(fill, Colors.Black, 0.45);
         byte alpha = (byte)(track.Muted ? 90 : ghost ? 200 : 255);
-        var rect = new Rect(r.X + 0.5, r.Y + 1.5, Math.Max(2, r.Width - 1), r.Height - 3);
-        var clip = new RectangleGeometry(rect, 5, 5);
+        var rect = new Rect(r.X + 0.5, r.Y + 1, Math.Max(2, r.Width - 1), r.Height - 2);
+        var clip = new RectangleGeometry(rect, 2, 2);
         dc.PushClip(clip);
         dc.PushOpacity(alpha / 255.0);
         dc.DrawRectangle(new SolidColorBrush(fill), null, rect);
@@ -412,29 +471,29 @@ public sealed class VidTimeline : FrameworkElement
         {
             if (!isAudio && m.HasVideo)
             {
+                // a picture of the first frame at the start (and one of the last at the end when the clip is long), the rest is plain colour
                 double th = rect.Height - 2;
-                var probe = _cache.Thumbnail(m, c.In);
-                double aspect = probe != null && probe.Height > 0 ? probe.Width / probe.Height : 16.0 / 9;
-                double tw = Math.Max(24, th * aspect);
-                for (double x = rect.X + 1; x < rect.Right; x += tw)
+                var head = _cache.Thumbnail(m, c.In);
+                if (head != null && head.Height > 0)
                 {
-                    if (x + tw < visible0 || x > visible1) continue;
-                    double srcTime = c.In + Math.Max(0, (x - rect.X) / _pps) * c.Speed;
-                    var img = m.Kind == MediaKind.Image ? probe : _cache.Thumbnail(m, srcTime);
-                    if (img == null) continue;
-                    dc.PushClip(new RectangleGeometry(new Rect(x, rect.Y + 1, Math.Min(tw, rect.Right - x), th)));
-                    dc.DrawImage(img, new Rect(x, rect.Y + 1, tw, th));
+                    double tw = Math.Min(th * head.Width / head.Height, rect.Width);
+                    dc.PushClip(new RectangleGeometry(new Rect(rect.X, rect.Y + 1, tw, th)));
+                    dc.DrawImage(head, new Rect(rect.X, rect.Y + 1, th * head.Width / head.Height, th));
                     dc.Pop();
+                    if (m.Kind != MediaKind.Image && rect.Width > tw * 3.2)
+                    {
+                        var tail = _cache.Thumbnail(m, c.In + c.SourceLength);
+                        if (tail != null) dc.DrawImage(tail, new Rect(rect.Right - tw, rect.Y + 1, tw, th));
+                    }
                 }
-                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(70, 0, 0, 0)), null, rect);
             }
             else if (isAudio && m.HasAudio)
             {
                 var peaks = _cache.Peaks(m);
                 if (peaks != null)
                 {
-                    double mid = rect.Y + rect.Height / 2 + 5, amp = (rect.Height - 24) / 2;
-                    var pen = new Pen(new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)), 1);
+                    double mid = rect.Y + rect.Height / 2, amp = (rect.Height - 8) / 2;
+                    var pen = new Pen(new SolidColorBrush(Color.FromArgb(235, 28, 48, 82)), 1);
                     double step = 2;
                     for (double x = Math.Max(rect.X, visible0); x < Math.Min(rect.Right, visible1); x += step)
                     {
@@ -442,44 +501,60 @@ public sealed class VidTimeline : FrameworkElement
                         int i0 = Math.Clamp((int)(s0 / VidMediaCache.PeakStep), 0, peaks.Length - 1), i1 = Math.Clamp((int)(s1 / VidMediaCache.PeakStep), i0, peaks.Length - 1);
                         int max = 0;
                         for (int i = i0; i <= i1; i++) if (peaks[i] > max) max = peaks[i];
-                        double hgt = Math.Max(1, max / 255.0 * amp * c.Volume);
+                        double hgt = Math.Max(0.6, max / 255.0 * amp * Math.Min(2, c.Volume));
                         dc.DrawLine(pen, new Point(x + 0.5, mid - hgt), new Point(x + 0.5, mid + hgt));
                     }
                 }
             }
         }
         dc.Pop(); // opacity
-        // name strip
-        dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, 0, 0, 0)), null, new Rect(rect.X, rect.Y, rect.Width, 17));
-        string label = isText ? "T  " + (c.Text ?? "").Split('\n')[0] : (c.Label ?? m?.Name ?? "") + (Math.Abs(c.Speed - 1) > 0.001 ? $"  {c.Speed:0.##}x" : "");
-        if (rect.Width > 30) dc.DrawText(Text(label, 11, Brushes.White, rect.Width - 8), new Point(rect.X + 5, rect.Y + 1.5));
-        // fades
-        if (c.FadeIn > 0) dc.DrawLine(new Pen(Brushes.White, 1.2), new Point(rect.X, rect.Bottom - 2), new Point(rect.X + c.FadeIn * _pps, rect.Y + 18));
-        if (c.FadeOut > 0) dc.DrawLine(new Pen(Brushes.White, 1.2), new Point(rect.Right - c.FadeOut * _pps, rect.Y + 18), new Point(rect.Right, rect.Bottom - 2));
+
         // the way the clip comes in
         if (c.Transition != TransitionKind.None)
         {
             double tw = Math.Max(6, c.TransitionLength * _pps);
-            dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(120, 255, 255, 255)), null, new Rect(rect.X, rect.Y + 17, Math.Min(tw, rect.Width), rect.Height - 17));
-            if (rect.Width > 20) dc.DrawText(Text("\u21C6", 11, Brushes.Black), new Point(rect.X + 3, rect.Y + 19));
+            dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, 255, 255, 255)), null, new Rect(rect.X, rect.Y, Math.Min(tw, rect.Width), rect.Height));
+            var diag = new Pen(new SolidColorBrush(Color.FromArgb(180, 40, 40, 40)), 1);
+            double wTrans = Math.Min(tw, rect.Width);
+            dc.DrawLine(diag, new Point(rect.X, rect.Bottom), new Point(rect.X + wTrans, rect.Y));
         }
-        // effects and keyframes
-        if (c.Effects.Count > 0 && rect.Width > 60)
-            dc.DrawText(Text("fx", 11, new SolidColorBrush(Color.FromRgb(0xC4, 0xB5, 0xFD))), new Point(rect.Right - 18, rect.Y + 1.5));
+        // keyframes (small yellow diamonds along the bottom)
         foreach (var list in c.Keys.Values)
             foreach (var k in list)
             {
                 double kx = TimeToX(c.Start + k.T);
                 if (kx < rect.X + 2 || kx > rect.Right - 2) continue;
                 var d = new StreamGeometry();
-                using (var g = d.Open()) { g.BeginFigure(new Point(kx, rect.Bottom - 12), true, true); g.LineTo(new Point(kx + 4, rect.Bottom - 8), true, false); g.LineTo(new Point(kx, rect.Bottom - 4), true, false); g.LineTo(new Point(kx - 4, rect.Bottom - 8), true, false); }
+                using (var g = d.Open()) { g.BeginFigure(new Point(kx, rect.Bottom - 10), true, true); g.LineTo(new Point(kx + 4, rect.Bottom - 6), true, false); g.LineTo(new Point(kx, rect.Bottom - 2), true, false); g.LineTo(new Point(kx - 4, rect.Bottom - 6), true, false); }
                 d.Freeze();
-                dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15)), new Pen(Brushes.Black, 0.8), d);
+                dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(0xF2, 0xD1, 0x3E)), new Pen(Brushes.Black, 0.8), d);
             }
+        // fades
+        if (c.FadeIn > 0) dc.DrawLine(new Pen(Brushes.White, 1.2), new Point(rect.X, rect.Bottom - 2), new Point(rect.X + c.FadeIn * _pps, rect.Y + 3));
+        if (c.FadeOut > 0) dc.DrawLine(new Pen(Brushes.White, 1.2), new Point(rect.Right - c.FadeOut * _pps, rect.Y + 3), new Point(rect.Right, rect.Bottom - 2));
+
+        // the name (dark text on the light clip, like Premiere's) with the yellow "fx" badge in front of it
+        double textX = rect.X + 5;
+        if (c.Effects.Count > 0 && rect.Width > 44)
+        {
+            var badge = new Rect(textX - 1, rect.Y + 3, 17, 13);
+            dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(0xF2, 0xD1, 0x3E)), null, badge, 2, 2);
+            var fx = Text("fx", 9.5, Brushes.Black);
+            dc.DrawText(fx, new Point(badge.X + (badge.Width - fx.Width) / 2, badge.Y + (badge.Height - fx.Height) / 2));
+            textX += 21;
+        }
+        string label = isText ? (c.Text ?? "").Split('\n')[0] : (c.Label ?? m?.Name ?? "") + (Math.Abs(c.Speed - 1) > 0.001 ? $"  [{c.Speed * 100:0}%]" : "");
+        if (isText) label = "Graphic: " + label;
+        if (rect.Width - (textX - rect.X) > 24)
+        {
+            // a thin light band behind the words keeps them readable over the first-frame picture
+            var ft = Text(label, 11, Brushes.Black, rect.Width - (textX - rect.X) - 6);
+            dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(120, 255, 255, 255)), null, new Rect(textX - 2, rect.Y + 2, Math.Min(ft.Width + 6, rect.Width - (textX - rect.X)), 15));
+            dc.DrawText(ft, new Point(textX, rect.Y + 2.5));
+        }
         dc.Pop();
-        var border = selected ? new Pen(dark ? Brushes.White : new SolidColorBrush(C("TextBrush")), 2) : new Pen(new SolidColorBrush(Mix(fill, Colors.Black, 0.35)), 1);
-        dc.DrawRoundedRectangle(null, border, rect, 5, 5);
-        if (selected) dc.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(accent), 1), new Rect(rect.X - 1, rect.Y - 1, rect.Width + 2, rect.Height + 2), 6, 6);
+        var border = selected ? new Pen(Brushes.White, 2) : new Pen(new SolidColorBrush(edge), 1);
+        dc.DrawRoundedRectangle(null, border, rect, 2, 2);
     }
 
     // ---------- hit testing ----------
@@ -528,9 +603,11 @@ public sealed class VidTimeline : FrameworkElement
             {
                 double top = RowTop(rows, hr);
                 var track = rows[hr];
-                if (ToggleRect(top, 0).Contains(p)) { _session.Do(track.Muted ? "Unmute track" : "Mute track", () => track.Muted = !track.Muted); e.Handled = true; return; }
-                if (ToggleRect(top, 1).Contains(p)) { _session.Do(track.Locked ? "Unlock track" : "Lock track", () => track.Locked = !track.Locked); e.Handled = true; return; }
-                if (track.Kind == TrackKind.Audio && ToggleRect(top, 2).Contains(p)) { _session.Do(track.Solo ? "Unsolo track" : "Solo track", () => track.Solo = !track.Solo); e.Handled = true; return; }
+                double rh = RowHeight(track);
+                if (MuteRect(top, rh).Contains(p)) { _session.Do(track.Muted ? "Unmute track" : "Mute track", () => track.Muted = !track.Muted); e.Handled = true; return; }
+                if (TargetRect(top, rh).Contains(p)) { _session.Do(track.Targeted ? "Untarget track" : "Target track", () => track.Targeted = !track.Targeted); e.Handled = true; return; }
+                if (LockRect(top, rh).Contains(p)) { _session.Do(track.Locked ? "Unlock track" : "Lock track", () => track.Locked = !track.Locked); e.Handled = true; return; }
+                if (track.Kind == TrackKind.Audio && SoloRect(top, rh).Contains(p)) { _session.Do(track.Solo ? "Unsolo track" : "Solo track", () => track.Solo = !track.Solo); e.Handled = true; return; }
             }
             return;
         }

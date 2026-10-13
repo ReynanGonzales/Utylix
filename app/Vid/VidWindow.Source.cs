@@ -79,11 +79,16 @@ public sealed partial class VidWindow
         var head = new StackPanel { Orientation = Orientation.Horizontal };
         var blocks = new TextBlock[titles.Length];
         var tabs = new Border[titles.Length];
+        var marks = new TextBlock[titles.Length];
         var content = new Grid();
         for (int i = 0; i < titles.Length; i++)
         {
-            var tb = new TextBlock { Text = titles[i], FontWeight = FontWeights.SemiBold, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 12, 0) };
-            var tab = new Border { Child = tb, BorderThickness = new Thickness(0, 0, 0, 2), BorderBrush = Brushes.Transparent, Cursor = Cursors.Hand, Background = Brushes.Transparent };
+            var tb = new TextBlock { Text = titles[i], FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 6, 0) };
+            var menuMark = new TextBlock { Text = "\uE700", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 11, Opacity = 0.65, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), Visibility = Visibility.Collapsed };
+            marks[i] = menuMark;
+            var tabContent = new StackPanel { Orientation = Orientation.Horizontal };
+            tabContent.Children.Add(tb); tabContent.Children.Add(menuMark);
+            var tab = new Border { Child = tabContent, BorderThickness = new Thickness(0, 0, 0, 2), BorderBrush = Brushes.Transparent, Cursor = Cursors.Hand, Background = Brushes.Transparent };
             System.Windows.Automation.AutomationProperties.SetAutomationId(tab, "VidTab" + titles[i].Replace(" ", ""));
             blocks[i] = tb; tabs[i] = tab;
             head.Children.Add(tab);
@@ -97,6 +102,7 @@ public sealed partial class VidWindow
                 bodies[i].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
                 if (on) tabs[i].SetResourceReference(Border.BorderBrushProperty, "AccentBrush"); else tabs[i].BorderBrush = Brushes.Transparent;
                 blocks[i].Opacity = on ? 1 : 0.6;
+                marks[i].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             }
         }
         for (int i = 0; i < titles.Length; i++) { int k = i; tabs[i].MouseLeftButtonUp += (_, _) => Select(k); }

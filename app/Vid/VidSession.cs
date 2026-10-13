@@ -164,7 +164,7 @@ public sealed partial class VidSession
     {
         var tracks = Project.Tracks.Where(t => t.Kind == kind).ToList();
         if (index != null && index.Value >= 0 && index.Value < Project.Tracks.Count && Project.Tracks[index.Value].Kind == kind) return Project.Tracks[index.Value];
-        return tracks.FirstOrDefault(t => !t.Locked) ?? tracks[0];
+        return tracks.FirstOrDefault(t => !t.Locked && t.Targeted) ?? tracks.FirstOrDefault(t => !t.Locked) ?? tracks[0];
     }
 
     /// <summary>Puts a file on the timeline: its picture on a video track and its sound on an audio track, linked.</summary>

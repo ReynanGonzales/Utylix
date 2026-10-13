@@ -72,6 +72,7 @@ public partial class App
         string? file = args.FirstOrDefault(a => !a.StartsWith("--") && File.Exists(a));
         var window = new VidWindow(file);
         MainWindow = window;
+        if (args.Contains("--topmost")) window.Topmost = true;          // (tests: keeps the window in front of everything while it is photographed)
         window.Show();
     }
 }

@@ -863,7 +863,7 @@ public partial class App : Application
             windowsDark = key?.GetValue("AppsUseLightTheme") is int v && v == 0;
         }
         catch (Exception) { windowsDark = false; }
-        IsDarkTheme = theme == "dark" || (theme != "light" && windowsDark);
+        IsDarkTheme = theme == "dark" || theme == "premiere" || (theme != "light" && windowsDark);
 
         // WPF freezes a brush kept in the resources, so its colour can't be changed: a new brush replaces it. What looks the brush up by name
         // (DynamicResource) follows by itself; what took the brush itself when it was built (code like `Background = (Brush)R("BgBrush")`) is found
@@ -874,7 +874,15 @@ public partial class App : Application
 
         var pick = Array.Find(Accents, a => a.Key == accent);
         if (pick.Key == null) pick = Accents[0];
-        if (IsDarkTheme)
+        if (theme == "premiere")
+        {
+            // the video editor's default: the flat dark grey of Premiere Pro (panels #232323 on #181818, light grey text, blue accent)
+            Set("BgBrush", "#181818"); Set("CardBrush", "#232323"); Set("TextBrush", "#D4D4D4");
+            Set("MutedBrush", "#8E8E8E"); Set("LineBrush", "#3A3A3A"); Set("AccentBrush", accent == "blue" ? "#2D8CEB" : pick.Dark);
+            Set("OkBrush", "#4ADE80"); Set("ErrBrush", "#F87171"); Set("TrackBrush", "#333333");
+            Set("ConnBrush", "#2DD4BF");
+        }
+        else if (IsDarkTheme)
         {
             Set("BgBrush", "#12151C"); Set("CardBrush", "#1A1F2B"); Set("TextBrush", "#E6E9F0");
             Set("MutedBrush", "#8B93A5"); Set("LineBrush", "#2A3142"); Set("AccentBrush", pick.Dark);

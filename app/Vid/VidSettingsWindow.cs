@@ -39,7 +39,7 @@ public sealed class VidSettingsWindow : Window
         // appearance
         stack.Children.Add(new TextBlock { Text = "Appearance", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
         var themes = new WrapPanel();
-        foreach (var (key, label) in new[] { ("system", "Like Windows"), ("dark", "Dark"), ("light", "Light") })
+        foreach (var (key, label) in new[] { ("premiere", "Premiere dark"), ("system", "Like Windows"), ("dark", "Dark"), ("light", "Light") })
         {
             var rb = new RadioButton { Content = label, Style = chip, GroupName = "theme", IsChecked = _now.Theme == key };
             System.Windows.Automation.AutomationProperties.SetAutomationId(rb, "VidSetTheme" + key);
