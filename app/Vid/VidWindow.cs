@@ -30,9 +30,8 @@ public sealed partial class VidWindow : Window
     private Panel _bin = null!;
     private StackPanel _inspector = null!;
     private Button _undoBtn = null!, _redoBtn = null!;
-    private ScrollBar _hScroll = null!;
+    private VidNavigator _hScroll = null!;
     private readonly DispatcherTimer _refresh, _autosave, _binTimer;
-    private bool _syncingScroll;
     private string? _binSelected;
     private int _binSignature;
     private static string AutosavePath => Path.Combine(App.DataDir, "autosave.utvid");
@@ -236,16 +235,7 @@ public sealed partial class VidWindow : Window
     private void SyncScroll()
     {
         if (_timeline == null || _hScroll == null) return;
-        _syncingScroll = true;
-        double vis = _timeline.VisibleSeconds;
-        double max = Math.Max(_s.Project.Duration + vis * 0.5, vis);
-        _hScroll.Minimum = 0;
-        _hScroll.Maximum = Math.Max(0, max - vis);
-        _hScroll.ViewportSize = vis;
-        _hScroll.SmallChange = vis * 0.1;
-        _hScroll.LargeChange = vis * 0.8;
-        _hScroll.Value = Math.Min(_timeline.Offset, _hScroll.Maximum);
-        _syncingScroll = false;
+        _hScroll.InvalidateVisual();
     }
 
     private void ZoomBy(double factor)

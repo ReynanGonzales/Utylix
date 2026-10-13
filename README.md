@@ -366,7 +366,8 @@ Utylix Editor reads, fills in, edits, signs, prints and shrinks PDFs with PDFium
 a menu bar, **Source** and **Effect Controls** on the top left, the **Program** monitor on the top right, **Project** and **Effects** on the bottom left, a tools column and the **Timeline**.
 
 - **Timeline:** any number of picture and sound tracks, picture and sound of a video stay linked, drag to move (also to another track), drag an edge to trim, snapping,
-  marquee select, copy / cut / paste, mute / lock / solo per track, markers (M) and In / Out (I / O) on the ruler, zoom with Ctrl + wheel.
+  marquee select, copy / cut / paste, mute / lock / solo per track, markers (M) and In / Out (I / O) on the ruler. Zoom like Premiere: drag the ends of the
+  navigator bar under the timeline (the middle scrolls, double-click fits everything), or Ctrl + wheel, **-** / **=** and **\**.
 - **Tools:** Selection (V), Track select forward (A), Ripple edit (B), Rolling edit (N), Razor (C), Slip (Y), Hand (H), Title (T).
 - **Program monitor:** click a picture, video or title in the picture to choose it, drag it to move, drag a corner to resize, drag the top handle to turn it (with keyframes on, every drag sets one);
   double-click a title to type in it. Fit / zoom, safe margins and a preview quality menu sit on the monitor's bar.

@@ -427,14 +427,6 @@ public sealed partial class VidWindow
         iconBar.Children.Add(MakeButton("", "", "Duplicate: copy after itself (Ctrl+D)", () => _s.Duplicate(), id: "VidDuplicate"));
         iconBar.Children.Add(MakeButton("", "V", "Add a picture track", () => _s.AddTrack(TrackKind.Video), id: "VidAddVideoTrack"));
         iconBar.Children.Add(MakeButton("", "A", "Add a sound track", () => _s.AddTrack(TrackKind.Audio), id: "VidAddAudioTrack"));
-        var zoom = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        zoom.Children.Add(MakeButton("", "", "Zoom out (-)", () => ZoomBy(0.8)));
-        zoom.Children.Add(MakeButton("", "", "Zoom in (+)", () => ZoomBy(1.25)));
-        var fitAll = MakeButton("", "", "Fit: show the whole sequence (\\)", () => _timeline.ZoomToFit(), id: "VidFit");
-        fitAll.Margin = new Thickness(0);
-        zoom.Children.Add(fitAll);
-        DockPanel.SetDock(zoom, Dock.Right);
-        tlHead.Children.Add(zoom);
         tlHead.Children.Add(iconBar);
         Grid.SetRow(tlHead, 0);
         tlGrid.Children.Add(tlHead);
@@ -448,8 +440,7 @@ public sealed partial class VidWindow
         tlBody.Children.Add(tlScroll);
         Grid.SetRow(tlBody, 1);
         tlGrid.Children.Add(tlBody);
-        _hScroll = new ScrollBar { Orientation = Orientation.Horizontal, Margin = new Thickness(VidTimeline.HeaderWidth + 10, 2, 46, 6) };
-        _hScroll.ValueChanged += (_, e) => { if (!_syncingScroll) _timeline.Offset = e.NewValue; };
+        _hScroll = new VidNavigator(_timeline, () => _s.Project.Duration) { Margin = new Thickness(VidTimeline.HeaderWidth + 10, 3, 68, 6) };
         Grid.SetRow(_hScroll, 2);
         tlGrid.Children.Add(_hScroll);
         var timelinePanel = Panel("Timeline: Sequence", tlGrid, out _timelineTitle);
