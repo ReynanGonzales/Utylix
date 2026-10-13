@@ -223,6 +223,7 @@ public sealed partial class PdfWindow
         public double Width = 2;
         public Color? Fill;                      // the inside of a box or circle (null = see-through)
         public double AngleDeg;                  // box, circle, check and cross can be turned (clockwise, around the middle)
+        public double WidthOverride;             // check / cross: the line thickness the person chose (0 = in proportion to its size)
 
         public override bool CanRotate => Kind is ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.Check or ShapeKind.Cross;
         public override double Angle => AngleDeg;
@@ -231,7 +232,13 @@ public sealed partial class PdfWindow
 
         bool IsLine => Kind is ShapeKind.Line or ShapeKind.Arrow;
         Rect Box => new(A, B);
-        double StampWidth => Math.Max(1.2, Math.Min(Box.Width, Box.Height) * 0.13);
+        public double StampWidth => WidthOverride > 0 ? WidthOverride : Math.Max(1.2, Math.Min(Box.Width, Box.Height) * 0.13);
+        public double MarkSize => Math.Min(Box.Width, Box.Height);
+        public void SetMarkSize(double size)       // (around its middle)
+        {
+            var c = new Point((A.X + B.X) / 2, (A.Y + B.Y) / 2);
+            A = new Point(c.X - size / 2, c.Y - size / 2); B = new Point(c.X + size / 2, c.Y + size / 2);
+        }
 
         public override Rect Bounds => IsLine ? Inflate(Box, Width / 2 + (Kind == ShapeKind.Arrow ? ArrowHead : 0)) : Box;
         double ArrowHead => Math.Max(7, Width * 4);
@@ -465,6 +472,11 @@ public sealed partial class PdfWindow
     };
     private ShapeKind _shapeKind = ShapeKind.Rectangle;                   // (what the Shapes tool draws)
     private double _textSize = 12, _lineWidth = 2;
+    private double _markSize = 14, _markWidth, _markupWidth = 1;     // check / cross: size and line thickness (0 = in proportion); underline / strike-out: line thickness
+    private static readonly double[] MarkSizes = { 8, 10, 12, 14, 18, 24, 32, 48, 64, 96 };
+    private readonly TextBlock _thickLabel = new() { Text = "Line", FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+    private readonly TextBlock _thickText = new() { Width = 34, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.White };
+    private StackPanel _thickRow = null!;
     private PdfFontKind _font = PdfFontKind.Sans;
     private bool _bold;
 
@@ -744,6 +756,13 @@ public sealed partial class PdfWindow
         sizeRow.Children.Add(_sizeLabel); sizeRow.Children.Add(minus); sizeRow.Children.Add(_sizeText); sizeRow.Children.Add(plus);
         sizeRow.Children.Add(FillButton());
         System.Windows.Automation.AutomationProperties.SetAutomationId(_sizeText, "PdfEditSize");
+        // a second number for the tools that have a size AND a line (check / cross) or only a line (underline / strike-out)
+        _thickLabel.Foreground = Soft;
+        var thinner = SmallBar("\uE738", "Thinner line", () => ChangeThickness(-1));
+        var thicker = SmallBar("\uE710", "Thicker line", () => ChangeThickness(+1));
+        _thickRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Visibility = Visibility.Collapsed };
+        _thickRow.Children.Add(_thickLabel); _thickRow.Children.Add(thinner); _thickRow.Children.Add(_thickText); _thickRow.Children.Add(thicker);
+        System.Windows.Automation.AutomationProperties.SetAutomationId(_thickText, "PdfEditLine");
 
         foreach (var (kind, label, family) in new[] { (PdfFontKind.Sans, "Sans", "Arial"), (PdfFontKind.Serif, "Serif", "Times New Roman"), (PdfFontKind.Mono, "Mono", "Courier New") })
         {
@@ -788,7 +807,7 @@ public sealed partial class PdfWindow
         _fontRow.Margin = new Thickness(14, 0, 0, 0);
         _toolHint.Margin = new Thickness(14, 0, 0, 0);
         sizeRow.Margin = new Thickness(14, 0, 0, 0);
-        foreach (UIElement part in new UIElement[] { _colorRow, sizeRow, _fontRow }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
+        foreach (UIElement part in new UIElement[] { _colorRow, sizeRow, _thickRow, _fontRow }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
         look.Children.Add(_toolHint);                                   // (last: it takes what is left, and is cut with "..." when it is long)
 
         var row2 = new DockPanel { Height = 36, Margin = new Thickness(6, 2, 0, 0), LastChildFill = true };
@@ -982,12 +1001,17 @@ public sealed partial class PdfWindow
         bool text = item is TextItem || (item == null && _tool is EditTool.Text or EditTool.Date) || typingRun != null || textField;
         bool line = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.Line or ShapeKind.Arrow } || item is InkItem { Signature: false } || item is TableItem
                     || (item == null && _tool is EditTool.Pen or EditTool.Shapes or EditTool.Table);
+        bool mark = item is ShapeItem { Kind: ShapeKind.Check or ShapeKind.Cross } || (item == null && _tool is EditTool.Check or EditTool.Cross);                  // check / cross: Size + Line
+        bool underlining = item is TextMarkupItem { Subtype: Pdfium.AnnotUnderline or Pdfium.AnnotStrikeOut } || (item == null && _tool is EditTool.Underline or EditTool.Strike);   // underline / strike-out: Line
         _fontRow.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
         if (_styleButton != null) _styleButton.Visibility = item is TextItem || _typing != null || (item == null && _tool is EditTool.Text) ? Visibility.Visible : Visibility.Collapsed;
         if (_fillButton != null) _fillButton.Visibility = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse } || (item == null && _tool is EditTool.Shapes && _shapeKind is ShapeKind.Rectangle or ShapeKind.Ellipse) ? Visibility.Visible : Visibility.Collapsed;
-        ((FrameworkElement)_sizeLabel.Parent).Visibility = text || line ? Visibility.Visible : Visibility.Collapsed;
-        _sizeLabel.Text = text ? "Size" : "Line";
-        double size = typingRun != null ? typingRun.EffSize : item switch { TextItem t => t.FontSize, FieldItem f => f.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, TableItem tb => tb.Width, _ => text ? _textSize : _lineWidth };
+        ((FrameworkElement)_sizeLabel.Parent).Visibility = text || line || mark ? Visibility.Visible : Visibility.Collapsed;
+        _sizeLabel.Text = text || mark ? "Size" : "Line";
+        _thickRow.Visibility = mark || underlining ? Visibility.Visible : Visibility.Collapsed;
+        double thick = item switch { ShapeItem { Kind: ShapeKind.Check or ShapeKind.Cross } mk => mk.StampWidth, TextMarkupItem tmk => tmk.Thickness > 0 ? tmk.Thickness : 1, _ => _tool is EditTool.Check or EditTool.Cross ? (_markWidth > 0 ? _markWidth : Math.Max(1.2, _markSize * 0.13)) : _markupWidth };
+        _thickText.Text = thick.ToString(thick < 10 ? "0.#" : "0", CultureInfo.InvariantCulture);
+        double size = typingRun != null ? typingRun.EffSize : item switch { ShapeItem { Kind: ShapeKind.Check or ShapeKind.Cross } mk2 => mk2.MarkSize, TextItem t => t.FontSize, FieldItem f => f.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, TableItem tb => tb.Width, _ => mark ? _markSize : text ? _textSize : _lineWidth };
         if (_fontPickerButton != null) _fontPickerButton.Visibility = textField ? Visibility.Collapsed : Visibility.Visible;
         _sizeText.Text = size.ToString(size < 10 ? "0.#" : "0", CultureInfo.InvariantCulture);
         _syncingFont = true;                                       // (showing the font must not change it)
@@ -1071,14 +1095,36 @@ public sealed partial class PdfWindow
         {
             case TextItem t: Snapshot(); t.FontSize = Next(TextSizes, t.FontSize, step); _textSize = t.FontSize; RenderItems(t.Page); break;
             case FieldItem { Kind: PdfNewFieldKind.Text or PdfNewFieldKind.Dropdown } fld: Snapshot(); fld.FontSize = Next(TextSizes, fld.FontSize, step); _textSize = fld.FontSize; RenderItems(fld.Page); break;
+            case ShapeItem { Kind: ShapeKind.Check or ShapeKind.Cross } mk: Snapshot(); mk.SetMarkSize(Next(MarkSizes, mk.MarkSize, step)); _markSize = mk.MarkSize; RenderItems(mk.Page); break;
             case ShapeItem s: Snapshot(); s.Width = Next(LineWidths, s.Width, step); _lineWidth = s.Width; RenderItems(s.Page); break;
             case InkItem i: Snapshot(); i.Width = Next(LineWidths, i.Width, step); _lineWidth = i.Width; RenderItems(i.Page); break;
             case TableItem tb: Snapshot(); tb.Width = Next(LineWidths, tb.Width, step); _lineWidth = tb.Width; RenderItems(tb.Page); break;
             default:
-                if (_tool is EditTool.Text or EditTool.Date or EditTool.TextField or EditTool.DropField) _textSize = Next(TextSizes, _textSize, step); else _lineWidth = Next(LineWidths, _lineWidth, step);
+                if (_tool is EditTool.Text or EditTool.Date or EditTool.TextField or EditTool.DropField) _textSize = Next(TextSizes, _textSize, step);
+                else if (_tool is EditTool.Check or EditTool.Cross) _markSize = Next(MarkSizes, _markSize, step);
+                else _lineWidth = Next(LineWidths, _lineWidth, step);
                 break;
         }
         if (_typing != null && _textBox != null) { _typing.FontSize = _textSize; _textBox.FontSize = _textSize; }
+        UpdateProperties();
+    }
+
+    /// <summary>The line thickness of a check / cross, or of an underline / strike-out (the chosen one, or the next one made).</summary>
+    private void ChangeThickness(int step)
+    {
+        static double Next(double[] steps, double now, int dir) =>
+            dir > 0 ? steps.FirstOrDefault(s => s > now + 0.01, steps[^1]) : steps.LastOrDefault(s => s < now - 0.01, steps[0]);
+        switch (_selected)
+        {
+            case ShapeItem { Kind: ShapeKind.Check or ShapeKind.Cross } mk:
+                Snapshot(); mk.WidthOverride = Next(LineWidths, mk.StampWidth, step); _markWidth = mk.WidthOverride; RenderItems(mk.Page); break;
+            case TextMarkupItem { Subtype: Pdfium.AnnotUnderline or Pdfium.AnnotStrikeOut } tm:
+                Snapshot(); tm.Thickness = Next(LineWidths, tm.Thickness > 0 ? tm.Thickness : 1, step); _markupWidth = tm.Thickness; _dirty = true; UpdateTitle(); RenderItems(tm.Page); break;
+            default:
+                if (_tool is EditTool.Check or EditTool.Cross) _markWidth = Next(LineWidths, _markWidth > 0 ? _markWidth : Math.Max(1.2, _markSize * 0.13), step);
+                else if (_tool is EditTool.Underline or EditTool.Strike) _markupWidth = Next(LineWidths, _markupWidth, step);
+                break;
+        }
         UpdateProperties();
     }
 
@@ -1405,8 +1451,8 @@ public sealed partial class PdfWindow
                 return;
             case EditTool.Check or EditTool.Cross:
             {
-                double s = 14;
-                Add(new ShapeItem { Page = pv.Index, Kind = _tool == EditTool.Check ? ShapeKind.Check : ShapeKind.Cross, A = new Point(p.X - s / 2, p.Y - s / 2), B = new Point(p.X + s / 2, p.Y + s / 2), Color = _toolColors[_tool] });
+                double s = _markSize;
+                Add(new ShapeItem { Page = pv.Index, Kind = _tool == EditTool.Check ? ShapeKind.Check : ShapeKind.Cross, A = new Point(p.X - s / 2, p.Y - s / 2), B = new Point(p.X + s / 2, p.Y + s / 2), Color = _toolColors[_tool], WidthOverride = _markWidth });
                 return;
             }
             case EditTool.Link:

@@ -186,13 +186,41 @@ internal static class PdfTextReader
             if (tp != IntPtr.Zero)
             {
                 int n = Pdfium.FPDFText_CountChars(tp);
+
+                // Some fonts (a Word subset of Cambria is one) say they are several lines tall: the "loose" box of every letter is then 4-5 lines high and a selected
+                // word, a search hit or a highlight covers the lines above and below it. The glyphs themselves are not: for such letters the height is taken from the
+                // glyphs of the same line (letters standing on the same baseline), so a line has one honest height. Fonts with a sane box are left exactly as they are.
+                var lineTop = new Dictionary<long, double>();
+                var lineBottom = new Dictionary<long, double>();
+                var baselineOf = new long[n];
+                for (int i = 0; i < n; i++)
+                {
+                    baselineOf[i] = long.MinValue;
+                    uint cu = Pdfium.FPDFText_GetUnicode(tp, i);
+                    if (cu == 0 || char.IsWhiteSpace((char)Math.Min(cu, 0xFFFF))) continue;
+                    if (Pdfium.FPDFText_GetCharOrigin(tp, i, out _, out double oy) == 0) continue;
+                    if (Pdfium.FPDFText_GetCharBox(tp, i, out _, out _, out double gb, out double gt) == 0 || gt <= gb) continue;
+                    long key = (long)Math.Round(oy * 2);
+                    baselineOf[i] = key;
+                    lineTop[key] = lineTop.TryGetValue(key, out double ot) ? Math.Max(ot, gt) : gt;
+                    lineBottom[key] = lineBottom.TryGetValue(key, out double ob) ? Math.Min(ob, gb) : gb;
+                }
+
                 for (int i = 0; i < n; i++)
                 {
                     uint u = Pdfium.FPDFText_GetUnicode(tp, i);
                     string s = u == 0 ? " " : u <= 0xFFFF ? ((char)u).ToString() : char.ConvertFromUtf32((int)Math.Min(u, 0x10FFFF));
                     Rect box = Rect.Empty;
                     if (!char.IsWhiteSpace(s[0]) && Pdfium.FPDFText_GetLooseCharBox(tp, i, out var r) != 0 && r.Right > r.Left)
-                        box = map.ToShown(r.Left, r.Bottom, r.Right, r.Top);
+                    {
+                        double top = r.Top, bottom = r.Bottom;
+                        if (baselineOf[i] != long.MinValue && lineTop.TryGetValue(baselineOf[i], out double lt) && lineBottom.TryGetValue(baselineOf[i], out double lb))
+                        {
+                            double honest = (lt - lb) + 1.0;                                 // (the line's own letters, a little air)
+                            if ((r.Top - r.Bottom) > 1.8 * honest) { top = lt + 0.5; bottom = lb - 0.5; }
+                        }
+                        box = map.ToShown(r.Left, bottom, r.Right, top);
+                    }
                     else if (char.IsWhiteSpace(s[0]) && s[0] == ' ' && Pdfium.FPDFText_GetLooseCharBox(tp, i, out var sp) != 0 && sp.Right > sp.Left)
                         box = map.ToShown(sp.Left, sp.Bottom, sp.Right, sp.Top);          // (real spaces have a place too: selections stay in one piece)
                     // (a letter outside the basic plane takes two places in a .NET string: both get its box)

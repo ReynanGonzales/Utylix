@@ -49,7 +49,7 @@ public sealed partial class PdfWindow
                 double h = _textSize * 1.35, w = _tool == EditTool.Date ? Math.Max(60, _textSize * 6.5) : Math.Max(60, _textSize * 5);
                 return (new Rect(p.X - 1, p.Y - _textSize * 0.6, w, h), "text", sample);
             }
-            case EditTool.Check or EditTool.Cross: return (new Rect(p.X - 7, p.Y - 7, 14, 14), "box", _tool == EditTool.Check ? "✓" : "✕");
+            case EditTool.Check or EditTool.Cross: return (new Rect(p.X - _markSize / 2, p.Y - _markSize / 2, _markSize, _markSize), "box", _tool == EditTool.Check ? "✓" : "✕");
             case EditTool.Note: return (new Rect(p.X - 9, p.Y - 9, 18, 18), "box", "");
             case EditTool.Stamp:
             {

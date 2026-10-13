@@ -36,7 +36,7 @@ public sealed record PdfImageMark(int Page, Rect Box, byte[]? Jpeg, BitmapSource
 /// A real PDF comment (other readers list it and can remove it): highlight / underline / strike-out over the given text boxes
 /// (Subtype 9 / 10 / 12), or a sticky note (Subtype 1, Rects[0] is its icon, Contents its text).
 /// </summary>
-public sealed record PdfAnnotMark(int Page, int Subtype, IReadOnlyList<Rect> Rects, Color Color, string? Contents) : PdfMark(Page);
+public sealed record PdfAnnotMark(int Page, int Subtype, IReadOnlyList<Rect> Rects, Color Color, string? Contents, double Thickness = 0) : PdfMark(Page);
 
 /// <summary>Writes marks into the pages of an open PDF (they become part of the page, seen the same in every PDF reader).</summary>
 public static class PdfMarkWriter
@@ -244,6 +244,23 @@ public static class PdfMarkWriter
                 string ap = $"q {F(a.Color.R / 255.0)} {F(a.Color.G / 255.0)} {F(a.Color.B / 255.0)} rg 0.35 0.35 0.35 RG 0.8 w {F(l + 0.4)} {F(b + 0.4)} {F(w - 0.8)} {F(h - 0.8)} re B\n" +
                             $"{F(dark < 1 ? 0.2 : 1)} {F(dark < 1 ? 0.2 : 1)} {F(dark < 1 ? 0.2 : 1)} RG 0.9 w\n{lines}Q\n";
                 Pdfium.FPDFAnnot_SetAP(annot, 0, ap);
+            }
+            if (a.Thickness > 0 && a.Subtype is Pdfium.AnnotUnderline or Pdfium.AnnotStrikeOut)
+            {
+                // the line is drawn with the thickness the person chose (PDFium's own picture of an underline has one fixed thickness): along the lower edge of each piece
+                // of the words for an underline, through the middle for a strike-out; the annotation still says "underline" / "strike out" to every other reader
+                string F(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                var ap = new System.Text.StringBuilder($"q {F(a.Color.R / 255.0)} {F(a.Color.G / 255.0)} {F(a.Color.B / 255.0)} RG {F(a.Thickness)} w 0 J\n");
+                foreach (var box in a.Rects)
+                {
+                    var tl = map.ToPage(box.TopLeft); var tr = map.ToPage(box.TopRight); var bl = map.ToPage(box.BottomLeft); var br = map.ToPage(box.BottomRight);
+                    double k = a.Subtype == Pdfium.AnnotUnderline ? 0.1 : 0.42;           // (how far up the letters' height: near the bottom, or about the middle of the lower-case letters)
+                    var p1 = new System.Windows.Point(bl.X + (tl.X - bl.X) * k, bl.Y + (tl.Y - bl.Y) * k);
+                    var p2 = new System.Windows.Point(br.X + (tr.X - br.X) * k, br.Y + (tr.Y - br.Y) * k);
+                    ap.Append($"{F(p1.X)} {F(p1.Y)} m {F(p2.X)} {F(p2.Y)} l S\n");
+                }
+                ap.Append("Q\n");
+                Pdfium.FPDFAnnot_SetAP(annot, 0, ap.ToString());
             }
             if (!string.IsNullOrEmpty(a.Contents)) Pdfium.FPDFAnnot_SetStringValue(annot, "Contents", a.Contents);
             Pdfium.FPDFAnnot_SetStringValue(annot, "M", "D:" + DateTime.Now.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture));

@@ -25,6 +25,7 @@ public sealed partial class PdfWindow
     {
         public int Subtype;                       // Pdfium.AnnotHighlight / AnnotUnderline / AnnotStrikeOut
         public string Comment = "";               // the comment written on these words (shown by other readers, and here when the pointer is on them)
+        public double Thickness;                  // underline / strike-out: how thick the line is (points); 0 = the PDF reader's own
         public List<Rect> Rects = new();
         public override Rect Bounds { get { var r = Rect.Empty; foreach (var b in Rects) r.Union(b); return r; } }
         public override bool Hit(Point p) => Rects.Any(r => Inflate(r, 1).Contains(p));
@@ -34,7 +35,7 @@ public sealed partial class PdfWindow
             var canvas = new Canvas();
             foreach (var r in Rects)
             {
-                double h = Subtype == Pdfium.AnnotHighlight ? r.Height : Math.Max(0.8, r.Height * 0.07);
+                double h = Subtype == Pdfium.AnnotHighlight ? r.Height : Thickness > 0 ? Thickness : Math.Max(0.8, r.Height * 0.07);
                 double y = Subtype == Pdfium.AnnotHighlight ? r.Y : Subtype == Pdfium.AnnotUnderline ? r.Bottom - h * 1.5 : r.Y + r.Height * 0.52 - h / 2;
                 var mark = new Rectangle { Width = r.Width, Height = h, Fill = new SolidColorBrush(Subtype == Pdfium.AnnotHighlight ? Color.FromArgb(105, Color.R, Color.G, Color.B) : Color) };
                 Canvas.SetLeft(mark, r.X); Canvas.SetTop(mark, y);
@@ -42,7 +43,7 @@ public sealed partial class PdfWindow
             }
             return canvas;
         }
-        public override IEnumerable<PdfMark> Marks() { yield return new PdfAnnotMark(Page, Subtype, Rects, Color, Comment.Trim().Length > 0 ? Comment.Trim() : null); }
+        public override IEnumerable<PdfMark> Marks() { yield return new PdfAnnotMark(Page, Subtype, Rects, Color, Comment.Trim().Length > 0 ? Comment.Trim() : null, Subtype == Pdfium.AnnotHighlight ? 0 : Thickness); }
         public override void MoveBy(Vector d) { }                   // (it belongs to its words)
         public override void ResizeTo(Rect r) { }
     }
@@ -324,7 +325,7 @@ public sealed partial class PdfWindow
         if (rects.Count == 0) return;
         if (!_editing) { EnterEditing(); if (!_editing) return; }
         var tool = subtype == Pdfium.AnnotHighlight ? EditTool.Highlight : subtype == Pdfium.AnnotUnderline ? EditTool.Underline : EditTool.Strike;
-        Add(new TextMarkupItem { Page = page, Subtype = subtype, Rects = rects, Color = _toolColors[tool] });
+        Add(new TextMarkupItem { Page = page, Subtype = subtype, Rects = rects, Color = _toolColors[tool], Thickness = subtype == Pdfium.AnnotHighlight ? 0 : _markupWidth });
         ClearTextSelection();
     }
 

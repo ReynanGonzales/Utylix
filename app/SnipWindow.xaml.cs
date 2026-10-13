@@ -154,18 +154,18 @@ public partial class SnipWindow : Window
         _oneShotDelay = 0;
         try
         {
-            // a delay: the window stays in view (with a count-down and a working Cancel) until the last moment; when the window shows a picture
-            // (or is not open at all), a small count-down at the top of the screen says how long is left, and a click on it cancels
+            // a delay: Utylix gets out of the way AT ONCE (the screen is the person's to arrange while the timer runs: that is what the timer is for);
+            // a small count-down at the top of the screen says how long is left, and a click on it cancels
+            if (seconds > 0) restore = App.HideForCapture();
             for (int left = seconds; left > 0; left--)
             {
-                if (IsVisible) CancelBtn.IsEnabled = true;
-                if (IsVisible && _image == null) MessageText.Text = $"Snipping in {left}…  (Cancel stops it)";
-                else { pill ??= new SnipCountdown(() => _cts?.Cancel()); pill.ShowAt(left); }
+                pill ??= new SnipCountdown(() => _cts?.Cancel());
+                pill.ShowAt(left);
                 await Task.Delay(1000, _cts.Token);
             }
             pill?.Close(); pill = null;
             CancelBtn.IsEnabled = false;
-            restore = App.HideForCapture();                                      // never capture ourselves
+            restore ??= App.HideForCapture();                                    // never capture ourselves
             await Task.Delay(260);
 
             var shot = ScreenGrab.CaptureVirtualScreen(out var area);
