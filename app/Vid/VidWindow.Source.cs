@@ -301,6 +301,11 @@ public sealed partial class VidWindow
             string type = info.Type;
             _effectsList.Children.Add(Row(info.Name, info.Audio ? "" : "", () => ApplyEffect(type), "VidFx_" + type));
         }
+        if (Match("Remove the background AI cut out person"))
+        {
+            Group("AI tools");
+            _effectsList.Children.Add(Row("Remove the background (AI)…", "\uE7F8", RemoveBackground, "VidAiMatte"));
+        }
         var trans = VidEffects.Transitions.Where(t => Match(t.Name) || Match("Transitions")).ToList();
         if (trans.Count > 0)
         {

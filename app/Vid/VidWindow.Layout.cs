@@ -169,6 +169,7 @@ public sealed partial class VidWindow
         menus.Children.Add(FlatButton("Clip", b => ShowMenu(b,
             ("Split at the playhead", DoSplit, "S"), ("Add a title", AddTitle, "T"), ("-", null, null),
             ("Lift (remove In to Out, leave a gap)", () => DoLift(), ";"), ("Extract (remove In to Out, close the gap)", () => DoExtract(), "'"), ("-", null, null),
+            ("Remove the background (AI)…", RemoveBackground, null), ("-", null, null),
             ("Add the cross dissolve", () => ApplyTransition(TransitionKind.Dissolve), null), ("Remove the transition", () => ApplyTransition(TransitionKind.None), null), ("-", null, null),
             ("Speed 0.5×", () => SetSelectedSpeed(0.5), null), ("Speed 1× (normal)", () => SetSelectedSpeed(1), null), ("Speed 2×", () => SetSelectedSpeed(2), null)), "VidMenuClip"));
         menus.Children.Add(FlatButton("Sequence", b => ShowMenu(b,

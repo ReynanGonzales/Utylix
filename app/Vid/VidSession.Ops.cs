@@ -362,6 +362,17 @@ public sealed partial class VidSession
         return made;
     }
 
+    /// <summary>Makes a clip show another file (the transparent version made by "Remove the background"); its place, length, speed and effects stay.</summary>
+    public void ReplaceMedia(Clip clip, MediaItem item, double newIn)
+    {
+        Do("Remove the background", () =>
+        {
+            if (!Project.Media.Any(m => m.Id == item.Id)) Project.Media.Add(item);
+            clip.MediaId = item.Id;
+            clip.In = newIn;
+        });
+    }
+
     // ---------- effects and transitions ----------
     /// <summary>Applies an effect to the clips: a picture effect to the picture clips, a sound effect to the sound clips (also those linked to a chosen picture).</summary>
     public int AddEffect(IEnumerable<Clip> clips, string type)

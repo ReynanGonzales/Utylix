@@ -91,6 +91,7 @@ public sealed partial class VidWindow : Window
         _timeline.TrackMenuRequested += ShowTrackMenu;
         _timeline.MarkerActivated += RenameMarkerPrompt;
 
+        _picture.MouseLeftButtonDown += (_, ev) => PickFromPicture(ev);
         AllowDrop = true;
         Drop += (_, e) => { if (e.Data.GetData(DataFormats.FileDrop) is string[] files) _ = ImportAsync(files, addToTimeline: !_s.Project.AllClips.Any()); };
         PreviewKeyDown += OnKey;
@@ -533,7 +534,7 @@ public sealed partial class VidWindow : Window
             case Key.OemPlus: case Key.Add: ZoomBy(1.25); e.Handled = true; break;
             case Key.OemMinus: case Key.Subtract: ZoomBy(0.8); e.Handled = true; break;
             case Key.OemBackslash: case Key.OemPipe: _timeline.ZoomToFit(); e.Handled = true; break;
-            case Key.Escape: _s.ClearSelection(); e.Handled = true; break;
+            case Key.Escape: if (_pickKeyEffect != null) EndPickKeyColour(null); else _s.ClearSelection(); e.Handled = true; break;
         }
     }
 

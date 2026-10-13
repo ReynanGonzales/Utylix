@@ -30,6 +30,8 @@ public sealed class ClipEffect
     public double B { get; set; }
     public double C { get; set; }
     public double D { get; set; }
+    /// <summary>A colour as #RRGGBB (the key colour of the colour key).</summary>
+    public string Color { get; set; } = "";
 }
 
 public sealed class Marker

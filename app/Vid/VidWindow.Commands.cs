@@ -129,6 +129,68 @@ public sealed partial class VidWindow
         _player.Refresh();
     }
 
+    // ---------- AI background removal ----------
+    private async void RemoveBackground()
+    {
+        var clip = _s.SelectedClips.FirstOrDefault(c => c.Kind == ClipKind.Media && _s.Project.TrackOf(c)?.Kind == TrackKind.Video && _s.Project.MediaOf(c)?.HasVideo == true);
+        if (clip == null) { SetStatus("Choose a picture clip on the timeline first."); return; }
+        var media = _s.Project.MediaOf(clip)!;
+        if (!File.Exists(media.Path)) { SetStatus("That file is not where it was."); return; }
+        if (_player.IsPlaying) { _player.Pause(); UpdatePlayGlyph(); }
+        var w = new VidMatteWindow(this, media, clip.In, clip.SourceLength, Fps);
+        if (w.ShowDialog() != true || w.ResultPath == null) return;
+        try
+        {
+            var item = await VidProbe.ReadAsync(w.ResultPath);
+            _s.ReplaceMedia(clip, item, 0);
+            SetStatus("The background is gone: put something under this clip on another track to see it.");
+        }
+        catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception)
+        {
+            UMessage.Show(this, "The new file could not be used:\n\n" + e.Message, "Utylix Vid Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    // ---------- picking the key colour from the picture ----------
+    private ClipEffect? _pickKeyEffect;
+
+    private void StartPickKeyColour(ClipEffect e)
+    {
+        _pickKeyEffect = e;
+        e.On = false;                                  // so the picture shows the colour that is to be removed
+        _player.Refresh();
+        _picture.Cursor = System.Windows.Input.Cursors.Cross;
+        SetStatus("Click the colour to remove in the Program picture (Esc to cancel).");
+    }
+
+    private void EndPickKeyColour(string? hex)
+    {
+        var e = _pickKeyEffect;
+        _pickKeyEffect = null;
+        _picture.Cursor = System.Windows.Input.Cursors.Arrow;
+        if (e == null) return;
+        e.On = true;
+        if (hex != null) _s.Do("Key colour", () => e.Color = hex);
+        else { _player.Refresh(); RefreshInspector(); }
+    }
+
+    private void PickFromPicture(System.Windows.Input.MouseButtonEventArgs ev)
+    {
+        if (_pickKeyEffect == null) return;
+        var bmp = _player.Bitmap;
+        if (bmp == null) { EndPickKeyColour(null); return; }
+        var pos = ev.GetPosition(_picture);
+        double aw = _picture.ActualWidth, ah = _picture.ActualHeight;
+        double scale = Math.Min(aw / bmp.PixelWidth, ah / bmp.PixelHeight);
+        double ox = (aw - bmp.PixelWidth * scale) / 2, oy = (ah - bmp.PixelHeight * scale) / 2;
+        int x = (int)((pos.X - ox) / scale), y = (int)((pos.Y - oy) / scale);
+        if (x < 0 || y < 0 || x >= bmp.PixelWidth || y >= bmp.PixelHeight) return;
+        var px = new byte[3];
+        bmp.CopyPixels(new Int32Rect(x, y, 1, 1), px, 3, 0);                // Bgr24
+        EndPickKeyColour($"#{px[2]:X2}{px[1]:X2}{px[0]:X2}");
+        ev.Handled = true;
+    }
+
     // ---------- one picture ----------
     private async void ExportFrame()
     {

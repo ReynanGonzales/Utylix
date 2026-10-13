@@ -424,6 +424,13 @@ public sealed partial class VidWindow
             var add = MakeButton("", "Add an effect", "Pick an effect for the chosen clip (or double-click one in the Effects panel)", () => ShowEffectMenu(sel), id: "VidAddEffect");
             add.HorizontalAlignment = HorizontalAlignment.Left;
             _inspector.Children.Add(add);
+            if (videos.Any(c => c.Kind == ClipKind.Media))
+            {
+                var matte = MakeButton("\uE7F8", "Remove the background (AI)…", "Cut the person or thing out of this clip so what is under it shows through", RemoveBackground, id: "VidMatteButton");
+                matte.HorizontalAlignment = HorizontalAlignment.Left;
+                matte.Margin = new Thickness(0, 6, 0, 0);
+                _inspector.Children.Add(matte);
+            }
         }
 
         _inspector.Children.Add(SectionHeader("Fades"));
@@ -474,6 +481,7 @@ public sealed partial class VidWindow
         on.Unchecked += (_, _) => { if (!_inspectorBuilding) _s.Do("Effect off", () => e.On = false); };
         head.Children.Add(on);
         stack.Children.Add(head);
+        if (e.Type == "greenscreen") stack.Children.Add(KeyColourRow(e));
         if (info != null)
             for (int i = 0; i < info.Params.Length; i++)
             {
@@ -491,6 +499,44 @@ public sealed partial class VidWindow
             }
         card.Child = stack;
         _inspector.Children.Add(card);
+    }
+
+    /// <summary>The colour the colour key removes: a few usual screens, any colour picked from the picture, or the colour shown.</summary>
+    private UIElement KeyColourRow(ClipEffect e)
+    {
+        var panel = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+        panel.Children.Add(new TextBlock { Text = "Remove", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 6) });
+        string[] usual = { "#00FF00", "#00B140", "#0047BB", "#0000FF" };
+        foreach (string hex in usual)
+        {
+            bool on = string.Equals(e.Color, hex, StringComparison.OrdinalIgnoreCase);
+            var sw = new Button
+            {
+                Width = 24, Height = 24, Margin = new Thickness(0, 0, 6, 6), Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)), Cursor = Cursors.Hand,
+                ToolTip = hex, BorderThickness = new Thickness(on ? 3 : 1),
+                Template = (ControlTemplate)XamlReader.Parse(
+                    "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><Border CornerRadius='12' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}'/></ControlTemplate>"),
+            };
+            sw.SetResourceReference(Control.BorderBrushProperty, on ? "AccentBrush" : "MutedBrush");
+            sw.Click += (_, _) => _s.Do("Key colour", () => e.Color = hex);
+            panel.Children.Add(sw);
+        }
+        bool custom = e.Color.Length == 7 && !usual.Contains(e.Color, StringComparer.OrdinalIgnoreCase);
+        if (custom)
+        {
+            var cur = new Border
+            {
+                Width = 24, Height = 24, Margin = new Thickness(0, 0, 6, 6), CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(3), ToolTip = e.Color,
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(e.Color)),
+            };
+            cur.SetResourceReference(Border.BorderBrushProperty, "AccentBrush");
+            panel.Children.Add(cur);
+        }
+        var pick = new Button { Content = "Pick from the picture", Style = (Style)FindResource("DialogButton"), Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(6, 0, 0, 6), MinWidth = 0 };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(pick, "VidKeyPick");
+        pick.Click += (_, _) => StartPickKeyColour(e);
+        panel.Children.Add(pick);
+        return panel;
     }
 
     private static string FormatParam(EffectParam p, double v) => (p.Max - p.Min > 20 ? v.ToString("0") : v.ToString("0.##")) + (p.Unit.Length > 0 ? " " + p.Unit : "");

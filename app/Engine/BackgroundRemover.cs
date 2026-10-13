@@ -52,7 +52,7 @@ public static class BackgroundRemover
     private static InferenceSession? _session;
     private static readonly object SessionLock = new();
 
-    private static InferenceSession Session()
+    internal static InferenceSession Session()
     {
         lock (SessionLock)
         {

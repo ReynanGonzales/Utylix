@@ -33,7 +33,8 @@ public static class VidEffects
         new("vignette", "Vignette", "Video effects · Stylize", false, new EffectParam("Size", 0.1, 1.5, 0.6)),
         new("pixelate", "Mosaic", "Video effects · Stylize", false, new EffectParam("Block size", 2, 80, 16)),
         new("edges", "Find edges", "Video effects · Stylize", false),
-        new("greenscreen", "Green screen key", "Video effects · Keying", false, new EffectParam("Similarity", 0.01, 0.5, 0.15), new EffectParam("Edge softness", 0, 0.5, 0.05)),
+        new("greenscreen", "Colour key (green / blue screen)", "Video effects · Keying", false,
+            new EffectParam("Similarity", 0.01, 0.6, 0.18), new EffectParam("Edge softness", 0, 0.5, 0.06), new EffectParam("Remove colour spill", 0, 1, 0.6)),
         // ---- audio ----
         new("gain", "Gain", "Audio effects", true, new EffectParam("Gain", -30, 30, 0, "dB")),
         new("highpass", "High-pass (cut the rumble)", "Audio effects", true, new EffectParam("Cut below", 20, 2000, 120, "Hz")),
@@ -57,6 +58,7 @@ public static class VidEffects
     {
         var info = Info(type) ?? throw new ArgumentException("unknown effect " + type);
         var e = new ClipEffect { Type = type };
+        if (type == "greenscreen") e.Color = "#00FF00";
         if (info.Params.Length > 0) e.A = info.Params[0].Default;
         if (info.Params.Length > 1) e.B = info.Params[1].Default;
         if (info.Params.Length > 2) e.C = info.Params[2].Default;
@@ -102,7 +104,19 @@ public static class VidEffects
                 return $"format=yuva420p,crop=w='trunc(iw*(100-{F(l)}-{F(r)})/200)*2':h='trunc(ih*(100-{F(t)}-{F(b)})/200)*2':x='iw*{F(l)}/100':y='ih*{F(t)}/100'," +
                        $"pad=w='trunc(iw*100/(100-{F(l)}-{F(r)})/2)*2':h='trunc(ih*100/(100-{F(t)}-{F(b)})/2)*2':x='trunc(iw*{F(l)}/(100-{F(l)}-{F(r)})/2)*2':y='trunc(ih*{F(t)}/(100-{F(t)}-{F(b)})/2)*2':color=black@0";
             }
-            case "greenscreen": return $"format=yuva420p,chromakey=color=0x00FF00:similarity={F(e.A)}:blend={F(e.B)}";
+            case "greenscreen":
+            {
+                string hex = System.Text.RegularExpressions.Regex.IsMatch(e.Color ?? "", "^#[0-9A-Fa-f]{6}$") ? e.Color.Substring(1) : "00FF00";
+                var chain = $"format=yuva420p,chromakey=color=0x{hex}:similarity={F(e.A)}:blend={F(e.B)}";
+                if (e.C > 0.01)
+                {
+                    int r = Convert.ToInt32(hex.Substring(0, 2), 16), g = Convert.ToInt32(hex.Substring(2, 2), 16), b = Convert.ToInt32(hex.Substring(4, 2), 16);
+                    // the light that bounced off the screen onto the person has the screen's colour: take it out (green or blue screens)
+                    if (g > r && g >= b) chain += $",despill=type=green:mix={F(Math.Clamp(e.C, 0, 1))}:expand=0";
+                    else if (b > r && b > g) chain += $",despill=type=blue:mix={F(Math.Clamp(e.C, 0, 1))}:expand=0";
+                }
+                return chain;
+            }
         }
         return null;
     }
