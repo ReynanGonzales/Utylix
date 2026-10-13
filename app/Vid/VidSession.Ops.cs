@@ -392,7 +392,7 @@ public sealed partial class VidSession
 
     public void RemoveEffect(Clip c, ClipEffect e) => Do("Remove an effect", () => c.Effects.Remove(e));
 
-    public void SetTransition(IEnumerable<Clip> clips, TransitionKind kind, double length)
+    public void SetTransition(IEnumerable<Clip> clips, TransitionKind kind, double length, TransitionAlign? align = null)
     {
         var list = clips.Where(c => Project.TrackOf(c)?.Kind == TrackKind.Video).ToList();
         if (list.Count == 0) return;
@@ -400,10 +400,21 @@ public sealed partial class VidSession
         {
             foreach (var c in list)
             {
+                bool wasNone = c.Transition == TransitionKind.None;
                 c.Transition = kind;
                 c.TransitionLength = Math.Clamp(length, 0.1, Math.Max(0.1, c.Length));
+                // a new transition sits on the cut, centred (Premiere's default) - or starts at the clip's start when nothing comes before it
+                if (align != null) c.TransitionAlign = align.Value;
+                else if (wasNone) c.TransitionAlign = Project.TrackOf(c)?.ClipBefore(c) != null ? TransitionAlign.Center : TransitionAlign.Start;
             }
         });
+    }
+
+    public void SetTransitionAlign(IEnumerable<Clip> clips, TransitionAlign align)
+    {
+        var list = clips.Where(c => c.Transition != TransitionKind.None).ToList();
+        if (list.Count == 0) return;
+        Do("Move the transition on the cut", () => { foreach (var c in list) c.TransitionAlign = align; });
     }
 
     /// <summary>Moves a transition (kind and length) from one clip to another (dragged from one cut to another on the timeline).</summary>
@@ -412,10 +423,11 @@ public sealed partial class VidSession
         if (from == to || from.Transition == TransitionKind.None) return;
         Do("Move the transition", () =>
         {
-            var kind = from.Transition; double len = from.TransitionLength;
+            var kind = from.Transition; double len = from.TransitionLength; var align = from.TransitionAlign;
             from.Transition = TransitionKind.None;
             to.Transition = kind;
             to.TransitionLength = Math.Clamp(len, 0.1, Math.Max(0.1, to.Length));
+            to.TransitionAlign = Project.TrackOf(to)?.ClipBefore(to) != null ? align : TransitionAlign.Start;
         });
     }
 

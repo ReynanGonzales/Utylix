@@ -156,6 +156,23 @@ public static class VidGraph
     private static bool IsPush(TransitionKind k) => k is TransitionKind.PushLeft or TransitionKind.PushRight or TransitionKind.PushUp or TransitionKind.PushDown;
     private static bool IsSlide(TransitionKind k) => k is TransitionKind.SlideLeft or TransitionKind.SlideRight or TransitionKind.SlideUp or TransitionKind.SlideDown;
 
+    /// <summary>
+    /// A fade in or out of the picture (to / from transparency, or to / from black or white). ffmpeg's own fade filter refuses a start before the
+    /// beginning of the window, which is where a single preview frame or a playback that starts inside a fade has it; then the same fade is worked
+    /// out per pixel from the time (slower, but only used for those windows).
+    /// </summary>
+    private static string FadeFilter(bool fadeIn, double st, double d, string? color)
+    {
+        d = Math.Max(0.001, d);
+        if (st >= 0) return $",fade=t={(fadeIn ? "in" : "out")}:st={F(st)}:d={F(d)}" + (color != null ? $":color={color}" : ":alpha=1");
+        string prog = $"clip((T-({F(st)}))/{F(d)},0,1)";
+        string v = fadeIn ? prog : $"(1-{prog})";                          // how much of the picture is there
+        if (color == null) return $",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*{v}'";
+        string luma = color == "white" ? $"235-(235-lum(X,Y))*{v}" : $"16+(lum(X,Y)-16)*{v}";
+        // (an explicit pixel format first: left to itself ffmpeg may run geq on RGB planes, where lum / cb / cr mean something else)
+        return $",format=yuva420p,geq=lum='{luma}':cb='128+(cb(X,Y)-128)*{v}':cr='128+(cr(X,Y)-128)*{v}':a='alpha(X,Y)'";
+    }
+
     /// <summary>Progress 0..1 of a transition as an ffmpeg expression in window time (variable <paramref name="tv"/>).</summary>
     private static string Progress(double start, double length, string tv) => $"clip(({tv}-{F(start)})/{F(Math.Max(0.05, length))},0,1)";
 
@@ -168,17 +185,22 @@ public static class VidGraph
         // the clip that comes in over this one (it has to stay visible under it, and push / slide transitions move it)
         var next = track.Clips.FirstOrDefault(o => o != c && Math.Abs(o.Start - c.End) < 0.002 && o.Transition != TransitionKind.None);
         double nextL = next != null ? Math.Max(0.05, next.TransitionLength) : 0;
-        double ext = next != null && !IsDip(next.Transition) ? nextL : 0;
+        // a transition centred on the cut (or ending at it) has part of itself BEFORE the cut: this clip only has to stay visible for the rest
+        double nextLead = next != null ? track.TransitionLead(next) : 0;
+        double ext = next != null && !IsDip(next.Transition) ? Math.Max(0, nextL - nextLead) : 0;
         double visEnd = c.End + ext;
-        if (visEnd <= T0 || c.Start >= T1) return;
+        // and the same clip comes in earlier by its own lead (its picture before the start is the file's picture before "In", held when there is none)
+        double shift = IsDip(c.Transition) ? 0 : track.TransitionLead(c);
+        double vStart = c.Start - shift;
+        if (visEnd <= T0 || vStart >= T1) return;
 
         bool frozen = c.End <= T0;                                           // only the held / handle part is inside the window
-        double a = frozen ? T0 : Math.Max(c.Start, T0);
+        double a = frozen ? T0 : Math.Max(vStart, T0);
         double b = frozen ? T0 : Math.Min(c.End, T1);
         if (!frozen && b - a < 0.001) return;
         double speed = c.Speed > 0 ? c.Speed : 1;
         int idx = x.Inputs++;
-        double tail;
+        double tail, headPad = 0;
         if (frozen)
         {
             // the end of the clip may have more picture after it in the file (a "handle"): use it; hold the last picture for what is missing
@@ -213,8 +235,10 @@ public static class VidGraph
                 handle = Math.Clamp(Math.Min(avail, Math.Min(ext, T1 - c.End)), 0, ext);
                 if (handle < 0.05) handle = 0;
             }
+            double srcStart = c.In + (a - c.Start) * speed;
+            if (srcStart < 0 && m.Kind != MediaKind.Image) { headPad = -srcStart / speed; srcStart = 0; }          // before the start of the file: hold its first picture
             if (m.Kind == MediaKind.Image) x.Job.Args.AddRange(new[] { "-loop", "1", "-framerate", F(fps), "-t", F(b - a + Math.Min(ext, Math.Max(0, T1 - c.End))), "-i", m.Path });
-            else x.Job.Args.AddRange(new[] { "-ss", F(c.In + (a - c.Start) * speed), "-t", F((b - a + handle) * speed), "-i", m.Path });
+            else x.Job.Args.AddRange(new[] { "-ss", F(srcStart), "-t", F(Math.Max(0.04, b - a - headPad + handle) * speed), "-i", m.Path });
             double wanted = b >= c.End - 1e-6 ? Math.Min(visEnd, T1) - b : 0;
             tail = m.Kind == MediaKind.Image ? 0 : Math.Max(0, wanted - handle);
         }
@@ -227,7 +251,13 @@ public static class VidGraph
             if (f != null) ch.Append(',').Append(f);
         }
         ch.Append($",setpts=(PTS-STARTPTS)/{F(speed)},fps={F(fps)}");
-        if (tail > 0.0005) ch.Append($",tpad=stop_mode=clone:stop_duration={F(tail)}");
+        if (tail > 0.0005 || headPad > 0.0005)
+        {
+            var pad = new List<string>();
+            if (headPad > 0.0005) pad.Add($"start_mode=clone:start_duration={F(headPad)}");
+            if (tail > 0.0005) pad.Add($"stop_mode=clone:stop_duration={F(tail)}");
+            ch.Append(",tpad=").Append(string.Join(":", pad));
+        }
         ch.Append($",setpts=PTS+{F(a - T0)}/TB");
 
         var kScale = Keyed(c, "Scale", T0, "t");
@@ -236,7 +266,8 @@ public static class VidGraph
         bool rotated = kRot != null || Math.Abs(c.Rotation) > 0.01;
         var tr = c.Transition;
         double trL = Math.Max(0.05, c.TransitionLength);
-        double ts = c.Start - T0;
+        double ts0 = c.Start - T0;                                          // the clip's own start
+        double ts = ts0 - shift;                                            // where its transition starts
         bool maskTransition = IsWipe(tr) || tr is TransitionKind.Iris or TransitionKind.BarnDoors or TransitionKind.BarnDoorsV;
         bool alpha = kOpacity != null || c.Opacity < 0.999 || c.FadeIn > 0 || c.FadeOut > 0 || rotated || maskTransition || tr is TransitionKind.Dissolve or TransitionKind.ZoomIn;
         if (alpha) ch.Append(",format=yuva420p");
@@ -259,21 +290,21 @@ public static class VidGraph
         }
         if (kOpacity != null) ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*clip({kOpacity},0,1)'");
         else if (c.Opacity < 0.999) ch.Append($",colorchannelmixer=aa={F(Math.Clamp(c.Opacity, 0, 1))}");
-        if (c.FadeIn > 0) ch.Append($",fade=t=in:st={F(ts)}:d={F(c.FadeIn)}:alpha=1");
-        if (c.FadeOut > 0) ch.Append($",fade=t=out:st={F(c.End - c.FadeOut - T0)}:d={F(c.FadeOut)}:alpha=1");
+        if (c.FadeIn > 0) ch.Append(FadeFilter(true, ts0, c.FadeIn, null));
+        if (c.FadeOut > 0) ch.Append(FadeFilter(false, c.End - c.FadeOut - T0, c.FadeOut, null));
 
         // the way this clip comes in
         switch (tr)
         {
             case TransitionKind.Dissolve:
             case TransitionKind.ZoomIn:
-                ch.Append($",fade=t=in:st={F(ts)}:d={F(trL)}:alpha=1");
+                ch.Append(FadeFilter(true, ts, trL, null));
                 break;
             case TransitionKind.DipToBlack:
-                ch.Append($",fade=t=in:st={F(ts)}:d={F(trL / 2)}:color=black");
+                ch.Append(FadeFilter(true, ts, trL / 2, "black"));
                 break;
             case TransitionKind.DipToWhite:
-                ch.Append($",fade=t=in:st={F(ts)}:d={F(trL / 2)}:color=white");
+                ch.Append(FadeFilter(true, ts, trL / 2, "white"));
                 break;
             case TransitionKind.WipeRight:
             case TransitionKind.WipeLeft:
@@ -300,7 +331,7 @@ public static class VidGraph
         }
         // and the way it goes out when the next clip dips (to black or to white)
         if (next != null && IsDip(next.Transition))
-            ch.Append($",fade=t=out:st={F(c.End - nextL / 2 - T0)}:d={F(nextL / 2)}:color={(next.Transition == TransitionKind.DipToWhite ? "white" : "black")}");
+            ch.Append(FadeFilter(false, c.End - nextL / 2 - T0, nextL / 2, next.Transition == TransitionKind.DipToWhite ? "white" : "black"));
 
         string vl = "v" + idx;
         x.Script.Append(ch).Append($"[{vl}];\n");
@@ -322,7 +353,7 @@ public static class VidGraph
         }
         if (next != null && IsPush(next.Transition))
         {
-            string go = Progress(next.Start - T0, nextL, "t");                    // 0 -> 1 while the next one pushes this one out
+            string go = Progress(next.Start - T0 - nextLead, nextL, "t");         // 0 -> 1 while the next one pushes this one out
             switch (next.Transition)
             {
                 case TransitionKind.PushLeft: offX = $"(-{go})"; break;
@@ -362,10 +393,10 @@ public static class VidGraph
         var kOpacity = Keyed(c, "Opacity", T0, "T");
         if (kOpacity != null) ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*clip({kOpacity},0,1)'");
         else if (c.Opacity < 0.999) ch.Append($",colorchannelmixer=aa={F(Math.Clamp(c.Opacity, 0, 1))}");
-        if (c.FadeIn > 0) ch.Append($",fade=t=in:st={F(c.Start - T0)}:d={F(c.FadeIn)}:alpha=1");
-        if (c.FadeOut > 0) ch.Append($",fade=t=out:st={F(c.End - c.FadeOut - T0)}:d={F(c.FadeOut)}:alpha=1");
+        if (c.FadeIn > 0) ch.Append(FadeFilter(true, c.Start - T0, c.FadeIn, null));
+        if (c.FadeOut > 0) ch.Append(FadeFilter(false, c.End - c.FadeOut - T0, c.FadeOut, null));
         if (c.Transition != TransitionKind.None)
-            ch.Append($",fade=t=in:st={F(c.Start - T0)}:d={F(Math.Max(0.05, c.TransitionLength))}:alpha=1");
+            ch.Append(FadeFilter(true, c.Start - T0, Math.Max(0.05, c.TransitionLength), null));
         x.Script.Append(ch).Append($"[{lid}];\n");
         string next = "o" + n + "x";
         x.Script.Append($"[{x.Last}][{lid}]overlay=eof_action=pass:format=auto[{next}];\n");

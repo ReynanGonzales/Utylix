@@ -19,6 +19,9 @@ public enum TransitionKind
     DipToWhite, PushLeft, PushRight, PushUp, PushDown, SlideLeft, SlideRight, SlideUp, SlideDown, Iris, BarnDoors, BarnDoorsV, ZoomIn,
 }
 
+/// <summary>Where a transition sits on the cut between two clips (Premiere's "Start at cut", "Center at cut", "End at cut").</summary>
+public enum TransitionAlign { Start, Center, End }
+
 /// <summary>A value at a time (seconds from the start of the clip, on the timeline); between two keyframes the value moves in a straight line.</summary>
 public sealed class Keyframe
 {
@@ -105,6 +108,8 @@ public sealed class Clip
     public List<ClipEffect> Effects { get; set; } = new();
     public TransitionKind Transition { get; set; }
     public double TransitionLength { get; set; } = 1;
+    /// <summary>Starts at the cut (the default of older projects), centred on it, or ends at it. Only means something when another clip comes right before this one.</summary>
+    public TransitionAlign TransitionAlign { get; set; }
 
     [JsonIgnore] public double End => Start + Length;
 
@@ -146,6 +151,22 @@ public sealed class Track
     public double Volume { get; set; } = 1;
     public double Pan { get; set; }
     public List<Clip> Clips { get; set; } = new();
+
+    /// <summary>The clip that ends right where <paramref name="c"/> starts, or null.</summary>
+    public Clip? ClipBefore(Clip c) => Clips.FirstOrDefault(o => o != c && Math.Abs(o.End - c.Start) < 0.002);
+
+    /// <summary>
+    /// How many seconds of the clip's transition happen BEFORE its start (on the outgoing clip's side of the cut): none when it starts at the cut,
+    /// half when centred, all of it when it ends at the cut. A dip to black / white is always half and half. Only a clip with another clip right
+    /// before it can have any.
+    /// </summary>
+    public double TransitionLead(Clip c)
+    {
+        if (c.Transition == TransitionKind.None || ClipBefore(c) == null) return 0;
+        double len = Math.Max(0.05, c.TransitionLength);
+        if (c.Transition is TransitionKind.DipToBlack or TransitionKind.DipToWhite) return len / 2;
+        return c.TransitionAlign switch { TransitionAlign.Center => len / 2, TransitionAlign.End => len, _ => 0 };
+    }
 }
 
 public sealed class VidProject

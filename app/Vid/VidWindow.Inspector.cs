@@ -412,7 +412,21 @@ public sealed partial class VidWindow
             }
             _inspector.Children.Add(chips);
             if (primary.Transition != TransitionKind.None)
-                NumberRow("Duration", "s", primary.TransitionLength, "0.0#", v => _s.SetTransition(videos, primary.Transition, v), "VidInspTransLength");
+                NumberRow("Duration", "s", primary.TransitionLength, "0.0#", v => _s.SetTransition(videos, primary.Transition, v, null), "VidInspTransLength");
+            bool dipKind = primary.Transition is TransitionKind.DipToBlack or TransitionKind.DipToWhite;
+            if (primary.Transition != TransitionKind.None && !dipKind && tracks.TryGetValue(primary, out var primaryTrack) && primaryTrack?.ClipBefore(primary) != null)
+            {
+                _inspector.Children.Add(Hint("Where it sits on the cut between the two clips."));
+                var alignChips = new WrapPanel();
+                foreach (var (al, name) in new[] { (TransitionAlign.Start, "Starts at the cut"), (TransitionAlign.Center, "Centred on the cut"), (TransitionAlign.End, "Ends at the cut") })
+                {
+                    var chip = new RadioButton { Content = name, Style = chipStyle, GroupName = "vidTransAlign", IsChecked = primary.TransitionAlign == al };
+                    System.Windows.Automation.AutomationProperties.SetAutomationId(chip, "VidTransAlign" + al);
+                    chip.Checked += (_, _) => { if (!_inspectorBuilding && primary.TransitionAlign != al) _s.SetTransitionAlign(videos, al); };
+                    alignChips.Children.Add(chip);
+                }
+                _inspector.Children.Add(alignChips);
+            }
         }
 
         // effects: each is a card with its numbers

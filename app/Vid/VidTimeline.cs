@@ -46,7 +46,8 @@ public sealed class VidTimeline : FrameworkElement
     private Clip? _rollLeft;
     private double _slipDelta;
     private Clip? _dropClip;                 // a clip an effect is being dragged over
-    private double _dropTransAt = -1;        // where a dragged transition would start
+    private double _dropTransAt = -1;        // the cut a dragged transition would go on (= the start of the clip that comes in)
+    private double _dropTransLead, _dropTransLen = 1;     // how far its box reaches back over the clip before, and how long it is
     private Clip? _transMoveFrom;            // the clip whose transition is being dragged to another cut
     private HashSet<string> _marqueeBase = new();
 
@@ -235,6 +236,21 @@ public sealed class VidTimeline : FrameworkElement
                 DrawClip(dc, c, rows[r], new Rect(x0, top, Math.Max(2, x1 - x0), h), selected.Contains(c.Id), false, dark, accent);
             }
         }
+        // transitions: a box on the cut that reaches over the clip before when it is centred on the cut or ends at it
+        for (int r = 0; r < rows.Count; r++)
+        {
+            double top = RowTop(rows, r), h = RowHeight(rows[r]);
+            foreach (var c in rows[r].Clips)
+            {
+                if (c.Transition == TransitionKind.None || (movingSet != null && movingSet.Contains(c))) continue;
+                var (bx0, bx1) = TransitionBox(rows[r], c);
+                double lx = Math.Max(bx0, HeaderWidth);
+                if (bx1 < HeaderWidth || lx > W) continue;
+                var box = new Rect(lx, top + 1, Math.Max(6, bx1 - lx), h - 2);
+                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(170, 255, 255, 255)), new Pen(new SolidColorBrush(Color.FromArgb(200, 40, 40, 40)), 1), box);
+                dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(180, 40, 40, 40)), 1), new Point(box.X, box.Bottom), new Point(box.Right, box.Y));
+            }
+        }
         // clips being moved are drawn where they would land
         if (movingSet != null)
         {
@@ -278,8 +294,9 @@ public sealed class VidTimeline : FrameworkElement
             if (tr >= 0)
             {
                 double top = RowTop(rows, tr), h = RowHeight(rows[tr]);
-                double x0 = TimeToX(_dropTransAt);
-                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, 250, 204, 21)), null, new Rect(x0, top + 2, Math.Max(10, 1.0 * _pps), h - 4));
+                double x0 = TimeToX(_dropTransAt - _dropTransLead);
+                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, 250, 204, 21)), new Pen(new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15)), 1.5), new Rect(x0, top + 2, Math.Max(10, _dropTransLen * _pps), h - 4));
+                dc.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15)), 1) { DashStyle = DashStyles.Dash }, new Point(TimeToX(_dropTransAt), top), new Point(TimeToX(_dropTransAt), top + h));
             }
         }
 
@@ -509,15 +526,6 @@ public sealed class VidTimeline : FrameworkElement
         }
         dc.Pop(); // opacity
 
-        // the way the clip comes in
-        if (c.Transition != TransitionKind.None)
-        {
-            double tw = Math.Max(6, c.TransitionLength * _pps);
-            dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, 255, 255, 255)), null, new Rect(rect.X, rect.Y, Math.Min(tw, rect.Width), rect.Height));
-            var diag = new Pen(new SolidColorBrush(Color.FromArgb(180, 40, 40, 40)), 1);
-            double wTrans = Math.Min(tw, rect.Width);
-            dc.DrawLine(diag, new Point(rect.X, rect.Bottom), new Point(rect.X + wTrans, rect.Y));
-        }
         // keyframes (small yellow diamonds along the bottom)
         foreach (var list in c.Keys.Values)
             foreach (var k in list)
@@ -619,11 +627,17 @@ public sealed class VidTimeline : FrameworkElement
         var (clip, zone, row) = HitTest(p, rows);
         if (Tool == VidTool.Select && row >= 0 && !rows[row].Locked)
         {
-            var edgeOwner = rows[row].Clips.FirstOrDefault(c => c.Transition != TransitionKind.None && TimeToX(c.End) - TimeToX(c.Start) > 16 &&
-                Math.Abs(TimeToX(c.Start + Math.Min(c.TransitionLength, c.Length)) - p.X) <= 5);
+            var trackHere = rows[row];
+            var edgeOwner = trackHere.Clips.FirstOrDefault(c => c.Transition != TransitionKind.None && TimeToX(c.End) - TimeToX(c.Start) > 16 &&
+                Math.Abs(TransitionEdgeX(trackHere, c) - p.X) <= 5);
             var bodyOwner = edgeOwner == null
-                ? rows[row].Clips.FirstOrDefault(c => c.Transition != TransitionKind.None && p.X >= TimeToX(c.Start) && p.X <= TimeToX(c.Start + Math.Min(c.TransitionLength, c.Length)) - 6
-                    && p.Y > RowTop(rows, row) + 17 && TimeToX(c.End) - TimeToX(c.Start) > 16)
+                ? trackHere.Clips.FirstOrDefault(c =>
+                {
+                    if (c.Transition == TransitionKind.None || TimeToX(c.End) - TimeToX(c.Start) <= 16 || p.Y <= RowTop(rows, row) + 17) return false;
+                    var (bx0, bx1) = TransitionBox(trackHere, c);
+                    bool lead = trackHere.TransitionLead(c) > 0;
+                    return p.X >= bx0 + (lead ? 6 : 0) && p.X <= bx1 - 6 && (!lead || Math.Abs(p.X - TimeToX(c.Start)) > 6);      // (the cut itself stays a trim edge)
+                })
                 : null;
             if (bodyOwner != null)
             {
@@ -641,7 +655,7 @@ public sealed class VidTimeline : FrameworkElement
                 _dragClip = edgeOwner;
                 _dragClips = new List<Clip> { edgeOwner };
                 _editBefore = _session.BeginEdit();
-                _ghostTime = edgeOwner.Start + Math.Min(edgeOwner.TransitionLength, edgeOwner.Length);
+                _ghostTime = TransitionEdgeTime(trackHere, edgeOwner);
                 _drag = Drag.TransLen;
                 CaptureMouse();
                 e.Handled = true;
@@ -737,7 +751,7 @@ public sealed class VidTimeline : FrameworkElement
         var rows = Rows();
         if (_drag == Drag.None)
         {
-            var (clip, zone, _) = HitTest(p, rows);
+            var (clip, zone, hoverRow) = HitTest(p, rows);
             if (Tool == VidTool.Razor)
             {
                 Cursor = Cursors.Cross;
@@ -747,7 +761,7 @@ public sealed class VidTimeline : FrameworkElement
             }
             if (Tool == VidTool.Hand) { Cursor = Cursors.ScrollAll; return; }
             if (Tool is VidTool.Ripple or VidTool.Rolling) { Cursor = Cursors.SizeWE; return; }
-            if (Tool == VidTool.Select && clip != null && clip.Transition != TransitionKind.None && Math.Abs(TimeToX(clip.Start + Math.Min(clip.TransitionLength, clip.Length)) - p.X) <= 5)
+            if (Tool == VidTool.Select && hoverRow >= 0 && rows[hoverRow].Clips.Any(c => c.Transition != TransitionKind.None && Math.Abs(TransitionEdgeX(rows[hoverRow], c) - p.X) <= 5))
             { Cursor = Cursors.SizeWE; return; }
             if (Tool == VidTool.Slip) { Cursor = clip != null ? Cursors.ScrollWE : Cursors.Arrow; return; }
             if (Tool == VidTool.TrackForward) { Cursor = Cursors.Arrow; return; }
@@ -793,18 +807,10 @@ public sealed class VidTimeline : FrameworkElement
             case Drag.TransMove:
             {
                 _dropTransAt = -1;
-                var tracksHere = rows;
-                int rr = RowAt(p.Y, rows);
-                if (rr >= 0 && _transMoveFrom != null)
+                if (_transMoveFrom != null)
                 {
-                    var hit = tracksHere[rr].Clips.FirstOrDefault(c => c != _transMoveFrom && XToTime(p.X) >= c.Start && XToTime(p.X) < c.End);
-                    if (hit != null)
-                    {
-                        // the nearest start of a clip: the clip itself, or the one that follows it when the pointer is in its right half
-                        bool rightHalf = XToTime(p.X) > (hit.Start + hit.End) / 2;
-                        var follow = rightHalf ? tracksHere[rr].Clips.FirstOrDefault(c => Math.Abs(c.Start - hit.End) < 0.002) : null;
-                        _dropTransAt = (follow ?? hit).Start;
-                    }
+                    var (tc, tr) = TransitionTarget(p, rows, _transMoveFrom);
+                    if (tc != null) SetDropTransition(tc, rows[tr], _transMoveFrom.TransitionLength, _transMoveFrom.TransitionAlign);
                 }
                 InvalidateVisual();
                 break;
@@ -812,7 +818,10 @@ public sealed class VidTimeline : FrameworkElement
             case Drag.TransLen:
                 if (_dragClip != null)
                 {
-                    _ghostTime = Math.Clamp(Snap(t, _dragClips), _dragClip.Start + 0.1, _dragClip.End);
+                    double tNow = Snap(t, _dragClips);
+                    _ghostTime = TransitionEdgeAlign(_dragClip) == TransitionAlign.End
+                        ? Math.Clamp(tNow, _dragClip.Start - _dragClip.Length, _dragClip.Start - 0.1)
+                        : Math.Clamp(tNow, _dragClip.Start + 0.05, _dragClip.End);
                     InvalidateVisual();
                 }
                 break;
@@ -932,7 +941,16 @@ public sealed class VidTimeline : FrameworkElement
                 InvalidateVisual();
                 break;
             case Drag.TransLen:
-                if (_dragClip != null && _ghostTime >= 0) _session.SetTransition(new[] { _dragClip }, _dragClip.Transition, _ghostTime - _dragClip.Start);
+                if (_dragClip != null && _ghostTime >= 0)
+                {
+                    double len = TransitionEdgeAlign(_dragClip) switch
+                    {
+                        TransitionAlign.End => _dragClip.Start - _ghostTime,
+                        TransitionAlign.Center => 2 * (_ghostTime - _dragClip.Start),
+                        _ => _ghostTime - _dragClip.Start,
+                    };
+                    _session.SetTransition(new[] { _dragClip }, _dragClip.Transition, Math.Max(0.1, len), _dragClip.TransitionAlign);
+                }
                 _ghostTime = -1;
                 InvalidateVisual();
                 break;
@@ -991,6 +1009,67 @@ public sealed class VidTimeline : FrameworkElement
         e.Handled = true;
     }
 
+    // ---------- transitions on cuts ----------
+    /// <summary>The box a clip's transition covers on the timeline (it can reach back over the clip before: centred on the cut, or ending at it).</summary>
+    private (double X0, double X1) TransitionBox(Track track, Clip c)
+    {
+        double x0 = TimeToX(c.Start - track.TransitionLead(c));
+        return (x0, x0 + Math.Max(0.05, c.TransitionLength) * _pps);
+    }
+
+    /// <summary>How the box really sits: a clip with nothing before it can only start at its own start; a dip is always centred.</summary>
+    private TransitionAlign TransitionEdgeAlign(Clip c)
+    {
+        var track = _session.Project.TrackOf(c);
+        if (track == null || track.ClipBefore(c) == null) return TransitionAlign.Start;
+        if (c.Transition is TransitionKind.DipToBlack or TransitionKind.DipToWhite) return TransitionAlign.Center;
+        return c.TransitionAlign;
+    }
+
+    /// <summary>The edge of the box that is dragged to change the length: the right one, or the left one when the transition ends at the cut.</summary>
+    private double TransitionEdgeTime(Track track, Clip c)
+    {
+        double lead = track.TransitionLead(c), len = Math.Max(0.05, c.TransitionLength);
+        return TransitionEdgeAlign(c) == TransitionAlign.End ? c.Start - lead : c.Start - lead + len;
+    }
+
+    private double TransitionEdgeX(Track track, Clip c) => TimeToX(TransitionEdgeTime(track, c));
+
+    /// <summary>
+    /// Where a transition dropped at the pointer goes: the clip that comes in, and its row. A cut between two clips within reach of the pointer wins
+    /// (whichever clip the pointer is over); otherwise the start of the clip under the pointer, or the clip after it when the pointer is in its right half.
+    /// </summary>
+    private (Clip? Clip, int Row) TransitionTarget(Point p, List<Track> rows, Clip? exclude = null)
+    {
+        int r = RowAt(p.Y, rows);
+        if (r < 0) return (null, -1);
+        var track = rows[r];
+        Clip? bestCut = null;
+        double best = 32;
+        foreach (var c in track.Clips)
+        {
+            if (c == exclude || track.ClipBefore(c) == null) continue;
+            double d = Math.Abs(TimeToX(c.Start) - p.X);
+            if (d < best) { best = d; bestCut = c; }
+        }
+        if (bestCut != null) return (bestCut, r);
+        double t = XToTime(p.X);
+        var hover = track.Clips.FirstOrDefault(c => c != exclude && t >= c.Start && t < c.End);
+        if (hover == null) return (null, -1);
+        bool right = t > (hover.Start + hover.End) / 2;
+        var follow = right ? track.Clips.FirstOrDefault(c => c != exclude && Math.Abs(c.Start - hover.End) < 0.002) : null;
+        return (follow ?? hover, r);
+    }
+
+    private void SetDropTransition(Clip target, Track track, double length, TransitionAlign? align)
+    {
+        _dropTransAt = target.Start;
+        _dropTransLen = Math.Max(0.1, length);
+        bool hasBefore = track.ClipBefore(target) != null;
+        var a = !hasBefore ? TransitionAlign.Start : align ?? TransitionAlign.Center;
+        _dropTransLead = a switch { TransitionAlign.Center => _dropTransLen / 2, TransitionAlign.End => _dropTransLen, _ => 0 };
+    }
+
     // ---------- dropping files and media from the bin ----------
     protected override void OnDragOver(DragEventArgs e)
     {
@@ -1001,16 +1080,13 @@ public sealed class VidTimeline : FrameworkElement
             e.Effects = DragDropEffects.Copy;
             var (hover, _, hr) = HitTest(p, rows);
             _dropClip = null; _dropTransAt = -1;
-            if (hover != null && hr >= 0)
+            if (payload.StartsWith("tr:", StringComparison.Ordinal))
             {
-                if (payload.StartsWith("tr:", StringComparison.Ordinal))
-                {
-                    bool right = XToTime(p.X) > (hover.Start + hover.End) / 2;
-                    var follow = right ? rows[hr].Clips.FirstOrDefault(c => Math.Abs(c.Start - hover.End) < 0.002) : null;
-                    _dropTransAt = (follow ?? hover).Start;
-                }
-                else _dropClip = hover;
+                // a transition goes on a CUT: the pointer near the join of two clips picks it (and the box shows how it would sit on it)
+                var (tc, tr) = TransitionTarget(p, rows);
+                if (tc != null) SetDropTransition(tc, rows[tr], 1.0, null);
             }
+            else if (hover != null && hr >= 0) _dropClip = hover;
             InvalidateVisual();
             e.Handled = true;
             return;
@@ -1037,12 +1113,12 @@ public sealed class VidTimeline : FrameworkElement
             var (target, _, tr) = HitTest(p, rows);
             _dropClip = null; _dropTransAt = -1;
             InvalidateVisual();
-            if (target != null && tr >= 0)
+            if (fx.StartsWith("tr:", StringComparison.Ordinal))
             {
-                bool right = XToTime(p.X) > (target.Start + target.End) / 2;
-                var follow = right && fx.StartsWith("tr:", StringComparison.Ordinal) ? rows[tr].Clips.FirstOrDefault(c => Math.Abs(c.Start - target.End) < 0.002) : null;
-                EffectDropped?.Invoke(fx, follow ?? target, right);
+                var (tc, _) = TransitionTarget(p, rows);
+                if (tc != null) EffectDropped?.Invoke(fx, tc, false);
             }
+            else if (target != null && tr >= 0) EffectDropped?.Invoke(fx, target, false);
             e.Handled = true;
             return;
         }
