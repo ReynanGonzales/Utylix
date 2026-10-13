@@ -28,6 +28,7 @@ public sealed class VidPlayer : IDisposable
     private FfJob? _videoJob, _audioJob;
     private WasapiOut? _out;
     private BufferedWaveProvider? _buffer;
+    private MeterProvider? _meter;
     private readonly ConcurrentQueue<(double Pts, byte[] Data)> _frames = new();
     private double _from;                                       // timeline time where this playback began
     private double _end;
@@ -53,6 +54,8 @@ public sealed class VidPlayer : IDisposable
     /// <summary>Playing stopped by itself (the end was reached) or because of an error.</summary>
     public event Action? Stopped;
     public event Action<string>? Problem;
+    /// <summary>The loudness (0..1) of what is being played, left and right, about 120 times a second while playing.</summary>
+    public event Action<double, double>? Levels;
 
     public VidPlayer(VidSession session)
     {
@@ -226,7 +229,8 @@ public sealed class VidPlayer : IDisposable
         try
         {
             _out = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, true, 80);
-            _out.Init(_buffer);
+            _meter = new MeterProvider(_buffer);
+            _out.Init(_meter);
         }
         catch (Exception e) when (e is System.Runtime.InteropServices.COMException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
@@ -324,6 +328,7 @@ public sealed class VidPlayer : IDisposable
         }
         _session.Playhead = Math.Min(now, _end);
         Position?.Invoke(_session.Playhead);
+        if (_meter != null) Levels?.Invoke(_meter.L, _meter.R);
         bool finished = (_videoDone && _frames.IsEmpty && now >= _end - 0.5 / _fps) || now >= _end + 0.25;
         if (finished)
         {
@@ -341,7 +346,7 @@ public sealed class VidPlayer : IDisposable
         _generation++;
         try { _out?.Stop(); } catch (Exception e) when (e is System.Runtime.InteropServices.COMException or InvalidOperationException) { }
         try { _out?.Dispose(); } catch (Exception e) when (e is System.Runtime.InteropServices.COMException or InvalidOperationException) { }
-        _out = null; _buffer = null;
+        _out = null; _buffer = null; _meter = null;
         foreach (var p in new[] { _video, _audio })
         {
             if (p == null) continue;
@@ -360,5 +365,29 @@ public sealed class VidPlayer : IDisposable
         _scrubCts?.Cancel();
         StopProcesses();
         IsPlaying = false;
+    }
+
+    /// <summary>Passes the sound on to the device and remembers how loud the last piece was (for the meters).</summary>
+    private sealed class MeterProvider : IWaveProvider
+    {
+        private readonly IWaveProvider _source;
+        public volatile float L, R;
+        public MeterProvider(IWaveProvider source) { _source = source; }
+        public WaveFormat WaveFormat => _source.WaveFormat;
+
+        public int Read(byte[] buffer, int offset, int count)
+        {
+            int n = _source.Read(buffer, offset, count);
+            float l = 0, r = 0;
+            for (int i = offset; i + 3 < offset + n; i += 4)
+            {
+                float a = Math.Abs((short)(buffer[i] | (buffer[i + 1] << 8))) / 32768f;
+                float b = Math.Abs((short)(buffer[i + 2] | (buffer[i + 3] << 8))) / 32768f;
+                if (a > l) l = a;
+                if (b > r) r = b;
+            }
+            L = l; R = r;
+            return n;
+        }
     }
 }

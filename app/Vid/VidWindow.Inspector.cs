@@ -91,6 +91,39 @@ public sealed partial class VidWindow
         _inspector.Children.Add(slider);
     }
 
+    private readonly HashSet<string> _collapsed = new();
+
+    /// <summary>A section title in Effect Controls: click it to fold the rows below it (like Premiere's twirl-down arrows).</summary>
+    private UIElement SectionHeader(string title)
+    {
+        var row = new DockPanel { Background = Brushes.Transparent, Cursor = Cursors.Hand, Margin = new Thickness(0, 10, 0, 6) };
+        var chevron = new TextBlock { FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 10, Width = 18, VerticalAlignment = VerticalAlignment.Center, Text = _collapsed.Contains(title) ? "" : "" };
+        row.Children.Add(chevron);
+        row.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center });
+        row.Tag = "section:" + title;
+        row.MouseLeftButtonUp += (_, _) =>
+        {
+            if (!_collapsed.Remove(title)) _collapsed.Add(title);
+            RefreshInspector();
+        };
+        return row;
+    }
+
+    /// <summary>Hides the rows under the sections that are folded.</summary>
+    private void ApplySections()
+    {
+        bool hide = false;
+        foreach (UIElement child in _inspector.Children)
+        {
+            if (child is FrameworkElement fe && fe.Tag is string tag && tag.StartsWith("section:", StringComparison.Ordinal))
+            {
+                hide = _collapsed.Contains(tag.Substring(8));
+                continue;
+            }
+            child.Visibility = hide ? Visibility.Collapsed : Visibility.Visible;
+        }
+    }
+
     private void RefreshInspector()
     {
         if (_inspector == null) return;
@@ -100,6 +133,7 @@ public sealed partial class VidWindow
             _inspector.Children.Clear();
             var sel = _s.WithLinked(_s.SelectedClips).ToList();
             if (sel.Count == 0) BuildProjectPanel(); else BuildClipPanel(sel);
+            ApplySections();
         }
         finally { _inspectorBuilding = false; }
     }
@@ -109,7 +143,7 @@ public sealed partial class VidWindow
         var p = _s.Project;
         _inspector.Children.Add(Heading("Project"));
         _inspector.Children.Add(Hint("Choose a clip on the timeline to change its speed, sound, fades and position."));
-        _inspector.Children.Add(Heading("Picture size", 6));
+        _inspector.Children.Add(SectionHeader("Picture size"));
         var sizes = new (string Label, int W, int H)[]
         {
             ("1920 × 1080  wide", 1920, 1080), ("1280 × 720  wide", 1280, 720), ("3840 × 2160  4K", 3840, 2160),
@@ -128,7 +162,7 @@ public sealed partial class VidWindow
             panel.Children.Add(chip);
         }
         _inspector.Children.Add(panel);
-        _inspector.Children.Add(Heading("Frames per second", 6));
+        _inspector.Children.Add(SectionHeader("Frames per second"));
         var fpsPanel = new WrapPanel();
         foreach (double f in new double[] { 24, 25, 30, 50, 60 })
         {
@@ -142,7 +176,7 @@ public sealed partial class VidWindow
         }
         _inspector.Children.Add(fpsPanel);
         int clips = p.AllClips.Count();
-        _inspector.Children.Add(Heading("About this project", 10));
+        _inspector.Children.Add(SectionHeader("About this project"));
         _inspector.Children.Add(Hint($"{clips} clip{(clips == 1 ? "" : "s")}  ·  {VidTimeline.TimeText(p.Duration)} long  ·  {p.Media.Count} file{(p.Media.Count == 1 ? "" : "s")}"));
     }
 
@@ -174,7 +208,7 @@ public sealed partial class VidWindow
         _inspector.Children.Add(box);
         _inspector.Children.Add(Hint("Click outside the box (or Ctrl+Enter) to apply."));
 
-        _inspector.Children.Add(Heading("Time", 4));
+        _inspector.Children.Add(SectionHeader("Time"));
         NumberRow("Starts at", "s", primary.Start, "0.00", v => _s.Move(texts, Math.Max(0, v) - primary.Start, 0, true), "VidInspStart");
         NumberRow("Length", "s", primary.Length, "0.00", v =>
         {
@@ -182,7 +216,7 @@ public sealed partial class VidWindow
             _s.Do("Length", () => _s.TrimEnd(new[] { primary }, primary.Start + want, commit: false));
         }, "VidInspLength");
 
-        _inspector.Children.Add(Heading("Look", 8));
+        _inspector.Children.Add(SectionHeader("Look"));
         SliderRow("Letter size", primary.TextSize, 0.02, 0.3, v => $"{v * 100:0} %", v => { foreach (var c in texts) c.TextSize = Math.Round(v, 3); }, "Letter size", "VidInspTextSize");
         var colours = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
         foreach (string hex in TitleColors)
@@ -209,7 +243,7 @@ public sealed partial class VidWindow
         SliderRow("Position across", primary.X, 0, 1, v => $"{v * 100:0} %", v => { foreach (var c in texts) c.X = Math.Round(v, 3); }, "Position", "VidInspX");
         SliderRow("Position down", primary.Y, 0, 1, v => $"{v * 100:0} %", v => { foreach (var c in texts) c.Y = Math.Round(v, 3); }, "Position", "VidInspY");
         SliderRow("Opacity", primary.Opacity, 0, 1, v => $"{v * 100:0} %", v => { foreach (var c in texts) c.Opacity = Math.Round(v, 2); }, "Opacity", "VidInspOpacity");
-        _inspector.Children.Add(Heading("Fades", 8));
+        _inspector.Children.Add(SectionHeader("Fades"));
         NumberRow("Fade in", "s", primary.FadeIn, "0.0#", v => _s.SetProperty(texts, "Fade in", c => c.FadeIn = Math.Clamp(v, 0, Math.Max(0, c.Length - c.FadeOut))), "VidInspFadeIn");
         NumberRow("Fade out", "s", primary.FadeOut, "0.0#", v => _s.SetProperty(texts, "Fade out", c => c.FadeOut = Math.Clamp(v, 0, Math.Max(0, c.Length - c.FadeIn))), "VidInspFadeOut");
     }
@@ -230,7 +264,7 @@ public sealed partial class VidWindow
         string many = sel.Count > 2 || (videos.Count > 1 || sounds.Count > 1) ? $"{sel.Count} clips chosen  ·  " : "";
         _inspector.Children.Add(Hint(many + kind));
 
-        _inspector.Children.Add(Heading("Time", 4));
+        _inspector.Children.Add(SectionHeader("Time"));
         NumberRow("Starts at", "s", primary.Start, "0.00", v =>
         {
             var applied = _s.Move(sel, Math.Max(0, v) - primary.Start, 0, true);
@@ -249,12 +283,12 @@ public sealed partial class VidWindow
 
         if (sounds.Count > 0)
         {
-            _inspector.Children.Add(Heading("Sound", 8));
+            _inspector.Children.Add(SectionHeader("Audio"));
             SliderRow("Volume", sounds[0].Volume, 0, 2, v => $"{v * 100:0} %", v => { foreach (var c in sounds) c.Volume = Math.Round(v, 2); }, "Volume", "VidInspVolume");
         }
         if (videos.Count > 0)
         {
-            _inspector.Children.Add(Heading("Picture", 8));
+            _inspector.Children.Add(SectionHeader("Motion and opacity"));
             SliderRow("Opacity", videos[0].Opacity, 0, 1, v => $"{v * 100:0} %", v => { foreach (var c in videos) c.Opacity = Math.Round(v, 2); }, "Opacity", "VidInspOpacity");
             SliderRow("Size", videos[0].Scale, 0.1, 3, v => $"{v * 100:0} %", v => { foreach (var c in videos) c.Scale = Math.Round(v, 2); }, "Size", "VidInspScale");
             SliderRow("Position across", videos[0].X, 0, 1, v => $"{v * 100:0} %", v => { foreach (var c in videos) c.X = Math.Round(v, 3); }, "Position", "VidInspX");
@@ -264,7 +298,7 @@ public sealed partial class VidWindow
             centre.HorizontalAlignment = HorizontalAlignment.Left;
             _inspector.Children.Add(centre);
         }
-        _inspector.Children.Add(Heading("Fades", 10));
+        _inspector.Children.Add(SectionHeader("Fades"));
         NumberRow("Fade in", "s", primary.FadeIn, "0.0#", v => _s.SetProperty(sel, "Fade in", c => c.FadeIn = Math.Clamp(v, 0, Math.Max(0, c.Length - c.FadeOut))), "VidInspFadeIn");
         NumberRow("Fade out", "s", primary.FadeOut, "0.0#", v => _s.SetProperty(sel, "Fade out", c => c.FadeOut = Math.Clamp(v, 0, Math.Max(0, c.Length - c.FadeIn))), "VidInspFadeOut");
     }

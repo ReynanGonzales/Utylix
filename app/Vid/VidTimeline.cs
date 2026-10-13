@@ -9,6 +9,9 @@ using System.Windows.Media;
 
 namespace IdmClone.Vid;
 
+/// <summary>The tool chosen in the tools column: selection (V), razor (C), hand (H).</summary>
+public enum VidTool { Select, Razor, Hand }
+
 /// <summary>
 /// The timeline: ruler, track headers and the clips, drawn by hand. Click a clip to choose it, drag it to move it (also to another track), drag its
 /// ends to trim, click the ruler to place the playhead, Ctrl + wheel to zoom. Everything that changes the project goes through <see cref="VidSession"/>.
@@ -25,7 +28,7 @@ public sealed class VidTimeline : FrameworkElement
     private double _pps = 70;               // pixels per second
     private double _offset;                 // seconds at the left edge of the clip area
 
-    private enum Drag { None, Playhead, Move, TrimStart, TrimEnd }
+    private enum Drag { None, Playhead, Move, TrimStart, TrimEnd, Pan }
     private Drag _drag;
     private Point _downPoint;
     private double _downTime;
@@ -35,6 +38,12 @@ public sealed class VidTimeline : FrameworkElement
     private double _moveDt; private int _moveRows;
     private bool _moved;
     private double _dropTime = -1; private int _dropRow = -1;
+    private double _panOffset;
+    private double _razorX = -1;
+
+    public VidTool Tool { get; set; } = VidTool.Select;
+    public bool SnapEnabled { get; set; } = true;
+
 
     public VidTimeline(VidSession session, VidMediaCache cache)
     {
@@ -211,6 +220,10 @@ public sealed class VidTimeline : FrameworkElement
             dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(60, accent.R, accent.G, accent.B)), new Pen(new SolidColorBrush(accent), 1.5), new Rect(TimeToX(_dropTime), top, 90, h));
         }
 
+        // razor guide: where the cut would be
+        if (Tool == VidTool.Razor && _razorX >= HeaderWidth)
+            dc.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15)), 1) { DashStyle = DashStyles.Dash }, new Point(_razorX, RulerHeight), new Point(_razorX, H));
+
         // playhead
         double px = TimeToX(_session.Playhead);
         if (px >= HeaderWidth - 1 && px <= W)
@@ -262,6 +275,17 @@ public sealed class VidTimeline : FrameworkElement
             dc.DrawLine(isMajor ? penMajor : pen, new Point(x, RulerHeight - (isMajor ? 10 : 5)), new Point(x, RulerHeight));
             if (isMajor) dc.DrawText(Text(TimeText(t, major < 1), 11, muted), new Point(x + 4, 4));
         }
+    }
+
+    /// <summary>HH:MM:SS:FF like Premiere's timecode (frames at the project's frame rate).</summary>
+    public static string Timecode(double t, double fps)
+    {
+        if (t < 0) t = 0;
+        if (fps <= 0) fps = 30;
+        long frames = (long)Math.Round(t * fps);
+        int fr = (int)(frames % (long)Math.Round(fps));
+        long secs = frames / (long)Math.Round(fps);
+        return $"{secs / 3600:00}:{secs / 60 % 60:00}:{secs % 60:00}:{fr:00}";
     }
 
     public static string TimeText(double t, bool fraction = false)
@@ -393,7 +417,24 @@ public sealed class VidTimeline : FrameworkElement
             return;
         }
 
+        if (Tool == VidTool.Hand)
+        {
+            _drag = Drag.Pan; _panOffset = _offset; CaptureMouse(); e.Handled = true; return;
+        }
         var (clip, zone, row) = HitTest(p, rows);
+        if (Tool == VidTool.Razor)
+        {
+            if (clip != null && !rows[row].Locked)
+            {
+                double cut = SnapEnabled ? Snap(XToTime(p.X), new List<Clip>()) : XToTime(p.X);
+                var targets = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)
+                    ? _session.Project.AllClips.Where(c => c.Start < cut - 0.02 && c.End > cut + 0.02).ToList()
+                    : _session.WithLinked(new[] { clip }).ToList();
+                _session.SplitClips(targets, cut);
+            }
+            e.Handled = true;
+            return;
+        }
         if (clip == null)
         {
             // empty space: nothing chosen any more, and the playhead goes there
@@ -424,6 +465,14 @@ public sealed class VidTimeline : FrameworkElement
         if (_drag == Drag.None)
         {
             var (clip, zone, _) = HitTest(p, rows);
+            if (Tool == VidTool.Razor)
+            {
+                Cursor = Cursors.Cross;
+                double rx = p.X >= HeaderWidth && p.Y > RulerHeight ? p.X : -1;
+                if (rx != _razorX) { _razorX = rx; InvalidateVisual(); }
+                return;
+            }
+            if (Tool == VidTool.Hand) { Cursor = Cursors.ScrollAll; return; }
             Cursor = p.Y < RulerHeight ? Cursors.Hand : zone is Drag.TrimStart or Drag.TrimEnd ? Cursors.SizeWE : clip != null ? Cursors.SizeAll : Cursors.Arrow;
             return;
         }
@@ -433,6 +482,9 @@ public sealed class VidTimeline : FrameworkElement
             case Drag.Playhead:
                 PlayheadDragged?.Invoke(Math.Max(0, t), false);
                 EdgeScroll(p.X);
+                break;
+            case Drag.Pan:
+                Offset = Math.Max(0, _panOffset - (p.X - _downPoint.X) / _pps);
                 break;
             case Drag.Move:
             {
@@ -447,7 +499,7 @@ public sealed class VidTimeline : FrameworkElement
                 _moveRows = allVideo || allAudio ? shift : 0;
                 int indexDelta = allVideo ? -_moveRows : allAudio ? _moveRows : 0;
                 var snaps = _session.SnapPoints(_dragClips);
-                var applied = _session.Move(_dragClips, t - _downTime, indexDelta, false, snaps, 8 / _pps);
+                var applied = _session.Move(_dragClips, t - _downTime, indexDelta, false, SnapEnabled ? snaps : null, 8 / _pps);
                 _moveDt = applied.Time;
                 _moveRows = allVideo ? -applied.Tracks : allAudio ? applied.Tracks : 0;
                 InvalidateVisual();
@@ -477,6 +529,7 @@ public sealed class VidTimeline : FrameworkElement
 
     private double Snap(double t, ICollection<Clip> exclude)
     {
+        if (!SnapEnabled) return t;
         double best = 8 / _pps; double result = t;
         foreach (double s in _session.SnapPoints(exclude))
             if (Math.Abs(s - t) < best) { best = Math.Abs(s - t); result = s; }
@@ -509,7 +562,7 @@ public sealed class VidTimeline : FrameworkElement
                     int downRow = RowAt(_downPoint.Y, rows), nowRow = RowAt(p.Y, rows);
                     int shift = nowRow >= 0 && downRow >= 0 ? nowRow - downRow : 0;
                     int indexDelta = allVideo ? -shift : allAudio ? shift : 0;
-                    _session.Move(_dragClips, XToTime(p.X) - _downTime, indexDelta, true, _session.SnapPoints(_dragClips), 8 / _pps);
+                    _session.Move(_dragClips, XToTime(p.X) - _downTime, indexDelta, true, SnapEnabled ? _session.SnapPoints(_dragClips) : null, 8 / _pps);
                 }
                 _moved = false;
                 InvalidateVisual();

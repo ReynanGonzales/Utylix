@@ -364,9 +364,12 @@ public sealed class VidSession
 
     // ---------- splitting ----------
     /// <summary>Cuts clips at a time: the selected ones under it, or every clip under it when nothing is selected.</summary>
-    public bool Split(double t)
+    public bool Split(double t) => SplitClips(Selected.Count > 0 ? WithLinked(SelectedClips) : Project.AllClips, t);
+
+    /// <summary>Cuts these clips at a time (those that are under it and not on a locked track); linked halves stay linked.</summary>
+    public bool SplitClips(IEnumerable<Clip> candidates, double t)
     {
-        var targets = (Selected.Count > 0 ? WithLinked(SelectedClips) : Project.AllClips).Where(c => c.Start < t - 0.02 && c.End > t + 0.02)
+        var targets = candidates.Where(c => c.Start < t - 0.02 && c.End > t + 0.02)
             .Where(c => !(Project.TrackOf(c)?.Locked ?? false)).ToList();
         if (targets.Count == 0) return false;
         var newLinks = new Dictionary<string, string>();

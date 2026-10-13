@@ -63,13 +63,14 @@ public sealed partial class VidWindow : Window
         _binTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         _binTimer.Tick += (_, _) => { _binTimer.Stop(); RebuildBin(); };
 
-        BuildUi();
+        BuildPremiereUi();
 
         _player = new VidPlayer(_s);
         _picture.Source = _player.Bitmap;
         _player.BitmapChanged += () => _picture.Source = _player.Bitmap;
         _player.Position += t => { _timeline.EnsureVisible(t); _timeline.InvalidateVisual(); UpdateTime(); };
-        _player.Stopped += () => { UpdatePlayGlyph(); UpdateTime(); };
+        _player.Stopped += () => { UpdatePlayGlyph(); UpdateTime(); _meters.Reset(); };
+        _player.Levels += (l, r) => _meters.SetLevels(l, r);
         _player.Problem += msg => SetStatus(msg);
 
         _s.Changed += OnProjectChanged;
@@ -194,144 +195,6 @@ public sealed partial class VidWindow : Window
         return b;
     }
 
-    private void BuildUi()
-    {
-        var root = new Grid();
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 250 });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(7) });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(326), MinHeight = 190 });
-        Content = root;
-
-        // ----- top bar -----
-        var top = new DockPanel { Margin = new Thickness(12, 10, 12, 8), LastChildFill = false };
-        var title = new TextBlock { Text = "Utylix Vid Editor", FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 18, 0) };
-        top.Children.Add(title);
-        var left = new StackPanel { Orientation = Orientation.Horizontal };
-        left.Children.Add(MakeButton("", "Import", "Bring in videos, sounds and pictures (Ctrl+I)", () => ImportDialog(), id: "VidImport"));
-        left.Children.Add(MakeButton("", "Open", "Open a project (Ctrl+O)", OpenProject, id: "VidOpen"));
-        left.Children.Add(MakeButton("", "Save", "Save the project (Ctrl+S)", () => SaveProject(false), id: "VidSave"));
-        _undoBtn = MakeButton("", "", "Undo (Ctrl+Z)", () => _s.Undo(), id: "VidUndo");
-        _redoBtn = MakeButton("", "", "Redo (Ctrl+Y)", () => _s.Redo(), id: "VidRedo");
-        left.Children.Add(_undoBtn); left.Children.Add(_redoBtn);
-        left.Children.Add(MakeButton("", "Settings", "The editor's settings: colours, export and recovery copies", OpenSettings, id: "VidSettings"));
-        DockPanel.SetDock(left, Dock.Left);
-        top.Children.Add(left);
-        var export = MakeButton("", "Export", "Make the finished video (Ctrl+E)", Export, primary: true, id: "VidExport");
-        export.Margin = new Thickness(0);
-        DockPanel.SetDock(export, Dock.Right);
-        top.Children.Add(export);
-        _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 14, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-        _status.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-        DockPanel.SetDock(_status, Dock.Right);
-        top.Children.Add(_status);
-        Grid.SetRow(top, 0);
-        root.Children.Add(top);
-
-        // ----- body: bin | preview | inspector -----
-        var body = new Grid { Margin = new Thickness(12, 0, 12, 0) };
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(272) });
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 320 });
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(296) });
-        Grid.SetRow(body, 1);
-        root.Children.Add(body);
-
-        // media bin
-        var binHead = new DockPanel { Margin = new Thickness(14, 10, 10, 6) };
-        binHead.Children.Add(new TextBlock { Text = "Media", FontWeight = FontWeights.SemiBold, FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
-        var binScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        _bin = new StackPanel { Margin = new Thickness(8, 0, 8, 8) };
-        binScroll.Content = _bin;
-        var binGrid = new Grid();
-        binGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        binGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        Grid.SetRow(binHead, 0); Grid.SetRow(binScroll, 1);
-        binGrid.Children.Add(binHead); binGrid.Children.Add(binScroll);
-        var binCard = Card(binGrid);
-        Grid.SetColumn(binCard, 0);
-        body.Children.Add(binCard);
-
-        // preview + transport
-        var previewGrid = new Grid();
-        previewGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        previewGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var screen = new Border { Background = Brushes.Black, Margin = new Thickness(0), ClipToBounds = true };
-        _picture = new Image { Stretch = Stretch.Uniform, SnapsToDevicePixels = true };
-        RenderOptions.SetBitmapScalingMode(_picture, BitmapScalingMode.HighQuality);
-        screen.Child = _picture;
-        Grid.SetRow(screen, 0);
-        previewGrid.Children.Add(screen);
-        var transport = new DockPanel { Margin = new Thickness(12, 8, 12, 8) };
-        var tl = new StackPanel { Orientation = Orientation.Horizontal };
-        tl.Children.Add(MakeButton("", "", "To the start (Home)", () => SeekTo(0), id: "VidToStart"));
-        var play = MakeButton("", "", "Play / pause (Space)", () => { _timeline.Focus(); _player.Toggle(); UpdatePlayGlyph(); }, id: "VidPlay");
-        _playGlyph = (TextBlock)((StackPanel)play.Content).Children[0];
-        tl.Children.Add(play);
-        tl.Children.Add(MakeButton("", "", "To the end (End)", () => SeekTo(_s.Project.Duration), id: "VidToEnd"));
-        _timeLabel = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), FontFamily = new FontFamily("Consolas"), FontSize = 14 };
-        System.Windows.Automation.AutomationProperties.SetAutomationId(_timeLabel, "VidTime");
-        tl.Children.Add(_timeLabel);
-        DockPanel.SetDock(tl, Dock.Left);
-        transport.Children.Add(tl);
-        _canvasLabel = new TextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
-        _canvasLabel.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-        transport.Children.Add(_canvasLabel);
-        Grid.SetRow(transport, 1);
-        previewGrid.Children.Add(transport);
-        var previewCard = Card(previewGrid, new Thickness(8, 0, 8, 0));
-        Grid.SetColumn(previewCard, 1);
-        body.Children.Add(previewCard);
-
-        // inspector
-        var inspScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        _inspector = new StackPanel { Margin = new Thickness(14, 12, 14, 12) };
-        inspScroll.Content = _inspector;
-        var inspCard = Card(inspScroll);
-        Grid.SetColumn(inspCard, 2);
-        body.Children.Add(inspCard);
-
-        // ----- splitter + timeline -----
-        var splitter = new GridSplitter { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch, Background = Brushes.Transparent, ResizeDirection = GridResizeDirection.Rows, ResizeBehavior = GridResizeBehavior.PreviousAndNext };
-        Grid.SetRow(splitter, 2);
-        root.Children.Add(splitter);
-
-        var tlGrid = new Grid { Margin = new Thickness(12, 0, 12, 12) };
-        tlGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        tlGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        tlGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var tools = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
-        tools.Children.Add(MakeButton("", "Split", "Cut at the playhead (S)", () => DoSplit(), id: "VidSplit"));
-        tools.Children.Add(MakeButton("", "Delete", "Delete the chosen clips (Delete)", () => _s.Delete(false), id: "VidDelete"));
-        tools.Children.Add(MakeButton("", "Delete and close the gap", "Delete and pull what follows left (Shift+Delete)", () => _s.Delete(true), id: "VidRipple"));
-        tools.Children.Add(MakeButton("", "Duplicate", "Copy after itself (Ctrl+D)", () => _s.Duplicate(), id: "VidDuplicate"));
-        tools.Children.Add(MakeButton("", "Title", "Add a text title at the playhead (T)", AddTitle, id: "VidAddTitle"));
-        tools.Children.Add(new Border { Width = 1, Margin = new Thickness(6, 4, 12, 4), Background = (Brush)FindResource("LineBrush") });
-        tools.Children.Add(MakeButton("", "Video track", "Add a picture track", () => _s.AddTrack(TrackKind.Video), id: "VidAddVideoTrack"));
-        tools.Children.Add(MakeButton("", "Sound track", "Add a sound track", () => _s.AddTrack(TrackKind.Audio), id: "VidAddAudioTrack"));
-        var zoom = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        var toolRow = new DockPanel();
-        toolRow.Children.Add(tools);
-        zoom.Children.Add(MakeButton("", "", "Zoom out (-)", () => ZoomBy(0.8)));
-        zoom.Children.Add(MakeButton("", "", "Zoom in (+)", () => ZoomBy(1.25)));
-        zoom.Children.Add(MakeButton("", "Fit", "Show the whole project (\\)", () => _timeline.ZoomToFit(), id: "VidFit"));
-        ((FrameworkElement)zoom.Children[zoom.Children.Count - 1]).Margin = new Thickness(0);
-        toolRow.Children.Add(zoom);
-        Grid.SetRow(toolRow, 0);
-        tlGrid.Children.Add(toolRow);
-
-        _timeline = new VidTimeline(_s, _cache);
-        var tlScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = _timeline };
-        var tlCard = Card(tlScroll);
-        Grid.SetRow(tlCard, 1);
-        tlGrid.Children.Add(tlCard);
-        _hScroll = new ScrollBar { Orientation = Orientation.Horizontal, Margin = new Thickness(VidTimeline.HeaderWidth, 4, 0, 0) };
-        _hScroll.ValueChanged += (_, e) => { if (!_syncingScroll) _timeline.Offset = e.NewValue; };
-        Grid.SetRow(_hScroll, 2);
-        tlGrid.Children.Add(_hScroll);
-        Grid.SetRow(tlGrid, 3);
-        root.Children.Add(tlGrid);
-    }
-
     // ---------- little things ----------
     private void SetStatus(string text) => _status.Text = text;
 
@@ -339,11 +202,17 @@ public sealed partial class VidWindow : Window
     {
         string name = _s.Project.Path != null ? Path.GetFileNameWithoutExtension(_s.Project.Path) : "Untitled";
         Title = (_s.Dirty ? "● " : "") + name + " - Utylix Vid Editor";
+        _programTitle.Text = "Program: " + name;
+        _timelineTitle.Text = "Timeline: " + name;
+        _projectTitle.Text = "Project: " + name;
     }
 
     private void UpdateTime()
     {
-        _timeLabel.Text = VidTimeline.TimeText(_s.Playhead, true) + "  /  " + VidTimeline.TimeText(_s.Project.Duration, true);
+        string now = VidTimeline.Timecode(_s.Playhead, Fps);
+        _timeLabel.Text = now;
+        _tlTimeLabel.Text = now;
+        _durationLabel.Text = VidTimeline.Timecode(_s.Project.Duration, Fps);
     }
 
     private void UpdatePlayGlyph() => _playGlyph.Text = _player.IsPlaying ? "" : "";
@@ -608,6 +477,8 @@ public sealed partial class VidWindow : Window
                 case Key.Y: if (!typing) { _s.Redo(); e.Handled = true; } return;
                 case Key.S: SaveProject(shift); e.Handled = true; return;
                 case Key.O: OpenProject(); e.Handled = true; return;
+                case Key.N: NewProject(); e.Handled = true; return;
+                case Key.K: DoSplit(); e.Handled = true; return;
                 case Key.I: ImportDialog(); e.Handled = true; return;
                 case Key.E: Export(); e.Handled = true; return;
                 case Key.D: if (!typing) { _s.Duplicate(); e.Handled = true; } return;
@@ -619,9 +490,14 @@ public sealed partial class VidWindow : Window
         double frame = 1.0 / (_s.Project.Fps > 0 ? _s.Project.Fps : 30);
         switch (k)
         {
-            case Key.Space: _player.Toggle(); UpdatePlayGlyph(); e.Handled = true; break;
+            case Key.Space: _player.Toggle(); UpdatePlayGlyph(); if (!_player.IsPlaying) _meters.Reset(); e.Handled = true; break;
             case Key.S: DoSplit(); e.Handled = true; break;
             case Key.T: AddTitle(); e.Handled = true; break;
+            case Key.V: SetTool(VidTool.Select); e.Handled = true; break;
+            case Key.C: SetTool(VidTool.Razor); e.Handled = true; break;
+            case Key.H: SetTool(VidTool.Hand); e.Handled = true; break;
+            case Key.Up: GoToEdit(-1); e.Handled = true; break;
+            case Key.Down: GoToEdit(1); e.Handled = true; break;
             case Key.Delete: case Key.Back: _s.Delete(shift); e.Handled = true; break;
             case Key.Left: SeekTo(_s.Playhead - (shift ? 1 : frame)); e.Handled = true; break;
             case Key.Right: SeekTo(_s.Playhead + (shift ? 1 : frame)); e.Handled = true; break;
