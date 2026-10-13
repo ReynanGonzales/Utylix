@@ -102,7 +102,16 @@ public partial class App : Application
         }
 
         // the desktop right-click "Free up memory": trim what the programs are not using, show a small notice, end (the tray copy is not involved)
-        if (e.Args.Contains("--free-memory") || e.Args.Contains("--free-memory-deep")) { ApplyTheme(); MemoryToast.Run(e.Args.Contains("--free-memory-deep")); return; }
+        if (e.Args.Contains("--free-memory") || e.Args.Contains("--free-memory-deep"))
+        {
+            bool deepRun = e.Args.Contains("--free-memory-deep");
+            // said yes once: the task does it as administrator, without a question (it shows the notice itself)
+            if (!deepRun && MemoryTask.Exists() && MemoryTask.RunNow()) { Shutdown(); return; }
+            int rem = Array.IndexOf(e.Args, "--remember");
+            ApplyTheme();
+            MemoryToast.Run(deepRun, rem >= 0 && rem + 1 < e.Args.Length ? e.Args[rem + 1] : null);
+            return;
+        }
 
         // the installed copy removes itself; a setup copy (Utylix-Setup.exe, --setup, first run on a PC) offers to install
         if (e.Args.Contains("--uninstall")) { ApplyTheme(); Installer.Uninstall(); Shutdown(); return; }
