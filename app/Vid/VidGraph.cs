@@ -199,9 +199,13 @@ public static class VidGraph
         ch.Append($"[td{n}]null");
     }
 
+    // NOTE on "enable": frame times are rounded down to the stream's time base (1/15360 s), so a frame that is exactly at the start of a window can
+    // be a hair BEFORE the number written in the expression: 'between(t, start, ...)' was false for the first frames of a mask transition and the whole
+    // new picture showed for two frames. The streams only start at the start of their transition, so the windows are open at the start ('lte').
+
     /// <summary>A blur that is only on between two times of the window (whip pans, shake, blur dissolve); the strength follows the picture size.</summary>
     private static string BlurWindow(Ctx x, double start, double end, double sigmaAt1080)
-        => $",gblur=sigma={F(Math.Max(2, x.W / 1920.0 * sigmaAt1080))}:enable='between(t,{F(start)},{F(end)})'";
+        => $",gblur=sigma={F(Math.Max(2, x.W / 1920.0 * sigmaAt1080))}:enable='between(t,{F(start - 0.02)},{F(end)})'";
 
     /// <summary>Progress 0..1 of a transition as an ffmpeg expression in window time (variable <paramref name="tv"/>).</summary>
     private static string Progress(double start, double length, string tv) => $"clip(({tv}-{F(start)})/{F(Math.Max(0.05, length))},0,1)";
@@ -336,7 +340,7 @@ public static class VidGraph
                 case TransitionKind.FlipV: Transform(x, ch, "i", off, ts, trL, pg => ("1", $"clip(({pg}-0.5)*2,0,1)", null)); break;
             }
             // (a flip shows nothing of the new picture until the old one has turned away)
-            if (flip) ch.Append($",colorchannelmixer=aa=0:enable='between(t,{F(ts)},{F(ts + trL / 2)})'");
+            if (flip) ch.Append($",colorchannelmixer=aa=0:enable='lte(t,{F(ts + trL / 2)})'");
         }
 
         // the way this clip comes in
@@ -378,7 +382,7 @@ public static class VidGraph
                     _ => $"lte(abs(Y-H/2),H/2*{p})",
                 };
                 // (gt(p,0): at progress 0 nothing may show - "lte(X, W*0)" is still true for the first column)
-                ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*({visible})*gt({p},0)':enable='between(t,{F(ts)},{F(ts + trL)})'");
+                ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*({visible})*gt({p},0)':enable='lte(t,{F(ts + trL)})'");
                 break;
             }
         }
@@ -386,7 +390,7 @@ public static class VidGraph
         {
             string pm = $"clip((T-({F(ts)}))/{F(trL)},0,1)";
             string visible = VidTransitionDefs.Mask(tr, pm);
-            ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*({visible})*gt({pm},0)':enable='between(t,{F(ts)},{F(ts + trL)})'");
+            ch.Append($",geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*({visible})*gt({pm},0)':enable='lte(t,{F(ts + trL)})'");
         }
         // blur while it moves (whip pans, shake) or while it dissolves
         if (VidTransitionDefs.IsWhip(tr) || tr is TransitionKind.Shake or TransitionKind.BlurDissolve)
