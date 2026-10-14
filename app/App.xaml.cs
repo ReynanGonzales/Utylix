@@ -234,6 +234,10 @@ public partial class App : Application
             ShellMenu.RegisterTorrent(_manager.Config.TorrentHandler);                 // magnet links and .torrent files can be opened with Utylix
         }
         MemoryGuard.Ensure(dataDir);                                                   // limits chosen in "Memory limits": watched while Utylix runs
+        // (and looked at every half minute: a guard that ended, for example while Utylix was restarting, is started again; nothing happens when the list is empty)
+        _guardTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _guardTimer.Tick += (_, _) => MemoryGuard.Ensure(dataDir);
+        _guardTimer.Start();
         _quickBackground = new QuickBackground((title, text, error, reveal) => Dispatcher.BeginInvoke(() =>
             Balloon(error ? 7000 : 5000, title, reveal != null ? text + "\nClick to open its folder" : text,
                     error ? System.Windows.Forms.ToolTipIcon.Warning : System.Windows.Forms.ToolTipIcon.Info, reveal != null ? () => Reveal(reveal) : null)),
@@ -285,6 +289,7 @@ public partial class App : Application
 
     // ---------- Remove background / Play (Explorer right-click) ----------
     private QuickBackground? _quickBackground;
+    private System.Windows.Threading.DispatcherTimer? _guardTimer;
 
     /// <summary>"Utylix.exe a.pdf" (no command): the command that file needs (--pdf, --view, --play, --torrent, --archive-open), or null.</summary>
     private static string[]? PlainFile(string[] args)

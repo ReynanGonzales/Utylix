@@ -29,6 +29,7 @@ internal sealed class MemoryLimitsWindow : Window
     private readonly Dictionary<MemoryRule, TextBlock> _now = new();
     private readonly Dictionary<string, (TimeSpan Cpu, DateTime At)> _cpuBefore = new(StringComparer.OrdinalIgnoreCase);
     private bool _loading;
+    private DateTime _lastEnsure = DateTime.MinValue;
 
     public static void ShowPanel()
     {
@@ -62,7 +63,7 @@ internal sealed class MemoryLimitsWindow : Window
         });
 
         var header = new Grid { Margin = new Thickness(4, 0, 4, 4) };
-        foreach (var w in new[] { 34.0, 0, 150, 100, 120, 160, 84 })
+        foreach (var w in new[] { 34.0, 0, 150, 100, 120, 160, 100 })
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = w == 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
         void Head(string text, int col) { var t = new TextBlock { Text = text, Opacity = 0.65, FontSize = 12 }; Grid.SetColumn(t, col); header.Children.Add(t); }
         Head("On", 0); Head("Program", 1); Head("Using now", 2); Head("Memory (MB)", 3); Head("When over", 4); Head("CPU", 5);
@@ -112,7 +113,7 @@ internal sealed class MemoryLimitsWindow : Window
         {
             var r = rule;
             var row = new Grid { Margin = new Thickness(0, 4, 0, 4), Background = new SolidColorBrush(Color.FromArgb(20, 128, 128, 128)) };
-            foreach (var w in new[] { 34.0, 0, 150, 100, 120, 160, 84 })
+            foreach (var w in new[] { 34.0, 0, 150, 100, 120, 160, 100 })
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = w == 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
             var on = new CheckBox { IsChecked = r.Enabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), ToolTip = "Watch this program" };
             on.Click += (_, _) => { r.Enabled = on.IsChecked == true; Changed(); };
@@ -149,7 +150,7 @@ internal sealed class MemoryLimitsWindow : Window
                 if (i >= 3) r.CapPercent = caps[i - 3];
                 Changed();
             };
-            var remove = new Button { Content = removeText, Style = (Style)Application.Current.FindResource("DialogButton"), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            var remove = new Button { Content = removeText, Style = (Style)Application.Current.FindResource("DialogButton"), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 10, 0), MinWidth = 76, VerticalAlignment = VerticalAlignment.Center };
             remove.Click += (_, _) => { _rules.Remove(r); BuildRows(); Changed(); };
             Grid.SetColumn(on, 0); Grid.SetColumn(name, 1); Grid.SetColumn(now, 2); Grid.SetColumn(limit, 3); Grid.SetColumn(mode, 4); Grid.SetColumn(cpu, 5); Grid.SetColumn(remove, 6);
             foreach (UIElement u in new UIElement[] { on, name, now, limit, mode, cpu, remove }) row.Children.Add(u);
@@ -246,8 +247,11 @@ internal sealed class MemoryLimitsWindow : Window
         if (!active) line = "Nothing is being watched.";
         else if (!running) line = "The guard is starting…";
         else if (status != null && status.Elevated) line = "Watching with administrator rights: programs that run as administrator are reached too.";
-        else line = "Watching. Programs that run as administrator (many game clients) cannot be reached until you allow it below.";
+        else if (!task && MemoryTask.CanBeSilent) line = "Watching. Programs that run as administrator (many game clients) cannot be reached until you allow it below.";
+        else line = "Watching. Programs that run as administrator (many game clients) cannot be reached by this copy of Utylix.";
         _state.Text = line;
+        // a guard that is not there although something is to watch (the tray was restarted, the guard ended): start it again
+        if (active && !running && (DateTime.UtcNow - _lastEnsure).TotalSeconds > 8) { _lastEnsure = DateTime.UtcNow; MemoryGuard.Ensure(App.DataDir); }
         _allow.Visibility = active && !(status?.Elevated ?? false) && !task && MemoryTask.CanBeSilent ? Visibility.Visible : Visibility.Collapsed;
     }
 }

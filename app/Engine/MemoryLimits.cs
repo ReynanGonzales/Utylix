@@ -152,10 +152,11 @@ public static class MemoryGuard
             var trims = new Dictionary<string, (int Count, DateTime Last)>(StringComparer.OrdinalIgnoreCase);
             DateTime stamp = DateTime.MinValue;
             var rules = new List<MemoryRule>();
-            int idle = 0;
+            int idle = 0, trayMissing = 0;
             while (!_stop)
             {
-                if (ownerIsMutex && !TrayAlive()) break;
+                // (the tray may be restarting: it has to be gone for three checks in a row, about 15 s, before the guard ends)
+                if (ownerIsMutex) { if (!TrayAlive()) { if (++trayMissing >= 3) break; } else trayMissing = 0; }
                 try
                 {
                     var t = File.GetLastWriteTimeUtc(MemoryLimits.FileIn(dataDir));
