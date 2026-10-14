@@ -18,6 +18,24 @@ public sealed class MemoryRule
     public bool Enabled { get; set; } = true;
     /// <summary>Only the copies of the program whose main window title contains this text (empty = every copy). Tells several clients of one game apart.</summary>
     public string Title { get; set; } = "";
+    /// <summary>Which copies this row is for: 0 every copy (or, when a title is typed and this is still 0, only those containing it - rows made before this setting),
+    /// 1 only the windows whose title contains <see cref="Title"/>, 2 every copy EXCEPT those whose title contains it (the main account stays free),
+    /// 3 every copy except the one that was last in front (the one being played).</summary>
+    public int Scope { get; set; }
+
+    /// <summary>Does this row apply to the copy with this window title? <paramref name="frontPid"/> = the copy of this program that was last in front.</summary>
+    public bool Matches(string title, int pid, int frontPid)
+    {
+        string t = (Title ?? "").Trim();
+        int scope = Scope == 0 && t.Length > 0 ? 1 : Scope;
+        return scope switch
+        {
+            1 => t.Length == 0 || (title ?? "").Contains(t, StringComparison.OrdinalIgnoreCase),
+            2 => t.Length == 0 || !(title ?? "").Contains(t, StringComparison.OrdinalIgnoreCase),
+            3 => frontPid == 0 || pid != frontPid,
+            _ => true,
+        };
+    }
     /// <summary>What to do about the processor use of this program (see CpuLimiter): 0 nothing, 1 lower priority, 2 efficiency mode, 3 cap.</summary>
     public int Cpu { get; set; }
     /// <summary>For Cpu = 3: the most processor the program may use, in percent of the whole CPU.</summary>
@@ -49,7 +67,7 @@ public static class MemoryLimits
         try
         {
             var list = JsonSerializer.Deserialize<List<MemoryRule>>(File.ReadAllText(FileIn(dataDir)), Options) ?? new();
-            foreach (var r in list) { r.Exe = CleanExe(r.Exe); r.LimitMb = r.LimitMb <= 0 ? 0 : Math.Clamp(r.LimitMb, 20, 65536); r.Cpu = Math.Clamp(r.Cpu, 0, 3); r.CapPercent = Math.Clamp(r.CapPercent, 1, 100); }
+            foreach (var r in list) { r.Exe = CleanExe(r.Exe); r.LimitMb = r.LimitMb <= 0 ? 0 : Math.Clamp(r.LimitMb, 20, 65536); r.Cpu = Math.Clamp(r.Cpu, 0, 3); r.Scope = Math.Clamp(r.Scope, 0, 3); r.CapPercent = Math.Clamp(r.CapPercent, 1, 100); }
             return list.Where(r => r.Exe.Length > 0).ToList();
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
@@ -75,7 +93,8 @@ public static class MemoryLimits
 /// </summary>
 public static class MemoryGuard
 {
-    private const string MutexName = "Local\\Utylix.MemoryGuard";
+    // (UTYLIX_TEST_GUARD_MUTEX lets a test harness run beside the real guard)
+    private static readonly string MutexName = Environment.GetEnvironmentVariable("UTYLIX_TEST_GUARD_MUTEX") is { Length: > 0 } testName ? "Local\\" + testName : "Local\\Utylix.MemoryGuard";
     private static Thread? _local;
     private static volatile bool _stop;
     private static Mutex? _heldMutex;
@@ -131,6 +150,14 @@ public static class MemoryGuard
         return 0;
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    /// <summary>The process that owns the window in front right now (0 = none).</summary>
+    public static int ForegroundPid()
+    {
+        try { GetWindowThreadProcessId(GetForegroundWindow(), out uint pid); return (int)pid; } catch (Exception e) when (e is System.ComponentModel.Win32Exception or DllNotFoundException) { return 0; }
+    }
+
     private static bool TrayAlive()
     {
         try { using var m = Mutex.OpenExisting("Local\\Utylix.SingleInstance"); return true; }
@@ -143,6 +170,7 @@ public static class MemoryGuard
         Mutex? mutex = null;
         bool owned = false;
         var cpuDone = new Dictionary<int, (string Exe, CpuMode Mode, int Cap, CpuLimiter.Applied? Result)>();
+        var lastFront = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);       // per program: the copy that was last in front
         try
         {
             mutex = new Mutex(true, MutexName, out bool first);
@@ -186,12 +214,24 @@ public static class MemoryGuard
                     Process[] procs;
                     try { procs = Process.GetProcessesByName(name); }
                     catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { continue; }
+                    int front = ForegroundPid();
+                    if (front != 0 && procs.Any(x => x.Id == front)) lastFront[rule.Exe] = front;
+                    lastFront.TryGetValue(rule.Exe, out int frontPid);
                     foreach (var p in procs)
                     {
                         try
                         {
                             p.Refresh();
-                            if (!string.IsNullOrWhiteSpace(rule.Title) && !(p.MainWindowTitle ?? "").Contains(rule.Title.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
+                            if (!rule.Matches(p.MainWindowTitle ?? "", p.Id, frontPid))
+                            {
+                                // (a copy that was limited and is now the one in front / the main one: set free again)
+                                if (cpuDone.TryGetValue(p.Id, out var old) && old.Exe.Equals(rule.Exe, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (old.Result != null) { try { CpuLimiter.Revert(p.Id, old.Result); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { } }
+                                    cpuDone.Remove(p.Id);
+                                }
+                                continue;
+                            }
                             long ws = p.WorkingSet64;
                             biggest = Math.Max(biggest, ws);
                             // the processor: once per program (again when it was restarted: a new process id)
@@ -233,7 +273,8 @@ public static class MemoryGuard
                     File.WriteAllText(MemoryLimits.StatusFileIn(dataDir), System.Text.Json.JsonSerializer.Serialize(new GuardStatus { Elevated = elevated, Updated = DateTime.Now, Rows = rows }));
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
-                for (int i = 0; i < 25 && !_stop; i++) Thread.Sleep(200);           // 5 s, but quick to stop
+                int ticks = active.Any(r => r.Scope == 3 && r.Cpu != 0) ? 10 : 25;   // 2 s while a row follows the window in front, else 5 s
+                for (int i = 0; i < ticks && !_stop; i++) Thread.Sleep(200);        // (quick to stop)
             }
         }
         finally

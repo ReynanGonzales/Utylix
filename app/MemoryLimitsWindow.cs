@@ -28,6 +28,7 @@ internal sealed class MemoryLimitsWindow : Window
     private readonly List<MemoryRule> _rules;
     private readonly Dictionary<MemoryRule, TextBlock> _now = new();
     private readonly Dictionary<MemoryRule, TextBlock> _inst = new();
+    private readonly Dictionary<string, int> _front = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (TimeSpan Cpu, DateTime At)> _cpuBefore = new(StringComparer.OrdinalIgnoreCase);
     private bool _loading;
     private DateTime _lastEnsure = DateTime.MinValue;
@@ -140,8 +141,8 @@ internal sealed class MemoryLimitsWindow : Window
             var removeText = new TextBlock { Text = "Remove" };
             removeText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
             var cpu = new ComboBox { Width = 150, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
-            var caps = new[] { 75, 50, 25, 10 };
-            foreach (string item in new[] { "No change", "Lower priority", "Efficiency mode", "Cap at 75 %", "Cap at 50 %", "Cap at 25 %", "Cap at 10 %" }) cpu.Items.Add(item);
+            var caps = new[] { 75, 50, 25, 10, 5 };
+            foreach (string item in new[] { "No change", "Lower priority", "Efficiency mode", "Cap at 75 %", "Cap at 50 %", "Cap at 25 %", "Cap at 10 %", "Cap at 5 %" }) cpu.Items.Add(item);
             cpu.SelectedIndex = r.Cpu switch { 1 => 1, 2 => 2, 3 => 3 + Math.Max(0, Array.IndexOf(caps, caps.OrderBy(c => Math.Abs(c - r.CapPercent)).First())), _ => 0 };
             cpu.ToolTip = "Lower priority: other programs get the processor first." + Environment.NewLine + "Efficiency mode: idle priority and the power-saving side of the CPU." + Environment.NewLine + "Cap: the most of the WHOLE processor it may use (a hard limit).";
             AutomationProperties.SetAutomationId(cpu, "MemLimitCpu_" + r.Exe);
@@ -157,7 +158,12 @@ internal sealed class MemoryLimitsWindow : Window
             Grid.SetColumn(on, 0); Grid.SetColumn(name, 1); Grid.SetColumn(now, 2); Grid.SetColumn(limit, 3); Grid.SetColumn(mode, 4); Grid.SetColumn(cpu, 5); Grid.SetColumn(remove, 6);
             foreach (UIElement u in new UIElement[] { on, name, now, limit, mode, cpu, remove }) row.Children.Add(u);
             // under the row: only the window whose title contains ... (tells several clients of one game apart), and the copies that are running now
-            var titleLabel = new TextBlock { Text = "Only the window whose title contains:", Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            if (r.Scope == 0 && !string.IsNullOrWhiteSpace(r.Title)) r.Scope = 1;     // (rows made before the choice existed)
+            var scope = new ComboBox { Width = 330, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            foreach (string item in new[] { "Use for every copy of this program", "Only the windows whose title contains:", "Every copy EXCEPT the title containing: (my main)", "Every copy except the one I last played (in front)" }) scope.Items.Add(item);
+            scope.SelectedIndex = Math.Clamp(r.Scope, 0, 3);
+            scope.ToolTip = "Several clients of one game: choose which ones this row is for." + Environment.NewLine + "Example: Cap at 10 % + 'Every copy EXCEPT the title containing' + your main account's name = all other accounts are held back and the main one runs free.";
+            AutomationProperties.SetAutomationId(scope, "MemLimitScope_" + r.Exe);
             var titleBox = new TextBox { Text = r.Title ?? "", Width = 260, Padding = new Thickness(6, 3, 6, 3), VerticalContentAlignment = VerticalAlignment.Center };
             titleBox.SetResourceReference(Control.ForegroundProperty, "TextBrush");
             titleBox.Background = new SolidColorBrush(Color.FromArgb(34, 128, 128, 128));
@@ -165,8 +171,10 @@ internal sealed class MemoryLimitsWindow : Window
             titleBox.ToolTip = "Leave empty to use this row for every copy of the program. Type part of a window title to use it only for that client.";
             AutomationProperties.SetAutomationId(titleBox, "MemLimitTitle_" + r.Exe);
             titleBox.TextChanged += (_, _) => { r.Title = titleBox.Text; Changed(); };
+            scope.SelectionChanged += (_, _) => { r.Scope = scope.SelectedIndex; titleBox.IsEnabled = r.Scope == 1 || r.Scope == 2; Changed(); };
+            titleBox.IsEnabled = r.Scope == 1 || r.Scope == 2;
             var titleLine = new StackPanel { Orientation = Orientation.Horizontal };
-            titleLine.Children.Add(titleLabel); titleLine.Children.Add(titleBox);
+            titleLine.Children.Add(scope); titleLine.Children.Add(titleBox);
             var inst = new TextBlock { FontSize = 12, Opacity = 0.75, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap };
             _inst[r] = inst;
             var sub = new StackPanel { Margin = new Thickness(40, 0, 0, 8) };
@@ -242,7 +250,7 @@ internal sealed class MemoryLimitsWindow : Window
             var cpuTotal = TimeSpan.Zero;
             string name = System.IO.Path.GetFileNameWithoutExtension(rule.Exe);
             var lines = new List<string>();
-            string filter = (rule.Title ?? "").Trim();
+            int front = MemoryGuard.ForegroundPid();
             try
             {
                 foreach (var p in Process.GetProcessesByName(name))
@@ -251,7 +259,9 @@ internal sealed class MemoryLimitsWindow : Window
                     {
                         p.Refresh();
                         string title = p.MainWindowTitle ?? "";
-                        bool match = filter.Length == 0 || title.Contains(filter, StringComparison.OrdinalIgnoreCase);
+                        if (front == p.Id) _front[rule.Exe] = p.Id;
+                        _front.TryGetValue(rule.Exe, out int frontPid);
+                        bool match = rule.Matches(title, p.Id, frontPid);
                         long ws = p.WorkingSet64;
                         lines.Add($"#{p.Id}   {(title.Length > 0 ? "\"" + (title.Length > 60 ? title[..60] + "…" : title) + "\"" : "(no window)")}   {ws / (1024 * 1024)} MB" + (match ? "" : "   — not used by this row"));
                         if (!match) continue;
