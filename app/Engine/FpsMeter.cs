@@ -18,7 +18,9 @@ public sealed class FpsMeter : IDisposable
     private const int WindowMs = 1500;
 
     private readonly object _lock = new();
-    private readonly Dictionary<int, Queue<long>> _frames = new();
+    private readonly Dictionary<int, Queue<double>> _frames = new();     // per process: when its frames happened (milliseconds on the QPC clock)
+    private static readonly long _qpcFrequency = QpcFrequency();
+    private static long QpcFrequency() { QueryPerformanceFrequency(out long f); return f <= 0 ? 10_000_000 : f; }
     private long _session;
     private long _trace = -1;
     private Thread? _thread;
@@ -105,29 +107,36 @@ public sealed class FpsMeter : IDisposable
             var g = new Guid(provider);
             if (!((g == Dxgi && id == 42) || (g == D3D9 && id == 1))) return;
             int pid = Marshal.ReadInt32(record, 12);
-            long now = Environment.TickCount64;
+            // the event's own time (QPC): Windows hands the events over in batches (about once a second), so the time of arrival says nothing
+            double at = Marshal.ReadInt64(record, 16) * 1000.0 / _qpcFrequency;
             lock (_lock)
             {
-                if (!_frames.TryGetValue(pid, out var q)) _frames[pid] = q = new Queue<long>();
-                q.Enqueue(now);
-                while (q.Count > 0 && now - q.Peek() > WindowMs) q.Dequeue();
+                if (!_frames.TryGetValue(pid, out var q)) _frames[pid] = q = new Queue<double>();
+                q.Enqueue(at);
+                while (q.Count > 0 && at - q.Peek() > 4000) q.Dequeue();
             }
         }
         catch (Exception e) when (e is AccessViolationException or ArgumentException) { }
     }
 
-    /// <summary>Frames per second of every program that showed frames during the last two seconds.</summary>
+    /// <summary>Frames per second of every program that showed frames lately (measured over the last 1.5 s of its own events).</summary>
     public Dictionary<int, int> Snapshot()
     {
         var result = new Dictionary<int, int>();
-        long now = Environment.TickCount64;
+        QueryPerformanceCounter(out long counter);
+        double nowMs = counter * 1000.0 / _qpcFrequency;
         lock (_lock)
         {
             foreach (var (pid, q) in _frames)
             {
-                int n = 0;
-                foreach (long t in q) if (now - t <= WindowMs) n++;
-                if (n >= 2) result[pid] = (int)Math.Round(n * 1000.0 / WindowMs);
+                if (q.Count < 3) continue;
+                double last = double.MinValue;
+                foreach (double t in q) last = Math.Max(last, t);
+                if (nowMs - last > 3500) continue;                  // (nothing for a while: not showing frames now)
+                int n = 0; double first = last;
+                foreach (double t in q) if (last - t <= WindowMs) { n++; first = Math.Min(first, t); }
+                double span = last - first;
+                if (n >= 3 && span > 50) result[pid] = (int)Math.Round((n - 1) * 1000.0 / span);
             }
         }
         return result;
@@ -140,6 +149,10 @@ public sealed class FpsMeter : IDisposable
         IntPtr p = Marshal.AllocHGlobal(size);
         for (int i = 0; i < size; i++) Marshal.WriteByte(p, i, 0);
         Marshal.WriteInt32(p, 0, size);                 // Wnode.BufferSize
+        Marshal.WriteInt32(p, 48, 16);                  // BufferSize in KB (small ones fill, and are delivered, sooner)
+        Marshal.WriteInt32(p, 52, 4);                   // MinimumBuffers
+        Marshal.WriteInt32(p, 56, 16);                  // MaximumBuffers
+        Marshal.WriteInt32(p, 68, 1);                   // FlushTimer = 1 s: without it a quiet program's events wait for a full buffer (many seconds)
         Marshal.WriteInt32(p, 40, 1);                   // Wnode.ClientContext = QPC
         Marshal.WriteInt32(p, 44, 0x00020000);          // Wnode.Flags = WNODE_FLAG_TRACED_GUID
         Marshal.WriteInt32(p, 64, 0x00000100);          // LogFileMode = EVENT_TRACE_REAL_TIME_MODE
@@ -170,6 +183,8 @@ public sealed class FpsMeter : IDisposable
         public IntPtr Context;
     }
 
+    [DllImport("kernel32.dll")] private static extern bool QueryPerformanceFrequency(out long frequency);
+    [DllImport("kernel32.dll")] private static extern bool QueryPerformanceCounter(out long counter);
     [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] private static extern int StartTrace(out long handle, string name, IntPtr properties);
     [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] private static extern int ControlTrace(long handle, string? name, IntPtr properties, uint code);
     [DllImport("advapi32.dll")] private static extern int EnableTraceEx2(long handle, in Guid provider, uint controlCode, byte level, ulong matchAny, ulong matchAll, uint timeout, IntPtr parameters);
