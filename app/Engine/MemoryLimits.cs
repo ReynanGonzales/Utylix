@@ -16,6 +16,8 @@ public sealed class MemoryRule
     public int LimitMb { get; set; } = 200;
     public bool Deep { get; set; }
     public bool Enabled { get; set; } = true;
+    /// <summary>Only the copies of the program whose main window title contains this text (empty = every copy). Tells several clients of one game apart.</summary>
+    public string Title { get; set; } = "";
     /// <summary>What to do about the processor use of this program (see CpuLimiter): 0 nothing, 1 lower priority, 2 efficiency mode, 3 cap.</summary>
     public int Cpu { get; set; }
     /// <summary>For Cpu = 3: the most processor the program may use, in percent of the whole CPU.</summary>
@@ -189,6 +191,7 @@ public static class MemoryGuard
                         try
                         {
                             p.Refresh();
+                            if (!string.IsNullOrWhiteSpace(rule.Title) && !(p.MainWindowTitle ?? "").Contains(rule.Title.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
                             long ws = p.WorkingSet64;
                             biggest = Math.Max(biggest, ws);
                             // the processor: once per program (again when it was restarted: a new process id)

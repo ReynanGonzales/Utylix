@@ -27,6 +27,7 @@ internal sealed class MemoryLimitsWindow : Window
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
     private readonly List<MemoryRule> _rules;
     private readonly Dictionary<MemoryRule, TextBlock> _now = new();
+    private readonly Dictionary<MemoryRule, TextBlock> _inst = new();
     private readonly Dictionary<string, (TimeSpan Cpu, DateTime At)> _cpuBefore = new(StringComparer.OrdinalIgnoreCase);
     private bool _loading;
     private DateTime _lastEnsure = DateTime.MinValue;
@@ -105,6 +106,7 @@ internal sealed class MemoryLimitsWindow : Window
         _loading = true;
         _rows.Children.Clear();
         _now.Clear();
+        _inst.Clear();
         if (_rules.Count == 0)
         {
             _rows.Children.Add(new TextBlock { Text = "No program yet. Choose \"Add a program…\", for example Cabal's cabal.exe.", Opacity = 0.65, Margin = new Thickness(4, 8, 0, 8), TextWrapping = TextWrapping.Wrap });
@@ -154,7 +156,24 @@ internal sealed class MemoryLimitsWindow : Window
             remove.Click += (_, _) => { _rules.Remove(r); BuildRows(); Changed(); };
             Grid.SetColumn(on, 0); Grid.SetColumn(name, 1); Grid.SetColumn(now, 2); Grid.SetColumn(limit, 3); Grid.SetColumn(mode, 4); Grid.SetColumn(cpu, 5); Grid.SetColumn(remove, 6);
             foreach (UIElement u in new UIElement[] { on, name, now, limit, mode, cpu, remove }) row.Children.Add(u);
-            _rows.Children.Add(row);
+            // under the row: only the window whose title contains ... (tells several clients of one game apart), and the copies that are running now
+            var titleLabel = new TextBlock { Text = "Only the window whose title contains:", Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            var titleBox = new TextBox { Text = r.Title ?? "", Width = 260, Padding = new Thickness(6, 3, 6, 3), VerticalContentAlignment = VerticalAlignment.Center };
+            titleBox.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+            titleBox.Background = new SolidColorBrush(Color.FromArgb(34, 128, 128, 128));
+            titleBox.SetResourceReference(Control.BorderBrushProperty, "MutedBrush");
+            titleBox.ToolTip = "Leave empty to use this row for every copy of the program. Type part of a window title to use it only for that client.";
+            AutomationProperties.SetAutomationId(titleBox, "MemLimitTitle_" + r.Exe);
+            titleBox.TextChanged += (_, _) => { r.Title = titleBox.Text; Changed(); };
+            var titleLine = new StackPanel { Orientation = Orientation.Horizontal };
+            titleLine.Children.Add(titleLabel); titleLine.Children.Add(titleBox);
+            var inst = new TextBlock { FontSize = 12, Opacity = 0.75, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap };
+            _inst[r] = inst;
+            var sub = new StackPanel { Margin = new Thickness(40, 0, 0, 8) };
+            sub.Children.Add(titleLine); sub.Children.Add(inst);
+            var holder = new StackPanel();
+            holder.Children.Add(row); holder.Children.Add(sub);
+            _rows.Children.Add(holder);
         }
         _loading = false;
     }
@@ -222,15 +241,28 @@ internal sealed class MemoryLimitsWindow : Window
             long best = 0;
             var cpuTotal = TimeSpan.Zero;
             string name = System.IO.Path.GetFileNameWithoutExtension(rule.Exe);
+            var lines = new List<string>();
+            string filter = (rule.Title ?? "").Trim();
             try
             {
                 foreach (var p in Process.GetProcessesByName(name))
                 {
-                    try { p.Refresh(); best = Math.Max(best, p.WorkingSet64); cpuTotal += p.TotalProcessorTime; } catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+                    try
+                    {
+                        p.Refresh();
+                        string title = p.MainWindowTitle ?? "";
+                        bool match = filter.Length == 0 || title.Contains(filter, StringComparison.OrdinalIgnoreCase);
+                        long ws = p.WorkingSet64;
+                        lines.Add($"#{p.Id}   {(title.Length > 0 ? "\"" + (title.Length > 60 ? title[..60] + "…" : title) + "\"" : "(no window)")}   {ws / (1024 * 1024)} MB" + (match ? "" : "   — not used by this row"));
+                        if (!match) continue;
+                        best = Math.Max(best, ws); cpuTotal += p.TotalProcessorTime;
+                    }
+                    catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
                     finally { p.Dispose(); }
                 }
             }
             catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            if (_inst.TryGetValue(rule, out var instText)) instText.Text = lines.Count == 0 ? "" : "Running now:  " + string.Join("     ", lines);
             string cpuText = "";
             var nowAt = DateTime.UtcNow;
             if (best > 0 && _cpuBefore.TryGetValue(rule.Exe, out var before) && cpuTotal >= before.Cpu && (nowAt - before.At).TotalSeconds > 0.5)
