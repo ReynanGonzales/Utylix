@@ -399,6 +399,12 @@ limit, trims it (or, with *Deep clean*, frees every program and Windows' cached 
 per program). Nothing runs while the list is empty. Programs that run as administrator (many game clients) need one permission, asked once with a button in that window.
 The **CPU** column does the same for the processor: *Lower priority* (everything else gets the processor first), *Efficiency mode* (idle priority and the power-saving side of the CPU) or a
 hard *Cap* (75 / 50 / 25 / 10 % of the whole processor). The memory limit can be 0 when only the CPU matters. Changing or removing a rule takes the setting back.
+**Several clients of one game** (for example l2m with many accounts): under each row choose which copies it is for - every copy, only the windows whose title
+contains some text, every copy EXCEPT the title containing your main account's name (the main one runs free, the others are held back), or every copy except the one
+you last played (in front). The window lists the running copies with their window titles. **FPS**: the window shows the frames per second of each copy (read from
+Windows' own event tracing, like PresentMon - nothing is put into the game, so anti-cheat has nothing to see), and a row can have a **Limit to N FPS**: Utylix keeps the
+processor use of those copies just low enough that they run at about that rate. This is approximate (it takes about 15 - 30 seconds to settle and wobbles a little; it
+works best for programs that are limited by the processor) and needs the administrator guard.
 
 ## Music player
 

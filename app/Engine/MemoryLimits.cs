@@ -22,6 +22,9 @@ public sealed class MemoryRule
     /// 1 only the windows whose title contains <see cref="Title"/>, 2 every copy EXCEPT those whose title contains it (the main account stays free),
     /// 3 every copy except the one that was last in front (the one being played).</summary>
     public int Scope { get; set; }
+    /// <summary>0 = no frame-rate limit. Otherwise the copies this row is for are held to about this many frames per second: the guard counts their frames
+    /// (nothing is put into the game) and moves a processor cap up or down until the number fits. Needs the administrator guard.</summary>
+    public int TargetFps { get; set; }
 
     /// <summary>Does this row apply to the copy with this window title? <paramref name="frontPid"/> = the copy of this program that was last in front.</summary>
     public bool Matches(string title, int pid, int frontPid)
@@ -43,7 +46,13 @@ public sealed class MemoryRule
 }
 
 public sealed class GuardRow { public string Exe { get; set; } = ""; public long WorkingMb { get; set; } public string LastTrim { get; set; } = ""; public int Trims { get; set; } public bool CpuApplied { get; set; } }
-public sealed class GuardStatus { public bool Elevated { get; set; } public DateTime Updated { get; set; } public List<GuardRow> Rows { get; set; } = new(); }
+public sealed class GuardStatus
+{
+    public bool Elevated { get; set; } public DateTime Updated { get; set; } public List<GuardRow> Rows { get; set; } = new();
+    /// <summary>Frames per second by process id (only while the window is open and watching), and why there are none when that is the case.</summary>
+    public Dictionary<int, int> Fps { get; set; } = new();
+    public string FpsState { get; set; } = "";
+}
 
 /// <summary>The list of limits (memory-limits.json in the data folder). The guard re-reads it whenever it changes.</summary>
 public static class MemoryLimits
@@ -51,6 +60,9 @@ public static class MemoryLimits
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
     public static string FileIn(string dataDir) => Path.Combine(dataDir, "memory-limits.json");
+    /// <summary>The window touches this file every couple of seconds while it is open: only then does the guard measure frames per second.</summary>
+    public static string FpsWantedIn(string dataDir) => Path.Combine(dataDir, "memory-fps-wanted.txt");
+    public static void WantFps(string dataDir) { try { File.WriteAllText(FpsWantedIn(dataDir), DateTime.UtcNow.ToString("O")); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
     public static string StatusFileIn(string dataDir) => Path.Combine(dataDir, "memory-guard-status.json");
 
     /// <summary>"C:\Games\Cabal\Cabal.exe" or "cabal" -> "cabal.exe" (only a file name: it is matched against running programs).</summary>
@@ -67,7 +79,7 @@ public static class MemoryLimits
         try
         {
             var list = JsonSerializer.Deserialize<List<MemoryRule>>(File.ReadAllText(FileIn(dataDir)), Options) ?? new();
-            foreach (var r in list) { r.Exe = CleanExe(r.Exe); r.LimitMb = r.LimitMb <= 0 ? 0 : Math.Clamp(r.LimitMb, 20, 65536); r.Cpu = Math.Clamp(r.Cpu, 0, 3); r.Scope = Math.Clamp(r.Scope, 0, 3); r.CapPercent = Math.Clamp(r.CapPercent, 1, 100); }
+            foreach (var r in list) { r.Exe = CleanExe(r.Exe); r.LimitMb = r.LimitMb <= 0 ? 0 : Math.Clamp(r.LimitMb, 20, 65536); r.Cpu = Math.Clamp(r.Cpu, 0, 3); r.Scope = Math.Clamp(r.Scope, 0, 3); r.TargetFps = r.TargetFps <= 0 ? 0 : Math.Clamp(r.TargetFps, 5, 500); r.CapPercent = Math.Clamp(r.CapPercent, 1, 100); }
             return list.Where(r => r.Exe.Length > 0).ToList();
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
@@ -158,6 +170,9 @@ public static class MemoryGuard
         try { GetWindowThreadProcessId(GetForegroundWindow(), out uint pid); return (int)pid; } catch (Exception e) when (e is System.ComponentModel.Win32Exception or DllNotFoundException) { return 0; }
     }
 
+    private static CpuMode EffMode(MemoryRule r) => r.TargetFps > 0 ? CpuMode.Cap : (CpuMode)r.Cpu;
+    private static int EffCap(MemoryRule r) => r.TargetFps > 0 ? -r.TargetFps : r.CapPercent;     // (a frame-rate limit is remembered as a negative number)
+
     private static bool TrayAlive()
     {
         try { using var m = Mutex.OpenExisting("Local\\Utylix.SingleInstance"); return true; }
@@ -171,6 +186,11 @@ public static class MemoryGuard
         bool owned = false;
         var cpuDone = new Dictionary<int, (string Exe, CpuMode Mode, int Cap, CpuLimiter.Applied? Result)>();
         var lastFront = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);       // per program: the copy that was last in front
+        using var fps = new FpsMeter();
+        var fpsTried = DateTime.MinValue;
+        var cpuAdjusted = new Dictionary<int, DateTime>();
+        var fpsPrev = new Dictionary<int, double>();
+        var cpuSeen = new Dictionary<int, (TimeSpan Cpu, DateTime At)>();       // for the frame-rate limit: how much processor a copy really used
         try
         {
             mutex = new Mutex(true, MutexName, out bool first);
@@ -196,14 +216,26 @@ public static class MemoryGuard
                 var active = rules.Where(r => r.Enabled).ToList();
                 if (active.Count == 0) { if (++idle > 12) break; } else idle = 0;
 
+                // frames per second: while the window is open (it touches a file every few seconds) or while a row has a frame-rate limit; otherwise nothing runs
+                bool wantFps = active.Any(r => r.TargetFps > 0);
+                try { if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(MemoryLimits.FpsWantedIn(dataDir))).TotalSeconds < 8) wantFps = true; } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                var fpsAll = new Dictionary<int, int>();
+                if (wantFps)
+                {
+                    if (!fps.Running && (DateTime.UtcNow - fpsTried).TotalSeconds > 30) { fpsTried = DateTime.UtcNow; fps.Start(); }
+                    if (fps.Running) fpsAll = fps.Snapshot();
+                }
+                else if (fps.Running) fps.Stop();
+
                 var rows = new List<GuardRow>();
+                var seen = new HashSet<int>();
                 bool freedAll = false;
                 // processor settings that no longer match a rule (rule removed, switched off or changed) are taken back
                 foreach (int pid in cpuDone.Keys.ToList())
                 {
                     var d = cpuDone[pid];
                     var rule = active.FirstOrDefault(r => r.Exe.Equals(d.Exe, StringComparison.OrdinalIgnoreCase));
-                    if (rule != null && (CpuMode)rule.Cpu == d.Mode && rule.CapPercent == d.Cap) continue;
+                    if (rule != null && EffMode(rule) == d.Mode && EffCap(rule) == d.Cap) continue;
                     if (d.Result != null) { try { CpuLimiter.Revert(pid, d.Result); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { } }
                     cpuDone.Remove(pid);
                 }
@@ -222,6 +254,7 @@ public static class MemoryGuard
                         try
                         {
                             p.Refresh();
+                            seen.Add(p.Id);
                             if (!rule.Matches(p.MainWindowTitle ?? "", p.Id, frontPid))
                             {
                                 // (a copy that was limited and is now the one in front / the main one: set free again)
@@ -235,9 +268,38 @@ public static class MemoryGuard
                             long ws = p.WorkingSet64;
                             biggest = Math.Max(biggest, ws);
                             // the processor: once per program (again when it was restarted: a new process id)
-                            var mode = (CpuMode)rule.Cpu;
-                            if (mode != CpuMode.None && !cpuDone.ContainsKey(p.Id))
-                                cpuDone[p.Id] = (rule.Exe, mode, rule.CapPercent, CpuLimiter.Apply(p.Id, mode, rule.CapPercent));
+                            var mode = EffMode(rule);
+                            bool canApply = rule.TargetFps <= 0 || fps.Running;          // (a frame-rate limit without frame counting would only be a blind cap: not applied)
+                            if (mode != CpuMode.None && canApply && !cpuDone.ContainsKey(p.Id))
+                                cpuDone[p.Id] = (rule.Exe, mode, EffCap(rule), CpuLimiter.Apply(p.Id, mode, rule.TargetFps > 0 ? 100 : rule.CapPercent));
+                            // frame-rate limit: aim the cap at (what it really uses now) x (target / frames now)
+                            if (rule.TargetFps > 0 && fps.Running && cpuDone.TryGetValue(p.Id, out var fd) && fd.Result != null && fd.Result.Job != IntPtr.Zero)
+                            {
+                                var cpuNow = p.TotalProcessorTime; var at = DateTime.UtcNow;
+                                if (cpuSeen.TryGetValue(p.Id, out var prev) && (at - prev.At).TotalSeconds > 0.5 && fpsAll.TryGetValue(p.Id, out int nowFps) && nowFps > 0
+                                    && (!cpuAdjusted.TryGetValue(p.Id, out var lastAdj) || (at - lastAdj).TotalSeconds >= 3.5))        // (let the last change show in the numbers first)
+                                {
+                                    double usage = 100.0 * (cpuNow - prev.Cpu).TotalSeconds / (at - prev.At).TotalSeconds / Environment.ProcessorCount;
+                                    // (two readings are averaged: a frame count over a second or so jumps about at these small caps)
+                                    double smooth = fpsPrev.TryGetValue(p.Id, out double pf) ? (pf + nowFps) / 2 : nowFps;
+                                    fpsPrev[p.Id] = nowFps;
+                                    double ratio = rule.TargetFps / Math.Max(1.0, smooth);
+                                    if (Math.Abs(ratio - 1) > 0.06)
+                                    {
+                                        double rate = fd.Result.Rate, next;
+                                        if (ratio > 1) next = rate * Math.Clamp(Math.Pow(ratio, 0.5), 1.05, 1.25);         // too slow: let it have a little more
+                                        else
+                                        {
+                                            // too fast: a program that does not even use its cap is not held by it, so start from what it really uses
+                                            double basis = usage < rate * 0.8 ? Math.Max(usage, 0.05) : rate;
+                                            next = basis * Math.Clamp(Math.Pow(ratio, 0.6), 0.6, 0.95);
+                                        }
+                                        CpuLimiter.SetRate(fd.Result, Math.Clamp(next, 0.3, 100));
+                                        cpuAdjusted[p.Id] = at;
+                                    }
+                                }
+                                cpuSeen[p.Id] = (cpuNow, at);
+                            }
                             if (rule.LimitMb <= 0 || ws <= rule.LimitMb * 1024L * 1024L) continue;
                             double wait = rule.Deep ? 60 : 20;                     // (a limit the program needs more than keeps being passed: do not thrash)
                             if (cooldown.TryGetValue(p.Id, out var last) && (DateTime.UtcNow - last).TotalSeconds < wait) continue;
@@ -268,12 +330,16 @@ public static class MemoryGuard
                     if (cpuDone[pid].Result is { } done && done.Job != IntPtr.Zero) { try { CpuLimiter.Revert(pid, done); } catch (Exception e) when (e is System.ComponentModel.Win32Exception) { } }
                     cpuDone.Remove(pid);
                 }
+                var fpsNow = new Dictionary<int, int>();
+                foreach (var (pid, n) in fpsAll) if (seen.Contains(pid)) fpsNow[pid] = n;
+                foreach (int gone in cpuSeen.Keys.Where(k => !seen.Contains(k)).ToList()) cpuSeen.Remove(gone);
                 try
                 {
-                    File.WriteAllText(MemoryLimits.StatusFileIn(dataDir), System.Text.Json.JsonSerializer.Serialize(new GuardStatus { Elevated = elevated, Updated = DateTime.Now, Rows = rows }));
+                    File.WriteAllText(MemoryLimits.StatusFileIn(dataDir), System.Text.Json.JsonSerializer.Serialize(new GuardStatus { Elevated = elevated, Updated = DateTime.Now, Rows = rows, Fps = fpsNow, FpsState = wantFps ? (fps.Running ? "" : fps.Problem) : "" }));
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
-                int ticks = active.Any(r => r.Scope == 3 && r.Cpu != 0) ? 10 : 25;   // 2 s while a row follows the window in front, else 5 s
+                bool wantFast = fps.Running || active.Any(r => r.Scope == 3 && (r.Cpu != 0 || r.TargetFps > 0));
+                int ticks = wantFast ? 10 : 25;                                      // 2 s while a row follows the window in front or frames are counted, else 5 s
                 for (int i = 0; i < ticks && !_stop; i++) Thread.Sleep(200);        // (quick to stop)
             }
         }

@@ -19,6 +19,8 @@ public static class CpuLimiter
     public sealed class Applied
     {
         public CpuMode Mode; public int Cap; public IntPtr Job;
+        /// <summary>The cap now in force, in percent of the whole CPU (a frame-rate limit moves it up and down).</summary>
+        public double Rate;
     }
 
     private const uint ProcessSetInformation = 0x0200, ProcessSetQuota = 0x0100, ProcessTerminate = 0x0001, ProcessQueryLimited = 0x1000;
@@ -80,10 +82,22 @@ public static class CpuLimiter
         SetProcessInformation(process, 4 /* ProcessPowerThrottling */, ref state, Marshal.SizeOf<PowerThrottling>());
     }
 
+    /// <summary>Changes the cap of a process that already has one (in percent of the whole CPU, 0.01 steps).</summary>
+    public static bool SetRate(Applied a, double percent)
+    {
+        if (a.Job == IntPtr.Zero) return false;
+        percent = Math.Clamp(percent, 0.05, 100);
+        var info = new CpuRateInfo { ControlFlags = 0x1 | 0x4, CpuRate = (uint)Math.Round(percent * 100) };
+        if (!SetInformationJobObject(a.Job, 15, ref info, Marshal.SizeOf<CpuRateInfo>())) return false;
+        a.Rate = percent;
+        return true;
+    }
+
     private static bool CapJob(IntPtr process, int percent, Applied a)
     {
         IntPtr job = CreateJobObject(IntPtr.Zero, null);
         if (job == IntPtr.Zero) return false;
+        a.Rate = percent;
         var info = new CpuRateInfo { ControlFlags = 0x1 | 0x4 /* enable + hard cap */, CpuRate = (uint)(percent * 100) };
         if (!SetInformationJobObject(job, 15 /* JobObjectCpuRateControlInformation */, ref info, Marshal.SizeOf<CpuRateInfo>())
             || !AssignProcessToJobObject(job, process))

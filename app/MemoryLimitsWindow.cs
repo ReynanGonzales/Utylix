@@ -60,7 +60,9 @@ internal sealed class MemoryLimitsWindow : Window
         root.Children.Add(new TextBlock
         {
             Text = "Pick a program. Memory: when it uses more than the limit, Utylix gives back what it is not using right now (nothing is closed); a limit that is too low only makes a game stutter, start with 500 MB or more, 0 = no memory limit. " +
-                   "CPU: lower its priority, put it in efficiency mode, or cap the share of the whole processor it may use. Nothing is closed.",
+                   "CPU: lower its priority, put it in efficiency mode, or cap the share of the whole processor it may use. " +
+                   "Several clients of one game: under each row choose which copies it is for (for example everything except your main account's title) and, if you like, a frames-per-second limit. " +
+                   "FPS numbers and the FPS limit need the administrator guard. Nothing is closed and nothing is put into the game.",
             Opacity = 0.75, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 14),
         });
 
@@ -159,7 +161,7 @@ internal sealed class MemoryLimitsWindow : Window
             foreach (UIElement u in new UIElement[] { on, name, now, limit, mode, cpu, remove }) row.Children.Add(u);
             // under the row: only the window whose title contains ... (tells several clients of one game apart), and the copies that are running now
             if (r.Scope == 0 && !string.IsNullOrWhiteSpace(r.Title)) r.Scope = 1;     // (rows made before the choice existed)
-            var scope = new ComboBox { Width = 330, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            var scope = new ComboBox { Width = 400, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
             foreach (string item in new[] { "Use for every copy of this program", "Only the windows whose title contains:", "Every copy EXCEPT the title containing: (my main)", "Every copy except the one I last played (in front)" }) scope.Items.Add(item);
             scope.SelectedIndex = Math.Clamp(r.Scope, 0, 3);
             scope.ToolTip = "Several clients of one game: choose which ones this row is for." + Environment.NewLine + "Example: Cap at 10 % + 'Every copy EXCEPT the title containing' + your main account's name = all other accounts are held back and the main one runs free.";
@@ -173,8 +175,24 @@ internal sealed class MemoryLimitsWindow : Window
             titleBox.TextChanged += (_, _) => { r.Title = titleBox.Text; Changed(); };
             scope.SelectionChanged += (_, _) => { r.Scope = scope.SelectedIndex; titleBox.IsEnabled = r.Scope == 1 || r.Scope == 2; Changed(); };
             titleBox.IsEnabled = r.Scope == 1 || r.Scope == 2;
+            var fpsLabel = new TextBlock { Text = "Limit to", Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 6, 0) };
+            var fpsBox = new TextBox { Text = r.TargetFps > 0 ? r.TargetFps.ToString() : "", Width = 56, Padding = new Thickness(6, 3, 6, 3), VerticalContentAlignment = VerticalAlignment.Center };
+            fpsBox.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+            fpsBox.Background = new SolidColorBrush(Color.FromArgb(34, 128, 128, 128));
+            fpsBox.SetResourceReference(Control.BorderBrushProperty, "MutedBrush");
+            fpsBox.ToolTip = "Frames per second these copies should be held to (empty = no limit)." + Environment.NewLine + "Utylix counts their frames and keeps their processor use just low enough. Needs the administrator guard; only about right for programs that are limited by the processor.";
+            AutomationProperties.SetAutomationId(fpsBox, "MemLimitFps_" + r.Exe);
+            fpsBox.TextChanged += (_, _) =>
+            {
+                string t = fpsBox.Text.Trim();
+                if (t.Length == 0) { r.TargetFps = 0; fpsBox.SetResourceReference(Control.ForegroundProperty, "TextBrush"); Changed(); }
+                else if (int.TryParse(t, out int v) && v >= 5 && v <= 500) { r.TargetFps = v; fpsBox.SetResourceReference(Control.ForegroundProperty, "TextBrush"); Changed(); }
+                else fpsBox.Foreground = Brushes.IndianRed;
+            };
+            var fpsUnit = new TextBlock { Text = "FPS", Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
             var titleLine = new StackPanel { Orientation = Orientation.Horizontal };
             titleLine.Children.Add(scope); titleLine.Children.Add(titleBox);
+            titleLine.Children.Add(fpsLabel); titleLine.Children.Add(fpsBox); titleLine.Children.Add(fpsUnit);
             var inst = new TextBlock { FontSize = 12, Opacity = 0.75, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap };
             _inst[r] = inst;
             var sub = new StackPanel { Margin = new Thickness(40, 0, 0, 8) };
@@ -244,9 +262,13 @@ internal sealed class MemoryLimitsWindow : Window
 
     private void Refresh()
     {
+        MemoryLimits.WantFps(App.DataDir);                      // (the guard counts frames only while this window says it is looking)
+        var status = MemoryLimits.LoadStatus(App.DataDir);
+        var fpsMap = status?.Fps ?? new Dictionary<int, int>();
         foreach (var (rule, text) in _now)
         {
             long best = 0;
+            int bestFps = 0;
             var cpuTotal = TimeSpan.Zero;
             string name = System.IO.Path.GetFileNameWithoutExtension(rule.Exe);
             var lines = new List<string>();
@@ -263,7 +285,8 @@ internal sealed class MemoryLimitsWindow : Window
                         _front.TryGetValue(rule.Exe, out int frontPid);
                         bool match = rule.Matches(title, p.Id, frontPid);
                         long ws = p.WorkingSet64;
-                        lines.Add($"#{p.Id}   {(title.Length > 0 ? "\"" + (title.Length > 60 ? title[..60] + "…" : title) + "\"" : "(no window)")}   {ws / (1024 * 1024)} MB" + (match ? "" : "   — not used by this row"));
+                        lines.Add($"#{p.Id}   {(title.Length > 0 ? "\"" + (title.Length > 60 ? title[..60] + "…" : title) + "\"" : "(no window)")}   {ws / (1024 * 1024)} MB" + (fpsMap.TryGetValue(p.Id, out int f) ? $"   {f} FPS" : "") + (match ? "" : "   — not used by this row"));
+                        if (match && fpsMap.TryGetValue(p.Id, out int f2)) bestFps = Math.Max(bestFps, f2);
                         if (!match) continue;
                         best = Math.Max(best, ws); cpuTotal += p.TotalProcessorTime;
                     }
@@ -278,11 +301,10 @@ internal sealed class MemoryLimitsWindow : Window
             if (best > 0 && _cpuBefore.TryGetValue(rule.Exe, out var before) && cpuTotal >= before.Cpu && (nowAt - before.At).TotalSeconds > 0.5)
                 cpuText = $"  ·  CPU {Math.Min(100.0, 100.0 * (cpuTotal - before.Cpu).TotalSeconds / (nowAt - before.At).TotalSeconds / Environment.ProcessorCount):0} %";
             _cpuBefore[rule.Exe] = (cpuTotal, nowAt);
-            text.Text = best == 0 ? "not running" : (best / (1024 * 1024)) + " MB" + cpuText;
+            text.Text = best == 0 ? "not running" : (best / (1024 * 1024)) + " MB" + cpuText + (bestFps > 0 ? $"  ·  {bestFps} FPS" : "");
             text.Foreground = rule.LimitMb > 0 && best > rule.LimitMb * 1024L * 1024L ? Brushes.Orange : (Brush)FindResource("TextBrush");
         }
         bool active = _rules.Any(r => r.Enabled);
-        var status = MemoryLimits.LoadStatus(App.DataDir);
         bool running = MemoryGuard.IsRunning;
         bool task = MemoryTask.GuardExists();
         string line;
@@ -291,6 +313,7 @@ internal sealed class MemoryLimitsWindow : Window
         else if (status != null && status.Elevated) line = "Watching with administrator rights: programs that run as administrator are reached too.";
         else if (!task && MemoryTask.CanBeSilent) line = "Watching. Programs that run as administrator (many game clients) cannot be reached until you allow it below.";
         else line = "Watching. Programs that run as administrator (many game clients) cannot be reached by this copy of Utylix.";
+        if (active && running && !string.IsNullOrEmpty(status?.FpsState)) line += "  Frames per second: " + status!.FpsState + ".";
         _state.Text = line;
         // a guard that is not there although something is to watch (the tray was restarted, the guard ended): start it again
         if (active && !running && (DateTime.UtcNow - _lastEnsure).TotalSeconds > 8) { _lastEnsure = DateTime.UtcNow; MemoryGuard.Ensure(App.DataDir); }
