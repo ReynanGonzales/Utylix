@@ -18,7 +18,7 @@ namespace IdmClone;
 /// <summary>What was chosen in the setup wizard.</summary>
 internal sealed record Choices(string Dir, bool AllUsers, bool Desktop, bool AutoStart,
                                bool Convert, bool Archive, bool RemoveBg, bool Play, bool Pdf,
-                               bool YtDlp, bool Ffmpeg, bool Vlc, bool Model, bool PawnIo = false)
+                               bool YtDlp, bool Ffmpeg, bool Vlc, bool Model, bool PawnIo = false, bool Rtss = false)
 {
     /// <summary>Command line for the administrator copy of the wizard (started when "all users" needs UAC).</summary>
     public List<string> ToArgs()
@@ -33,7 +33,7 @@ internal sealed record Choices(string Dir, bool AllUsers, bool Desktop, bool Aut
         if (!Play) a.Add("--no-play");
         if (!Pdf) a.Add("--no-pdf-menu");
         var get = new List<string>();
-        if (YtDlp) get.Add("yt"); if (Ffmpeg) get.Add("ff"); if (Vlc) get.Add("vlc"); if (Model) get.Add("ai"); if (PawnIo) get.Add("pawn");
+        if (YtDlp) get.Add("yt"); if (Ffmpeg) get.Add("ff"); if (Vlc) get.Add("vlc"); if (Model) get.Add("ai"); if (PawnIo) get.Add("pawn"); if (Rtss) get.Add("rtss");
         if (get.Count > 0) { a.Add("--get"); a.Add(string.Join(",", get)); }
         return a;
     }
@@ -44,7 +44,7 @@ internal sealed record Choices(string Dir, bool AllUsers, bool Desktop, bool Aut
         var get = g >= 0 && g + 1 < args.Length ? args[g + 1].Split(',') : Array.Empty<string>();
         return new Choices(d >= 0 && d + 1 < args.Length ? args[d + 1] : Installer.AllUsersDir, args.Contains("--all-users"), args.Contains("--desktop"), args.Contains("--autostart"),
                            !args.Contains("--no-convert"), !args.Contains("--no-archive"), !args.Contains("--no-bg"), !args.Contains("--no-play"), !args.Contains("--no-pdf-menu"),
-                           get.Contains("yt"), get.Contains("ff"), get.Contains("vlc"), get.Contains("ai"), get.Contains("pawn"));
+                           get.Contains("yt"), get.Contains("ff"), get.Contains("vlc"), get.Contains("ai"), get.Contains("pawn"), get.Contains("rtss"));
     }
 }
 
@@ -93,6 +93,7 @@ internal static partial class Installer
         if (c.Vlc) downloads.Add(("the video player engine", VlcEngine.InstallAsync));
         if (c.Model) downloads.Add(("the background remover's AI model", BackgroundRemover.InstallModelAsync));
         if (c.PawnIo) downloads.Add(("the PawnIO driver (fan sensors, RAM lighting)", PawnIoSetup.InstallAsync));
+        if (c.Rtss) downloads.Add(("RivaTuner (frame limiter)", RtssKit.InstallAsync));
 
         double filesShare = downloads.Count > 0 ? 35 : 100;
         string exe = await Task.Run(() =>
@@ -228,18 +229,20 @@ internal static partial class Installer
         var dPawn = Check("Fan control and RAM lighting: the PawnIO driver" + (PawnIoSetup.Installed ? "  -  already on this PC" : ""), "SetupPawnIo", false,
                           PawnIoSetup.Installed ? "Nothing to do: it is installed." : "A free, signed driver (pawnio.eu) that lets Utylix read the temperatures and set the fans and the RAM lights. Installed through Windows' winget; Windows asks for permission. About 2 MB, so it is off unless you want it now.",
                           enabled: !PawnIoSetup.Installed);
-        if (start != null) { dYt.IsChecked = start.YtDlp; dFf.IsChecked = start.Ffmpeg; dVlc.IsChecked = start.Vlc; dAi.IsChecked = start.Model; dPawn.IsChecked = start.PawnIo; }
+        var dRtss = Check("Frame limiter: RivaTuner Statistics Server" + (RtssKit.Has ? have : ""), "SetupRtss", false,
+                          RtssKit.Has ? "Already downloaded." : "Holds a game to a frame rate you choose (and is what Utylix uses for its FPS limit). Utylix does not carry it: it is downloaded from Guru3D's public mirror, checked against its fingerprint and unpacked into Utylix's tools folder - nothing is installed. It works by hooking the game, which some anti-cheat programs do not like. About 18 MB; off unless you want it.");
+        if (start != null) { dYt.IsChecked = start.YtDlp; dFf.IsChecked = start.Ffmpeg; dVlc.IsChecked = start.Vlc; dAi.IsChecked = start.Model; dPawn.IsChecked = start.PawnIo; dRtss.IsChecked = start.Rtss; }
         var total = Text("", 12.5, bold: true, margin: new Thickness(0, 18, 0, 0));
         void UpdateTotal()
         {
-            int mb = (dYt.IsChecked == true ? 20 : 0) + (dFf.IsChecked == true ? 100 : 0) + (dVlc.IsChecked == true ? 80 : 0) + (dAi.IsChecked == true ? 170 : 0) + (dPawn.IsChecked == true ? 2 : 0);
+            int mb = (dYt.IsChecked == true ? 20 : 0) + (dFf.IsChecked == true ? 100 : 0) + (dVlc.IsChecked == true ? 80 : 0) + (dAi.IsChecked == true ? 170 : 0) + (dPawn.IsChecked == true ? 2 : 0) + (dRtss.IsChecked == true ? 18 : 0);
             total.Text = mb == 0 ? "Nothing will be downloaded now. Utylix asks the first time a feature needs one of these." : $"About {mb} MB will be downloaded while installing.";
         }
-        foreach (var b in new[] { dYt, dFf, dVlc, dAi, dPawn }) { b.Checked += (_, _) => UpdateTotal(); b.Unchecked += (_, _) => UpdateTotal(); }
+        foreach (var b in new[] { dYt, dFf, dVlc, dAi, dPawn, dRtss }) { b.Checked += (_, _) => UpdateTotal(); b.Unchecked += (_, _) => UpdateTotal(); }
         var selectAll = new Button { Content = "Select all", Style = (Style)R("LinkButton"), Margin = new Thickness(0, 0, 14, 0) };
         var selectNone = new Button { Content = "Select none", Style = (Style)R("LinkButton") };
-        selectAll.Click += (_, _) => { foreach (var b in new[] { dYt, dFf, dVlc, dAi, dPawn }) if (b.IsEnabled) b.IsChecked = true; };
-        selectNone.Click += (_, _) => { foreach (var b in new[] { dYt, dFf, dVlc, dAi, dPawn }) if (b.IsEnabled) b.IsChecked = false; };
+        selectAll.Click += (_, _) => { foreach (var b in new[] { dYt, dFf, dVlc, dAi, dPawn, dRtss }) if (b.IsEnabled) b.IsChecked = true; };
+        selectNone.Click += (_, _) => { foreach (var b in new[] { dYt, dFf, dVlc, dAi, dPawn, dRtss }) if (b.IsEnabled) b.IsChecked = false; };
         var downloadsPage = new StackPanel();
         downloadsPage.Children.Add(Text("Utylix does not carry these inside it (they are other people's programs, and they go out of date). Choose which to download now; each comes from its official source and is checked against its published fingerprint. Anything you skip is offered later, the first time it is needed.", muted: true));
         // A PC without internet: the same parts from a folder or USB stick that another PC saved (Settings > Video sites > Save the tools for another PC).
@@ -289,7 +292,7 @@ internal static partial class Installer
         packButtons.Children.Add(packUse); packButtons.Children.Add(packPick);
         downloadsPage.Children.Add(packMsg);
         downloadsPage.Children.Add(packButtons);
-        downloadsPage.Children.Add(dYt); downloadsPage.Children.Add(dFf); downloadsPage.Children.Add(dVlc); downloadsPage.Children.Add(dAi); downloadsPage.Children.Add(dPawn);
+        downloadsPage.Children.Add(dYt); downloadsPage.Children.Add(dFf); downloadsPage.Children.Add(dVlc); downloadsPage.Children.Add(dAi); downloadsPage.Children.Add(dPawn); downloadsPage.Children.Add(dRtss);
         var links = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
         links.Children.Add(selectAll); links.Children.Add(selectNone);
         downloadsPage.Children.Add(links);
@@ -389,7 +392,7 @@ internal static partial class Installer
 
         Choices Current() => new(dirBox.Text.Trim(), scopeAll.IsChecked == true, cDesk.IsChecked == true, cAuto.IsChecked == true,
                                  cConvert.IsChecked == true, cArchive.IsChecked == true, cBg.IsChecked == true, cPlay.IsChecked == true, cPdf.IsChecked == true,
-                                 dYt.IsChecked == true, dFf.IsChecked == true, dVlc.IsChecked == true, dAi.IsChecked == true, dPawn.IsChecked == true);
+                                 dYt.IsChecked == true, dFf.IsChecked == true, dVlc.IsChecked == true, dAi.IsChecked == true, dPawn.IsChecked == true, dRtss.IsChecked == true);
 
         async Task DoInstall(Choices c)
         {

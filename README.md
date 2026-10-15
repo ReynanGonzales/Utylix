@@ -405,6 +405,10 @@ you last played (in front). The window lists the running copies with their windo
 Windows' own event tracing, like PresentMon - nothing is put into the game, so anti-cheat has nothing to see), and a row can have a **Limit to N FPS**: Utylix keeps the
 processor use of those copies just low enough that they run at about that rate. This is approximate (it takes about 15 - 30 seconds to settle and wobbles a little; it
 works best for programs that are limited by the processor) and needs the administrator guard.
+**RivaTuner as the frame limiter**: for an exact limit Utylix can use RivaTuner Statistics Server (RTSS, free, by Guru3D). Utylix does not carry it (its terms do not allow
+that): the setup wizard's *Extra parts* page, or the button in the Memory limits window, downloads it on your PC from Guru3D's public mirror, checks it against its
+published fingerprint and unpacks it into Utylix's tools folder - nothing is installed. With RTSS there, *Limit to N FPS* becomes RTSS's limit for that program (every copy of
+it: RTSS cannot tell windows apart) and Utylix starts RTSS when a limit is on. RTSS works by hooking the game, which some anti-cheat programs do not like.
 
 ## Music player
 

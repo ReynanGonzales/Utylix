@@ -23,6 +23,8 @@ internal sealed class MemoryLimitsWindow : Window
     private readonly StackPanel _rows = new();
     private readonly TextBlock _state = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) };
     private readonly Button _allow;
+    private readonly TextBlock _rtssState = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Opacity = 0.85 };
+    private readonly Button _rtssButton;
     private readonly DispatcherTimer _tick = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
     private readonly List<MemoryRule> _rules;
@@ -86,6 +88,27 @@ internal sealed class MemoryLimitsWindow : Window
         _allow.Click += (_, _) => AllowAdministrator();
         root.Children.Add(_allow);
 
+        // the frame limiter engine: RivaTuner, downloaded on this PC (Utylix may not carry it)
+        root.Children.Add(_rtssState);
+        _rtssButton = new Button { Content = "Download RivaTuner (about 18 MB)", Style = plain, Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+        AutomationProperties.SetAutomationId(_rtssButton, "MemLimitRtss");
+        _rtssButton.Click += async (_, _) =>
+        {
+            _rtssButton.IsEnabled = false;
+            try
+            {
+                await RtssKit.InstallAsync(s => Dispatcher.Invoke(() => _rtssState.Text = s), System.Threading.CancellationToken.None);
+            }
+            catch (Exception e) when (e is IOException or System.Net.Http.HttpRequestException or InvalidDataException or UnauthorizedAccessException)
+            {
+                _rtssState.Text = "RivaTuner could not be set up: " + e.Message;
+            }
+            _rtssButton.IsEnabled = true;
+            RefreshRtss(keepText: true);
+        };
+        root.Children.Add(_rtssButton);
+        RefreshRtss(keepText: false);
+
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         BuildRows();
         Refresh();
@@ -93,6 +116,20 @@ internal sealed class MemoryLimitsWindow : Window
         _tick.Start();
         _saveTimer.Tick += (_, _) => { _saveTimer.Stop(); SaveNow(); };
         Closed += (_, _) => { _tick.Stop(); if (_saveTimer.IsEnabled) { _saveTimer.Stop(); SaveNow(); } _open = null; };
+    }
+
+    private void RefreshRtss(bool keepText)
+    {
+        if (RtssKit.Has)
+        {
+            if (!keepText) _rtssState.Text = "Frame limiter: RivaTuner is ready. A \"Limit to … FPS\" now sets RivaTuner's limit for that program (every copy of it: RivaTuner cannot tell windows apart). It works by hooking the game; some anti-cheat programs do not like that.";
+            _rtssButton.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            if (!keepText) _rtssState.Text = "Frame limiter: without RivaTuner, \"Limit to … FPS\" is only a rough processor cap. RivaTuner (free, by Guru3D) gives an exact limit and is downloaded here, from Guru3D's mirror, not installed. It works by hooking the game; some anti-cheat programs do not like that.";
+            _rtssButton.Visibility = Visibility.Visible;
+        }
     }
 
     private void SaveNow()

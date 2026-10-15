@@ -170,8 +170,10 @@ public static class MemoryGuard
         try { GetWindowThreadProcessId(GetForegroundWindow(), out uint pid); return (int)pid; } catch (Exception e) when (e is System.ComponentModel.Win32Exception or DllNotFoundException) { return 0; }
     }
 
-    private static CpuMode EffMode(MemoryRule r) => r.TargetFps > 0 ? CpuMode.Cap : (CpuMode)r.Cpu;
-    private static int EffCap(MemoryRule r) => r.TargetFps > 0 ? -r.TargetFps : r.CapPercent;     // (a frame-rate limit is remembered as a negative number)
+    // (with RivaTuner in the tools folder a frame-rate limit is its profile of the program, so the processor is not touched for it)
+    private static bool UsesRtss(MemoryRule r) => r.TargetFps > 0 && RtssKit.Has;
+    private static CpuMode EffMode(MemoryRule r) => UsesRtss(r) ? (CpuMode)r.Cpu : r.TargetFps > 0 ? CpuMode.Cap : (CpuMode)r.Cpu;
+    private static int EffCap(MemoryRule r) => UsesRtss(r) ? r.CapPercent : r.TargetFps > 0 ? -r.TargetFps : r.CapPercent;     // (a frame-rate limit is remembered as a negative number)
 
     private static bool TrayAlive()
     {
@@ -188,6 +190,7 @@ public static class MemoryGuard
         var lastFront = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);       // per program: the copy that was last in front
         using var fps = new FpsMeter();
         var fpsTried = DateTime.MinValue;
+        var rtssApplied = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var cpuAdjusted = new Dictionary<int, DateTime>();
         var fpsPrev = new Dictionary<int, double>();
         var cpuSeen = new Dictionary<int, (TimeSpan Cpu, DateTime At)>();       // for the frame-rate limit: how much processor a copy really used
@@ -226,6 +229,18 @@ public static class MemoryGuard
                     if (fps.Running) fpsAll = fps.Snapshot();
                 }
                 else if (fps.Running) fps.Stop();
+
+                // RivaTuner's limits: written to the profile of each program with a limit (and taken out again when it goes), RivaTuner started when one is on
+                if (RtssKit.Has)
+                {
+                    foreach (var r in rules)
+                    {
+                        int want = r.Enabled && r.TargetFps > 0 ? r.TargetFps : 0;
+                        if (rtssApplied.TryGetValue(r.Exe, out int had) ? had == want : want == 0) continue;
+                        if (RtssKit.SetLimit(r.Exe, want)) rtssApplied[r.Exe] = want;
+                    }
+                    if (rtssApplied.Values.Any(v => v > 0)) RtssKit.EnsureRunning();
+                }
 
                 var rows = new List<GuardRow>();
                 var seen = new HashSet<int>();
@@ -269,11 +284,11 @@ public static class MemoryGuard
                             biggest = Math.Max(biggest, ws);
                             // the processor: once per program (again when it was restarted: a new process id)
                             var mode = EffMode(rule);
-                            bool canApply = rule.TargetFps <= 0 || fps.Running;          // (a frame-rate limit without frame counting would only be a blind cap: not applied)
+                            bool canApply = rule.TargetFps <= 0 || UsesRtss(rule) || fps.Running;          // (a frame-rate limit without frame counting would only be a blind cap: not applied)
                             if (mode != CpuMode.None && canApply && !cpuDone.ContainsKey(p.Id))
                                 cpuDone[p.Id] = (rule.Exe, mode, EffCap(rule), CpuLimiter.Apply(p.Id, mode, rule.TargetFps > 0 ? 100 : rule.CapPercent));
                             // frame-rate limit: aim the cap at (what it really uses now) x (target / frames now)
-                            if (rule.TargetFps > 0 && fps.Running && cpuDone.TryGetValue(p.Id, out var fd) && fd.Result != null && fd.Result.Job != IntPtr.Zero)
+                            if (rule.TargetFps > 0 && !UsesRtss(rule) && fps.Running && cpuDone.TryGetValue(p.Id, out var fd) && fd.Result != null && fd.Result.Job != IntPtr.Zero)
                             {
                                 var cpuNow = p.TotalProcessorTime; var at = DateTime.UtcNow;
                                 if (cpuSeen.TryGetValue(p.Id, out var prev) && (at - prev.At).TotalSeconds > 0.5 && fpsAll.TryGetValue(p.Id, out int nowFps) && nowFps > 0
