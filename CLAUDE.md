@@ -147,6 +147,7 @@ Standing wishes (all said explicitly):
   the owner continues at home on another PC.
 
 ## Plan (kept current - continue from here)
+UPDATE 2026-10-16: **1.10.0 also carries** Free up memory, Memory / CPU limits (scope by window title, FPS display, FPS limit through RivaTuner downloaded on the user's PC), archive safety; release notes in `release-notes-1.10.0.md` (first line = short plain summary for the update window); the release is made with `gh release create v1.10.0 --notes-file release-notes-1.10.0.md Utylix-Setup.exe Utylix.exe` (the home PC had no `gh` on 2026-10-16: install it with `winget install GitHub.cli` and `gh auth login`).
 UPDATE 2026-10-14 (night): `<Version>` is now **1.10.0** = 1.9.6 + **Utylix Vid Editor** (`UtylixVid.exe`, see its entry: separate program, own settings, Premiere-style workspace, keyframes / effects / transitions / source monitor / export formats), Start menu entry, Dashboard tile, tray item; release `v1.10.0`. The 'Utylix Pro' rename is still to come (display names only).
 UPDATE 2026-10-14 (evening): `<Version>` was **1.9.6** = 1.9.5 + spaces get the height of the letter beside them (the real cause of the tall blue / yellow blocks and underlines far under the words); release `v1.9.6`.
 UPDATE 2026-10-14 (later): `<Version>` was **1.9.5** = 1.9.4 + honest character boxes (tight selections / highlights), Size + Line settings for check / cross and Line for underline / strike-out, Snip hides at once when a timer is set (see 'Editor polish 2026-10-14'); release `v1.9.5`.
