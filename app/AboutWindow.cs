@@ -57,7 +57,7 @@ public sealed class AboutWindow : Window
         var made = new TextBlock { Text = "Made by " + AppInfo.Author, FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = text, Margin = new Thickness(0, 20, 0, 0) };
         System.Windows.Automation.AutomationProperties.SetAutomationId(made, "AboutAuthor");
         root.Children.Add(made);
-        root.Children.Add(new TextBlock { Text = AppInfo.Tagline + ": downloads, converting files, PDF and video editors, screen recorder and snip tool, video, music and photo players, archives, background remover, brightness, fan and RAM-light control, and memory / CPU / frame-rate limits.", TextWrapping = TextWrapping.Wrap, Foreground = muted, Margin = new Thickness(0, 6, 0, 0) });
+        root.Children.Add(new TextBlock { Text = AppInfo.Tagline + ": the everyday tools of a PC in one small app that lives in your tray.", TextWrapping = TextWrapping.Wrap, Foreground = muted, Margin = new Thickness(0, 6, 0, 0) });
 
         // support: a GCash QR code (scanned with the GCash app)
         var support = new Border { Margin = new Thickness(0, 18, 0, 0), Padding = new Thickness(14), CornerRadius = new CornerRadius(10), Style = (Style)Application.Current.FindResource("Section") };
@@ -76,27 +76,36 @@ public sealed class AboutWindow : Window
         support.Child = supportRow;
         root.Children.Add(support);
 
-        root.Children.Add(new TextBlock { Text = "Built with free tools", FontWeight = FontWeights.SemiBold, Foreground = text, Margin = new Thickness(0, 22, 0, 6) });
-        var credits = new StackPanel();
+        root.Children.Add(new TextBlock { Text = "What each app does", FontWeight = FontWeights.SemiBold, Foreground = text, Margin = new Thickness(0, 22, 0, 6) });
+        var apps = new StackPanel();
         foreach (var (name, what) in new[]
         {
-            ("PDFium", "reads, draws and edits PDFs (the PDF engine of Chrome); PDFsharp writes them"),
-            ("yt-dlp and FFmpeg", "download videos and convert video, music and pictures"),
-            ("VLC (LibVLC)", "plays videos and music"),
-            ("MonoTorrent", "torrents"),
-            ("SharpCompress", "ZIP, RAR, 7z and other archives"),
-            ("NAudio", "audio"),
-            ("ONNX Runtime and rembg", "removes picture backgrounds"),
-            ("LibreHardwareMonitor", "temperatures and fan control"),
-            ("Windows", "reads text from scans (OCR) and draws everything"),
+            ("Downloads", "saves files, videos from the web and torrents; the browser extension sends links to it"),
+            ("Multi Convert", "changes videos, music, pictures and documents into another format"),
+            ("Video Player", "plays videos and music of nearly any kind, with subtitles, playlists and resume"),
+            ("Video Editor", "cuts, joins and edits videos on a timeline, with effects and export"),
+            ("PDF Editor", "reads, edits, fills, signs, compresses and combines PDF files"),
+            ("Photo Viewer", "opens pictures quickly, with simple edits and background removal"),
+            ("Music Player", "plays your songs with an equalizer, tags and a sleep timer"),
+            ("Screen Recorder and Snip", "records the screen or takes a picture of a part of it, and lets you mark it up"),
+            ("Archives", "opens and makes ZIP, RAR, 7z and other archives"),
+            ("Brightness", "changes the brightness of your screens"),
+            ("Fans and RAM lights", "shows temperatures, controls the fans and sets the colour of your RAM"),
+            ("Memory limits", "keeps a program's memory and processor use in check, limits its frames per second and shows them on screen"),
         })
         {
-            var line = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = muted, Margin = new Thickness(0, 0, 0, 3) };
+            var line = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = muted, Margin = new Thickness(0, 0, 0, 4) };
             line.Inlines.Add(new System.Windows.Documents.Run(name) { FontWeight = FontWeights.SemiBold, Foreground = text });
             line.Inlines.Add(new System.Windows.Documents.Run("  " + what));
-            credits.Children.Add(line);
+            apps.Children.Add(line);
         }
-        root.Children.Add(credits);
+        root.Children.Add(apps);
+        // (the free libraries it stands on, kept as one quiet line)
+        root.Children.Add(new TextBlock
+        {
+            Text = "Built on free software: PDFium, PDFsharp, FFmpeg, yt-dlp, VLC (LibVLC), MonoTorrent, SharpCompress, NAudio, ONNX Runtime, LibreHardwareMonitor.",
+            TextWrapping = TextWrapping.Wrap, Foreground = muted, FontSize = 11.5, Opacity = 0.8, Margin = new Thickness(0, 10, 0, 0),
+        });
 
         var close = new Button { Content = "Close", Style = (Style)Application.Current.FindResource("DialogButton"), HorizontalAlignment = HorizontalAlignment.Right, MinWidth = 96, Margin = new Thickness(0, 18, 0, 0), IsCancel = true, IsDefault = true };
         close.Click += (_, _) => Close();
