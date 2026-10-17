@@ -33,9 +33,11 @@ internal static class FpsOverlay
 
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-    [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr h, ref POINT p);
-    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr h);
-    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
+    [DllImport("user32.dll")] private static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr module, WinEventProc proc, uint pid, uint thread, uint flags);
+    [DllImport("user32.dll")] private static extern bool UnhookWinEvent(IntPtr hook);
+    internal delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+    private static IntPtr _foregroundHook;
+    private static readonly WinEventProc _foregroundProc = (_, _, _, _, _, _, _) => { foreach (var w in _windows.Values) w.Follow(); };       // (the window in front changed: show / hide at once)
 
     /// <summary>Starts or stops the displays to match the list (called at start and whenever the list is saved).</summary>
     public static void Apply(string dataDir)
@@ -47,10 +49,12 @@ internal static class FpsOverlay
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             _timer.Tick += (_, _) => Tick(dataDir);
             _timer.Start();
+            _foregroundHook = SetWinEventHook(0x0003, 0x0003, IntPtr.Zero, _foregroundProc, 0, 0, 0);       // EVENT_SYSTEM_FOREGROUND, called on this thread
         }
         else if (!want && _timer != null)
         {
             _timer.Stop(); _timer = null;
+            if (_foregroundHook != IntPtr.Zero) { UnhookWinEvent(_foregroundHook); _foregroundHook = IntPtr.Zero; }
             foreach (var w in _windows.Values) w.Close();
             _windows.Clear();
             _sensors?.Dispose(); _sensors = null;
@@ -74,14 +78,12 @@ internal static class FpsOverlay
                     IntPtr hwnd = p.MainWindowHandle;
                     if (hwnd == IntPtr.Zero || FpsHook.ReadFps(dataDir, p.Id) is not { } frame) continue;
                     seen.Add(p.Id);
-                    var corner = new POINT();                                                 // the top-left of the window's content (below a title bar, if it has one)
-                    bool show = front == (uint)p.Id && !IsIconic(hwnd) && ClientToScreen(hwnd, ref corner);
                     int mode = rule.OsdMode == 1 ? 1 : 0;
-                    if (_windows.TryGetValue(p.Id, out var old) && old.Mode != mode) { old.Close(); _windows.Remove(p.Id); }
-                    if (!_windows.TryGetValue(p.Id, out var w)) _windows[p.Id] = w = new FpsOverlayWindow(mode);
+                    if (_windows.TryGetValue(p.Id, out var old) && (old.Mode != mode || old.Game != hwnd)) { old.Close(); _windows.Remove(p.Id); }
+                    if (!_windows.TryGetValue(p.Id, out var w)) _windows[p.Id] = w = new FpsOverlayWindow(mode, hwnd, (uint)p.Id);
                     OsdReading? reading = null;
-                    if (mode == 1 && show) reading = Sensors(p.Id);
-                    w.Update(frame.Fps, frame.Api, reading, show, corner.X + 12, corner.Y + 10);
+                    if (mode == 1 && front == (uint)p.Id) reading = Sensors(p.Id);
+                    w.Update(frame.Fps, frame.Api, reading);
                 }
                 catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
                 finally { p.Dispose(); }
@@ -116,6 +118,10 @@ internal sealed class FpsOverlayWindow : Window
     private static Brush Freeze(Brush b) { b.Freeze(); return b; }
 
     public int Mode { get; }
+    public IntPtr Game { get; }                                     // the program's window this display sits on
+    private readonly uint _pid;
+    private IntPtr _moveHook;
+    private FpsOverlay.WinEventProc? _moveProc;                     // (kept: the hook calls it)
     private readonly TextBlock _fpsOnly = new();
     private readonly Dictionary<string, TextBlock[]> _cells = new();
     private readonly TextBlock _apiLabel = new();
@@ -124,9 +130,17 @@ internal sealed class FpsOverlayWindow : Window
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(IntPtr h, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] private static extern int SetWindowLong(IntPtr h, int index, int value);
 
-    public FpsOverlayWindow(int mode)
+    [DllImport("user32.dll")] private static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr module, FpsOverlay.WinEventProc proc, uint pid, uint thread, uint flags);
+    [DllImport("user32.dll")] private static extern bool UnhookWinEvent(IntPtr hook);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr h, ref POINT p);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr h);
+    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
+
+    public FpsOverlayWindow(int mode, IntPtr game, uint pid)
     {
-        Mode = mode;
+        Mode = mode; Game = game; _pid = pid;
         WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent; ShowInTaskbar = false; Topmost = true;
         ShowActivated = false; Focusable = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
         FontFamily = new FontFamily("Consolas"); FontSize = 16; FontWeight = FontWeights.Bold;
@@ -137,6 +151,22 @@ internal sealed class FpsOverlayWindow : Window
             IntPtr h = new WindowInteropHelper(this).Handle;
             SetWindowLong(h, -20, GetWindowLong(h, -20) | 0x20 | 0x08000000 | 0x80);       // click-through, never active, not in Alt+Tab
         };
+        // the display follows the program's window the moment it moves, is resized, minimised or restored (not on the next look of a timer)
+        _moveProc = (_, _, hwnd, idObject, _, _, _) => { if (hwnd == Game && idObject == 0) Follow(); };
+        _moveHook = SetWinEventHook(0x800B, 0x800B, IntPtr.Zero, _moveProc, pid, 0, 0);     // EVENT_OBJECT_LOCATIONCHANGE of that program, called on this thread
+        Closed += (_, _) => { if (_moveHook != IntPtr.Zero) { UnhookWinEvent(_moveHook); _moveHook = IntPtr.Zero; } };
+    }
+
+    /// <summary>Puts the display in the corner of the program's window, or hides it when that program is not in front / is minimised.</summary>
+    public void Follow()
+    {
+        GetWindowThreadProcessId(GetForegroundWindow(), out uint front);
+        var corner = new POINT();
+        bool show = front == _pid && !IsIconic(Game) && ClientToScreen(Game, ref corner);
+        if (!show) { if (IsVisible) Hide(); return; }
+        if (!IsVisible) Show();
+        IntPtr h = new WindowInteropHelper(this).Handle;
+        SetWindowPos(h, new IntPtr(-1), corner.X + 12, corner.Y + 10, 0, 0, 0x0001 | 0x0010);   // top-left of the content, on top, no size change, no activation
     }
 
     private UIElement BuildFpsOnly()
@@ -180,7 +210,7 @@ internal sealed class FpsOverlayWindow : Window
         cell.Inlines.Add(new System.Windows.Documents.Run(" " + unit) { FontSize = 12, FontWeight = FontWeights.Normal });
     }
 
-    public void Update(double fps, string api, OsdReading? r, bool visible, int x, int y)
+    public void Update(double fps, string api, OsdReading? r)
     {
         if (Mode == 0) Set(_fpsOnly, fps, "FPS");
         else
@@ -195,9 +225,6 @@ internal sealed class FpsOverlayWindow : Window
                 var ram = _cells["ram"]; Set(ram[0], r.RamUsedMb, "MB"); Set(ram[1], r.RamGameMb, "MB");
             }
         }
-        if (!visible) { if (IsVisible) Hide(); return; }
-        if (!IsVisible) Show();
-        IntPtr h = new WindowInteropHelper(this).Handle;
-        SetWindowPos(h, new IntPtr(-1), x, y, 0, 0, 0x0001 | 0x0010);                      // keep on top: no size change, no activation
+        Follow();                                                                           // (also re-asserts "on top": a game can push its own window above)
     }
 }
