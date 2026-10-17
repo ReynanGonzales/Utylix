@@ -24,7 +24,7 @@ public static class MemoryToast
     public static void Run(bool deep, string? rememberSid = null)
     {
         var app = Application.Current;
-        Open(deep ? "Freeing up memory…" : "Freeing up memory…", deep ? "Clearing Windows' cached memory too. This can take a few seconds." : "");
+        Open(deep ? "Freeing up memory…" : "Freeing up memory…", deep ? "Trimming Windows' own memory too. This can take a few seconds." : "");
         // started as administrator for the deep clean: do it at once; otherwise a quick trim first (no permission needed)
         Task.Run(() =>
         {
@@ -86,7 +86,7 @@ public static class MemoryToast
             long freed = Math.Max(0, r.FreeAfter - r.FreeBefore);
             title = freed >= 1 << 20 ? "Freed " + MemoryCleaner.Bytes(freed) : "Memory is already tidy";
             body = $"{MemoryCleaner.Bytes(r.FreeAfter)} free of {MemoryCleaner.Bytes(r.Total)}  ·  {r.Trimmed} programs trimmed";
-            if (r.Deep) body += "\nWindows' cached memory was cleared too." + (nowSilent ? "\nNext time it will not ask again." : "");
+            if (r.Deep) body += "\nWindows' own memory was trimmed too." + (nowSilent ? "\nNext time it will not ask again." : "");
             else if (!MemoryCleaner.IsElevated) offerDeep = true;
         }
 
@@ -95,7 +95,7 @@ public static class MemoryToast
         {
             var deepLink = new TextBlock
             {
-                Text = "Also clear Windows' cached memory (asks for permission once)", FontSize = 12.5, Foreground = accent, Margin = new Thickness(0, 8, 0, 0),
+                Text = "Also trim Windows' own memory (asks for permission once)", FontSize = 12.5, Foreground = accent, Margin = new Thickness(0, 8, 0, 0),
                 Cursor = Cursors.Hand, TextDecorations = TextDecorations.Underline,
             };
             panel.Children.Add(deepLink);

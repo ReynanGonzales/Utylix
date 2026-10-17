@@ -9,7 +9,8 @@ namespace IdmClone.Engine;
 /// <summary>
 /// "Free up memory" (the desktop right-click entry): asks every program that Windows lets us reach to give back the memory it is not using right
 /// now (its working set is trimmed: the pages go to Windows' standby list and come back by themselves when a program needs them), and, when this
-/// copy runs with administrator rights, also empties Windows' own standby and modified page lists. Nothing is closed and nothing is lost.
+/// copy runs with administrator rights, also empties Windows' own working sets. Only programs holding 100 MB or more are touched, one after the other.
+/// Nothing is closed and nothing is lost. (Flushing the modified page list and purging the standby list are NOT done: they keep the disk busy.)
 /// </summary>
 public static class MemoryCleaner
 {
@@ -45,10 +46,14 @@ public static class MemoryCleaner
                 if (id is 0 or 4 || id == self || (uint)id == foreground) continue;       // (what you are looking at stays snappy)
                 string name = p.ProcessName;
                 if (name.Equals("explorer", StringComparison.OrdinalIgnoreCase) || name.Equals("dwm", StringComparison.OrdinalIgnoreCase)) continue;
+                // Small programs give back next to nothing, but every page taken from them has to be read back from the disk the next time they are used:
+                // only the ones that hold a real amount are trimmed (this is what kept the disk busy afterwards)
+                if (p.WorkingSet64 < MinimumToTrim) continue;
                 IntPtr h = OpenProcess(ProcessSetQuota | ProcessQueryInformation, false, id);
                 if (h == IntPtr.Zero) continue;
                 try { if (EmptyWorkingSet(h)) trimmed++; }
                 finally { CloseHandle(h); }
+                System.Threading.Thread.Sleep(20);                                     // (one program after the other, not all pages out at the same moment)
             }
             catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { /* gone, or not ours */ }
             finally { p.Dispose(); }
@@ -86,7 +91,10 @@ public static class MemoryCleaner
             }
             finally { CloseHandle(token); }
             bool ok = true;
-            foreach (int command in new[] { 2 /* empty working sets */, 3 /* flush the modified list */, 4 /* purge the standby list */ })
+            // Only "empty the working sets". Flushing the modified list (writes every changed page to the disk at once) and purging the standby list
+            // (throws away Windows' file cache: everything is read from the disk again) used to be here too: they made the disk 100 % busy for a while and
+            // gave no memory that Windows did not already count as available.
+            foreach (int command in new[] { 2 /* empty working sets */ })
             {
                 IntPtr buffer = Marshal.AllocHGlobal(4);
                 try
@@ -110,6 +118,7 @@ public static class MemoryCleaner
     public static string Bytes(long b) => b >= 1L << 30 ? (b / (double)(1L << 30)).ToString("0.0") + " GB" : (b / (double)(1L << 20)).ToString("0") + " MB";
 
     private const uint ProcessSetQuota = 0x0100, ProcessQueryInformation = 0x0400;
+    private const long MinimumToTrim = 100L * 1024 * 1024;                  // programs holding less than this are left alone
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MemoryStatus

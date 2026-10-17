@@ -140,7 +140,7 @@ internal sealed class MemoryLimitsWindow : Window
             var mode = new ComboBox { Width = 118, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
             mode.Items.Add("Trim it"); mode.Items.Add("Deep clean");
             mode.SelectedIndex = r.Deep ? 1 : 0;
-            mode.ToolTip = "Trim it: only this program gives back memory.\nDeep clean: every program, and Windows' cached memory too (needs administrator rights).";
+            mode.ToolTip = "Trim it: only this program gives back memory.\nDeep clean: every large program, and Windows' own memory too (needs administrator rights). Both give memory back by moving it out of the programs: what they need again is read back from the disk, so the disk is busy for a moment afterwards.";
             mode.SelectionChanged += (_, _) => { r.Deep = mode.SelectedIndex == 1; Changed(); };
             var removeText = new TextBlock { Text = "Remove" };
             removeText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
