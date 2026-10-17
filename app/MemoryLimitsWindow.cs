@@ -154,7 +154,7 @@ internal sealed class MemoryLimitsWindow : Window
         foreach (var rule in _rules)
         {
             var r = rule;
-            var row = new Grid { Margin = new Thickness(0, 4, 0, 4), Background = new SolidColorBrush(Color.FromArgb(20, 128, 128, 128)) };
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 2), Background = new SolidColorBrush(Color.FromArgb(20, 128, 128, 128)) };
             foreach (var w in new[] { 34.0, 0, 150, 100, 120, 160, 100 })
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = w == 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
             var on = new CheckBox { IsChecked = r.Enabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), ToolTip = "Watch this program" };
@@ -227,16 +227,29 @@ internal sealed class MemoryLimitsWindow : Window
                 else fpsBox.Foreground = Brushes.IndianRed;
             };
             var fpsUnit = new TextBlock { Text = "FPS", Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
-            var titleLine = new StackPanel { Orientation = Orientation.Horizontal };
-            titleLine.Children.Add(scope); titleLine.Children.Add(titleBox);
-            titleLine.Children.Add(fpsLabel); titleLine.Children.Add(fpsBox); titleLine.Children.Add(fpsUnit);
-            var inst = new TextBlock { FontSize = 12, Opacity = 0.75, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap };
+            // the second line: which copies | the title (only when the choice needs one) | the frame limit, kept to the right
+            var titleLine = new Grid();
+            titleLine.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            titleLine.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            titleLine.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            titleBox.Width = double.NaN; titleBox.MaxWidth = 300; titleBox.HorizontalAlignment = HorizontalAlignment.Left; titleBox.VerticalAlignment = VerticalAlignment.Center;
+            titleBox.Visibility = titleBox.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+            scope.SelectionChanged += (_, _) => titleBox.Visibility = r.Scope == 1 || r.Scope == 2 ? Visibility.Visible : Visibility.Collapsed;
+            var fpsGroup = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(12, 0, 10, 0) };
+            fpsLabel.Margin = new Thickness(0, 0, 6, 0);
+            fpsGroup.Children.Add(fpsLabel); fpsGroup.Children.Add(fpsBox); fpsGroup.Children.Add(fpsUnit);
+            Grid.SetColumn(scope, 0); Grid.SetColumn(titleBox, 1); Grid.SetColumn(fpsGroup, 2);
+            titleLine.Children.Add(scope); titleLine.Children.Add(titleBox); titleLine.Children.Add(fpsGroup);
+            var inst = new TextBlock { FontSize = 12, Opacity = 0.75, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap, LineHeight = 18 };
             _inst[r] = inst;
-            var sub = new StackPanel { Margin = new Thickness(40, 0, 0, 8) };
+            var sub = new StackPanel { Margin = new Thickness(40, 0, 10, 8) };
             sub.Children.Add(titleLine); sub.Children.Add(inst);
             var holder = new StackPanel();
             holder.Children.Add(row); holder.Children.Add(sub);
-            _rows.Children.Add(holder);
+            // one bordered card per program, so it is clear which lines belong together
+            var card = new Border { BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 6, 0, 6), Padding = new Thickness(0, 2, 0, 2), Child = holder };
+            card.SetResourceReference(Border.BorderBrushProperty, "MutedBrush");
+            _rows.Children.Add(card);
         }
         _loading = false;
     }
@@ -309,6 +322,8 @@ internal sealed class MemoryLimitsWindow : Window
             var cpuTotal = TimeSpan.Zero;
             string name = System.IO.Path.GetFileNameWithoutExtension(rule.Exe);
             var lines = new List<string>();
+            int hiddenCount = 0;                                    // processes without a window (helpers: a browser has dozens): one summary line, not a wall of text
+            long hiddenBytes = 0;
             int front = MemoryGuard.ForegroundPid();
             try
             {
@@ -322,7 +337,8 @@ internal sealed class MemoryLimitsWindow : Window
                         _front.TryGetValue(rule.Exe, out int frontPid);
                         bool match = rule.Matches(title, p.Id, frontPid);
                         long ws = p.WorkingSet64;
-                        lines.Add($"#{p.Id}   {(title.Length > 0 ? "\"" + (title.Length > 60 ? title[..60] + "…" : title) + "\"" : "(no window)")}   {ws / (1024 * 1024)} MB" + (fpsMap.TryGetValue(p.Id, out int f) ? $"   {f} FPS" : "") + (match ? "" : "   — not used by this row"));
+                        if (title.Length == 0) { hiddenCount++; hiddenBytes += ws; }
+                        else lines.Add($"•  #{p.Id}   \"{(title.Length > 60 ? title[..60] + "…" : title)}\"   {ws / (1024 * 1024)} MB" + (fpsMap.TryGetValue(p.Id, out int f) ? $"   {f} FPS" : "") + (match ? "" : "   — not used by this row"));
                         if (match && fpsMap.TryGetValue(p.Id, out int f2)) bestFps = Math.Max(bestFps, f2);
                         if (!match) continue;
                         best = Math.Max(best, ws); cpuTotal += p.TotalProcessorTime;
@@ -332,7 +348,11 @@ internal sealed class MemoryLimitsWindow : Window
                 }
             }
             catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
-            if (_inst.TryGetValue(rule, out var instText)) instText.Text = lines.Count == 0 ? "" : "Running now:  " + string.Join("     ", lines);
+            if (_inst.TryGetValue(rule, out var instText))
+            {
+                if (hiddenCount > 0) lines.Add($"•  {hiddenCount} more without a window (helpers), {hiddenBytes / (1024 * 1024)} MB together");
+                instText.Text = lines.Count == 0 ? "" : "Running now:" + Environment.NewLine + string.Join(Environment.NewLine, lines);
+            }
             string cpuText = "";
             var nowAt = DateTime.UtcNow;
             if (best > 0 && _cpuBefore.TryGetValue(rule.Exe, out var before) && cpuTotal >= before.Cpu && (nowAt - before.At).TotalSeconds > 0.5)
