@@ -32,8 +32,8 @@ public sealed class AboutWindow : Window
 
     private AboutWindow()
     {
-        Title = "About Utylix";
-        Width = 520; SizeToContent = SizeToContent.Height; MaxHeight = 900; ResizeMode = ResizeMode.NoResize;
+        Title = "About Utylix Pro";
+        Width = 680; SizeToContent = SizeToContent.Height; MaxHeight = Math.Min(980, SystemParameters.WorkArea.Height - 30); ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = (Brush)Application.Current.FindResource("BgBrush");
         Foreground = (Brush)Application.Current.FindResource("TextBrush");
@@ -47,7 +47,7 @@ public sealed class AboutWindow : Window
         var head = new StackPanel { Orientation = Orientation.Horizontal };
         head.Children.Add(new Image { Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/logo.png")), Width = 72, Height = 72 });
         var names = new StackPanel { Margin = new Thickness(18, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-        names.Children.Add(new TextBlock { Text = "Utylix", FontSize = 28, FontWeight = FontWeights.SemiBold, Foreground = text });
+        names.Children.Add(new TextBlock { Text = "Utylix Pro", FontSize = 28, FontWeight = FontWeights.SemiBold, Foreground = text });
         var version = new TextBlock { Text = "Version " + AppUpdater.CurrentText, Foreground = muted, Margin = new Thickness(0, 2, 0, 0) };
         System.Windows.Automation.AutomationProperties.SetAutomationId(version, "AboutVersion");
         names.Children.Add(version);
@@ -63,13 +63,13 @@ public sealed class AboutWindow : Window
         var support = new Border { Margin = new Thickness(0, 18, 0, 0), Padding = new Thickness(14), CornerRadius = new CornerRadius(10), Style = (Style)Application.Current.FindResource("Section") };
         System.Windows.Automation.AutomationProperties.SetAutomationId(support, "AboutSupport");
         var supportRow = new Grid();
-        supportRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+        supportRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(340) });
         supportRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var qr = new Border { CornerRadius = new CornerRadius(8), Background = Brushes.White, Padding = new Thickness(4), VerticalAlignment = VerticalAlignment.Top,
-                              Child = new Image { Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/gcash.png")), Width = 204, Stretch = Stretch.Uniform } };
+                              Child = new Image { Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/gcash.png")), Width = 324, Stretch = Stretch.Uniform } };
         var supportText = new StackPanel { Margin = new Thickness(16, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         supportText.Children.Add(new TextBlock { Text = "Support me", FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = text });
-        supportText.Children.Add(new TextBlock { Text = "If Utylix helps you, you can say thanks with a small tip. Scan the QR with the GCash app.", TextWrapping = TextWrapping.Wrap, Foreground = muted, Margin = new Thickness(0, 6, 0, 0) });
+        supportText.Children.Add(new TextBlock { Text = "If Utylix Pro helps you, you can say thanks with a small tip. Scan the QR with the GCash app.", TextWrapping = TextWrapping.Wrap, Foreground = muted, Margin = new Thickness(0, 6, 0, 0) });
         supportText.Children.Add(new TextBlock { Text = "Salamat po!", Foreground = text, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0) });
         Grid.SetColumn(qr, 0); Grid.SetColumn(supportText, 1);
         supportRow.Children.Add(qr); supportRow.Children.Add(supportText);
@@ -101,6 +101,6 @@ public sealed class AboutWindow : Window
         var close = new Button { Content = "Close", Style = (Style)Application.Current.FindResource("DialogButton"), HorizontalAlignment = HorizontalAlignment.Right, MinWidth = 96, Margin = new Thickness(0, 18, 0, 0), IsCancel = true, IsDefault = true };
         close.Click += (_, _) => Close();
         root.Children.Add(close);
-        Content = root;
+        Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };       // (a small screen scrolls instead of cutting it off)
     }
 }

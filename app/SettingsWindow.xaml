@@ -42,7 +42,7 @@
                     <Button Content="Cancel" Style="{StaticResource DialogButton}" IsCancel="True" Margin="0,0,10,0" />
                     <Button Content="Save" Style="{StaticResource DialogPrimary}" IsDefault="True" Click="Save_Click" />
                 </StackPanel>
-                <Button x:Name="AboutBtn" DockPanel.Dock="Left" Content="About Utylix..." Style="{StaticResource DialogButton}" Margin="0,0,16,0"
+                <Button x:Name="AboutBtn" DockPanel.Dock="Left" Content="About Utylix Pro..." Style="{StaticResource DialogButton}" Margin="0,0,16,0"
                         AutomationProperties.AutomationId="SettingsAbout" Click="About_Click" />
                 <TextBlock x:Name="ErrorText" Foreground="{DynamicResource ErrBrush}" TextWrapping="Wrap"
                            VerticalAlignment="Center" Margin="0,0,16,0" />

@@ -767,7 +767,7 @@ public partial class App : Application
         var iconStream = GetResourceStream(new Uri("pack://application:,,,/app.ico")).Stream;
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Open Utylix", null, (_, _) => Dispatcher.Invoke(() => ShowTab("downloads")));
-        menu.Items.Add("About Utylix…", null, (_, _) => Dispatcher.Invoke(() => AboutWindow.ShowIt(null)));
+        menu.Items.Add("About Utylix Pro…", null, (_, _) => Dispatcher.Invoke(() => AboutWindow.ShowIt(null)));
         menu.Items.Add("Video Editor", null, (_, _) => Dispatcher.Invoke(() => OpenVidEditor()));
         menu.Items.Add("Memory limits…", null, (_, _) => Dispatcher.Invoke(MemoryLimitsWindow.ShowPanel));
         menu.Items.Add("PDF editor…", null, (_, _) => Dispatcher.Invoke(PdfWindow.Browse));
