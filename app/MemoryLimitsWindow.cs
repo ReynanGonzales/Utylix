@@ -23,10 +23,6 @@ internal sealed class MemoryLimitsWindow : Window
     private readonly StackPanel _rows = new();
     private readonly TextBlock _state = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) };
     private readonly Button _allow;
-    private readonly TextBlock _rtssState = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Opacity = 0.85 };
-    private readonly Button _rtssButton;
-    private readonly TextBlock _rtssRun;                       // whether RivaTuner is running, when a row has a frame limit
-    private readonly Button _rtssStart;
     private readonly DispatcherTimer _tick = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
     private readonly List<MemoryRule> _rules;
@@ -90,33 +86,13 @@ internal sealed class MemoryLimitsWindow : Window
         _allow.Click += (_, _) => AllowAdministrator();
         root.Children.Add(_allow);
 
-        // the frame limiter engine: RivaTuner, downloaded on this PC (Utylix may not carry it)
-        root.Children.Add(_rtssState);
-        _rtssButton = new Button { Content = "Download RivaTuner (about 18 MB)", Style = plain, Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
-        AutomationProperties.SetAutomationId(_rtssButton, "MemLimitRtss");
-        _rtssButton.Click += async (_, _) =>
+        root.Children.Add(new TextBlock
         {
-            _rtssButton.IsEnabled = false;
-            try
-            {
-                await RtssKit.InstallAsync(s => Dispatcher.Invoke(() => _rtssState.Text = s), System.Threading.CancellationToken.None);
-            }
-            catch (Exception e) when (e is IOException or System.Net.Http.HttpRequestException or InvalidDataException or UnauthorizedAccessException)
-            {
-                _rtssState.Text = "RivaTuner could not be set up: " + e.Message;
-            }
-            _rtssButton.IsEnabled = true;
-            RefreshRtss(keepText: true);
-        };
-        root.Children.Add(_rtssButton);
-        _rtssRun = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0), Visibility = Visibility.Collapsed };
-        AutomationProperties.SetAutomationId(_rtssRun, "MemLimitRtssRunning");
-        root.Children.Add(_rtssRun);
-        _rtssStart = new Button { Content = "Start RivaTuner (asks for administrator)", Style = primary, Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
-        AutomationProperties.SetAutomationId(_rtssStart, "MemLimitRtssStart");
-        _rtssStart.Click += (_, _) => { RtssKit.StartElevated(); Refresh(); };
-        root.Children.Add(_rtssStart);
-        RefreshRtss(keepText: false);
+            Text = "Frame limit (\"Limit to … FPS\"): Utylix puts a small part of itself into the program's graphics (Direct3D 9, 10, 11 and 12 - the same method RivaTuner uses; not OpenGL / Vulkan yet), " +
+                   "and its frame call waits until the next frame is due. It does this for the copies a row is for, only while the limit is set, and nothing else in the program is touched. " +
+                   "Programs that run as administrator need the administrator guard above. Some anti-cheat programs do not like any program that does this. A browser's pages are not drawn this way, so Brave or Chrome do not show a limit.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Opacity = 0.8, FontSize = 12.5,
+        });
 
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         BuildRows();
@@ -125,20 +101,6 @@ internal sealed class MemoryLimitsWindow : Window
         _tick.Start();
         _saveTimer.Tick += (_, _) => { _saveTimer.Stop(); SaveNow(); };
         Closed += (_, _) => { _tick.Stop(); if (_saveTimer.IsEnabled) { _saveTimer.Stop(); SaveNow(); } _open = null; };
-    }
-
-    private void RefreshRtss(bool keepText)
-    {
-        if (RtssKit.Has)
-        {
-            if (!keepText) _rtssState.Text = "Frame limiter: RivaTuner is ready. A \"Limit to … FPS\" now sets RivaTuner's limit for that program (every copy of it: RivaTuner cannot tell windows apart). It works by hooking the game; some anti-cheat programs do not like that.";
-            _rtssButton.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            if (!keepText) _rtssState.Text = "Frame limiter: without RivaTuner, \"Limit to … FPS\" is only a rough processor cap. RivaTuner (free, by Guru3D) gives an exact limit and is downloaded here, from Guru3D's mirror, not installed. It works by hooking the game; some anti-cheat programs do not like that.";
-            _rtssButton.Visibility = Visibility.Visible;
-        }
     }
 
     private void SaveNow()
@@ -360,7 +322,9 @@ internal sealed class MemoryLimitsWindow : Window
             if (_inst.TryGetValue(rule, out var instText))
             {
                 if (hiddenCount > 0) lines.Add($"•  {hiddenCount} more without a window (helpers), {hiddenBytes / (1024 * 1024)} MB together");
-                instText.Text = lines.Count == 0 ? "" : "Running now:" + Environment.NewLine + string.Join(Environment.NewLine, lines);
+                string hook = rule.TargetFps > 0 && status?.Rows.FirstOrDefault(r => r.Exe.Equals(rule.Exe, StringComparison.OrdinalIgnoreCase))?.HookState is { Length: > 0 } hs
+                    ? Environment.NewLine + "Frame limit not applied: " + hs : "";
+                instText.Text = (lines.Count == 0 ? "" : "Running now:" + Environment.NewLine + string.Join(Environment.NewLine, lines)) + hook;
             }
             string cpuText = "";
             var nowAt = DateTime.UtcNow;
@@ -384,19 +348,5 @@ internal sealed class MemoryLimitsWindow : Window
         // a guard that is not there although something is to watch (the tray was restarted, the guard ended): start it again
         if (active && !running && (DateTime.UtcNow - _lastEnsure).TotalSeconds > 8) { _lastEnsure = DateTime.UtcNow; MemoryGuard.Ensure(App.DataDir); }
         _allow.Visibility = active && !(status?.Elevated ?? false) && !task && MemoryTask.CanBeSilent ? Visibility.Visible : Visibility.Collapsed;
-
-        // RivaTuner needs administrator rights to start: say plainly whether it is running (a limit does nothing without it)
-        bool wantsLimit = _rules.Any(r => r.Enabled && r.TargetFps > 0);
-        if (!RtssKit.Has || !wantsLimit) { _rtssRun.Visibility = Visibility.Collapsed; _rtssStart.Visibility = Visibility.Collapsed; }
-        else
-        {
-            bool on = RtssKit.IsRunning;
-            _rtssRun.Visibility = Visibility.Visible;
-            _rtssRun.Text = on
-                ? "RivaTuner is running (in the notification area, no window): each limit above is written to its profile for that program. It limits games (DirectX / OpenGL / Vulkan); a browser's pages are drawn by a helper it usually cannot reach, so Brave and Chrome are not a good test."
-                : "RivaTuner is NOT running, so no frame limit is applied yet. It needs administrator rights: use the button below, or start Utylix as administrator.";
-            _rtssRun.Foreground = on ? (Brush)FindResource("TextBrush") : Brushes.Orange;
-            _rtssStart.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-        }
     }
 }

@@ -42,6 +42,8 @@
     <EmbeddedResource Include="..\extension\**\*" LogicalName="ext/%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- and as real files next to the program (extension\ in the program folder): the installed copy uses those, the embedded copy is for the single-file build -->
     <Content Include="..\extension\**\*" Link="extension\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Utylix's own frame limiter (native\UtylixFpsHook.c, built by tools\build-fpshook.bat; the two DLLs are kept in the repository): hook\ in the program folder -->
+    <Content Include="hook\*.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

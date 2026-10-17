@@ -1,4 +1,4 @@
-# Utylix
+﻿# Utylix
 
 Made by **Reynan Gonzales** - <https://github.com/ReynanGonzales/Utylix>. A personal all-in-one toolbox for Windows. (Inside the app: tray menu or Settings > *About Utylix…*.)
 
@@ -402,13 +402,8 @@ hard *Cap* (75 / 50 / 25 / 10 % of the whole processor). The memory limit can be
 **Several clients of one game** (for example l2m with many accounts): under each row choose which copies it is for - every copy, only the windows whose title
 contains some text, every copy EXCEPT the title containing your main account's name (the main one runs free, the others are held back), or every copy except the one
 you last played (in front). The window lists the running copies with their window titles. **FPS**: the window shows the frames per second of each copy (read from
-Windows' own event tracing, like PresentMon - nothing is put into the game, so anti-cheat has nothing to see), and a row can have a **Limit to N FPS**: Utylix keeps the
-processor use of those copies just low enough that they run at about that rate. This is approximate (it takes about 15 - 30 seconds to settle and wobbles a little; it
-works best for programs that are limited by the processor) and needs the administrator guard.
-**RivaTuner as the frame limiter**: for an exact limit Utylix can use RivaTuner Statistics Server (RTSS, free, by Guru3D). Utylix does not carry it (its terms do not allow
-that): the setup wizard's *Extra parts* page, or the button in the Memory limits window, downloads it on your PC from Guru3D's public mirror, checks it against its
-published fingerprint and unpacks it into Utylix's tools folder - nothing is installed. With RTSS there, *Limit to N FPS* becomes RTSS's limit for that program (every copy of
-it: RTSS cannot tell windows apart) and Utylix starts RTSS when a limit is on. RTSS works by hooking the game, which some anti-cheat programs do not like.
+Windows' own event tracing, like PresentMon - nothing is put into the game, so anti-cheat has nothing to see), and a row can have a **Limit to N FPS** (below).
+**Frame limit (Utylix own limiter)**: a row can have a **Limit to N FPS** (1 - 500). Utylix does what RivaTuner does, by itself - nothing is downloaded and no other program is started: a small DLL of Utylix (`hook\UtylixFpsHook64.dll` / `32.dll`, source in `native\UtylixFpsHook.c`) is loaded into the program, and inside it the frame call of Direct3D 9, 10, 11 and 12 waits until the next frame is due, so the program cannot show more frames per second than the limit. It works for 64-bit and 32-bit games, per copy (so the title choices above apply), and the limit is lifted the moment the row is cleared, switched off or Utylix ends. It does not need the administrator guard for programs that run as you; a program that runs as administrator needs it (the window says so). OpenGL / Vulkan programs and browsers are not limited this way. Some anti-cheat programs do not like any program that does this.
 
 ## Music player
 

@@ -30,7 +30,6 @@ public static class ToolPack
             return File.Exists(f) && new FileInfo(f).Length == BackgroundRemover.ModelBytes;
         }),
         new("the JavaScript helper", "deno", true, d => File.Exists(Path.Combine(d, "deno.exe"))),
-        new("RivaTuner (frame limiter)", "rtss", true, d => File.Exists(Path.Combine(d, "RTSS.exe")) && File.Exists(Path.Combine(d, "RTSSHooks64.dll"))),
     };
 
     private static bool Whole(Part p, string root)

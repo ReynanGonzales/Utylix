@@ -45,7 +45,12 @@ public sealed class MemoryRule
     public int CapPercent { get; set; } = 50;
 }
 
-public sealed class GuardRow { public string Exe { get; set; } = ""; public long WorkingMb { get; set; } public string LastTrim { get; set; } = ""; public int Trims { get; set; } public bool CpuApplied { get; set; } }
+public sealed class GuardRow
+{
+    public string Exe { get; set; } = ""; public long WorkingMb { get; set; } public string LastTrim { get; set; } = ""; public int Trims { get; set; } public bool CpuApplied { get; set; }
+    /// <summary>Empty when the frame limiter is in (or not wanted); otherwise why it could not be put into the program.</summary>
+    public string HookState { get; set; } = "";
+}
 public sealed class GuardStatus
 {
     public bool Elevated { get; set; } public DateTime Updated { get; set; } public List<GuardRow> Rows { get; set; } = new();
@@ -170,10 +175,11 @@ public static class MemoryGuard
         try { GetWindowThreadProcessId(GetForegroundWindow(), out uint pid); return (int)pid; } catch (Exception e) when (e is System.ComponentModel.Win32Exception or DllNotFoundException) { return 0; }
     }
 
-    // (with RivaTuner in the tools folder a frame-rate limit is its profile of the program, so the processor is not touched for it)
-    private static bool UsesRtss(MemoryRule r) => r.TargetFps > 0 && RtssKit.Has;
-    private static CpuMode EffMode(MemoryRule r) => UsesRtss(r) ? (CpuMode)r.Cpu : r.TargetFps > 0 ? CpuMode.Cap : (CpuMode)r.Cpu;
-    private static int EffCap(MemoryRule r) => UsesRtss(r) ? r.CapPercent : r.TargetFps > 0 ? -r.TargetFps : r.CapPercent;     // (a frame-rate limit is remembered as a negative number)
+    // (with Utylix's own frame limiter (FpsHook) a frame-rate limit is a wait inside the program's Present call, so the processor is not touched for it;
+    //  a build without the hook DLLs falls back to the rough processor cap)
+    private static bool UsesHook(MemoryRule r) => r.TargetFps > 0 && FpsHook.Available;
+    private static CpuMode EffMode(MemoryRule r) => UsesHook(r) ? (CpuMode)r.Cpu : r.TargetFps > 0 ? CpuMode.Cap : (CpuMode)r.Cpu;
+    private static int EffCap(MemoryRule r) => UsesHook(r) ? r.CapPercent : r.TargetFps > 0 ? -r.TargetFps : r.CapPercent;     // (a frame-rate limit is remembered as a negative number)
 
     private static bool TrayAlive()
     {
@@ -190,11 +196,29 @@ public static class MemoryGuard
         var lastFront = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);       // per program: the copy that was last in front
         using var fps = new FpsMeter();
         var fpsTried = DateTime.MinValue;
-        var rtssApplied = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        bool rtssStarted = false;                                               // RivaTuner was started (or found running) for a frame limit
+        var hooked = new HashSet<int>();                                        // programs that have Utylix's frame limiter in them
+        var hookRetry = new Dictionary<int, DateTime>();                        // when to try a program again that would not take it
+        var limitSet = new Dictionary<int, int>();                              // the limit written for each program (process id -> fps)
+        var wantedNow = new Dictionary<int, int>();                             // what this round of the loop wants
+        var hookState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);       // per program name: why the limiter is not in (shown in the window)
+        var hookCleaned = DateTime.UtcNow;
         var cpuAdjusted = new Dictionary<int, DateTime>();
         var fpsPrev = new Dictionary<int, double>();
         var cpuSeen = new Dictionary<int, (TimeSpan Cpu, DateTime At)>();       // for the frame-rate limit: how much processor a copy really used
+
+        // Utylix's frame limiter in one copy of a program: the limit is written first (the DLL reads it as soon as it is in), then the DLL is put in once
+        void HookCopy(MemoryRule rule, int pid, int want)
+        {
+            wantedNow[pid] = want;
+            limitSet.TryGetValue(pid, out int had);
+            if (had != want) { FpsHook.SetLimit(dataDir, pid, want); limitSet[pid] = want; }
+            if (want <= 0 || hooked.Contains(pid)) return;
+            if (hookRetry.TryGetValue(pid, out var at) && DateTime.UtcNow < at) return;
+            string? problem = FpsHook.Inject(pid, dataDir);
+            if (problem == null) { hooked.Add(pid); hookState[rule.Exe] = ""; }
+            else { hookRetry[pid] = DateTime.UtcNow.AddSeconds(30); hookState[rule.Exe] = problem; }
+        }
+
         try
         {
             mutex = new Mutex(true, MutexName, out bool first);
@@ -231,19 +255,7 @@ public static class MemoryGuard
                 }
                 else if (fps.Running) fps.Stop();
 
-                // RivaTuner's limits: written to the profile of each program with a limit (and taken out again when it goes), RivaTuner started when one is on
-                if (RtssKit.Has)
-                {
-                    foreach (var r in rules)
-                    {
-                        int want = r.Enabled && r.TargetFps > 0 ? r.TargetFps : 0;
-                        if (rtssApplied.TryGetValue(r.Exe, out int had) ? had == want : want == 0) continue;
-                        if (RtssKit.SetLimit(r.Exe, want)) rtssApplied[r.Exe] = want;
-                    }
-                    if (rtssApplied.Values.Any(v => v > 0)) { if (RtssKit.EnsureRunning()) rtssStarted = true; }
-                    else if (rtssStarted) { RtssKit.Stop(); rtssStarted = false; }       // (no limit left: RivaTuner goes away, it is only there for the limits)
-                }
-
+                wantedNow.Clear();
                 var rows = new List<GuardRow>();
                 var seen = new HashSet<int>();
                 bool freedAll = false;
@@ -280,17 +292,19 @@ public static class MemoryGuard
                                     if (old.Result != null) { try { CpuLimiter.Revert(p.Id, old.Result); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { } }
                                     cpuDone.Remove(p.Id);
                                 }
+                                if (limitSet.TryGetValue(p.Id, out int wasLimited) && wasLimited > 0) HookCopy(rule, p.Id, 0);       // (and its frame limit lifted)
                                 continue;
                             }
                             long ws = p.WorkingSet64;
                             biggest = Math.Max(biggest, ws);
+                            if (UsesHook(rule)) HookCopy(rule, p.Id, rule.TargetFps);
                             // the processor: once per program (again when it was restarted: a new process id)
                             var mode = EffMode(rule);
-                            bool canApply = rule.TargetFps <= 0 || UsesRtss(rule) || fps.Running;          // (a frame-rate limit without frame counting would only be a blind cap: not applied)
+                            bool canApply = rule.TargetFps <= 0 || UsesHook(rule) || fps.Running;          // (a frame-rate limit without frame counting would only be a blind cap: not applied)
                             if (mode != CpuMode.None && canApply && !cpuDone.ContainsKey(p.Id))
                                 cpuDone[p.Id] = (rule.Exe, mode, EffCap(rule), CpuLimiter.Apply(p.Id, mode, rule.TargetFps > 0 ? 100 : rule.CapPercent));
                             // frame-rate limit: aim the cap at (what it really uses now) x (target / frames now)
-                            if (rule.TargetFps > 0 && !UsesRtss(rule) && fps.Running && cpuDone.TryGetValue(p.Id, out var fd) && fd.Result != null && fd.Result.Job != IntPtr.Zero)
+                            if (rule.TargetFps > 0 && !UsesHook(rule) && fps.Running && cpuDone.TryGetValue(p.Id, out var fd) && fd.Result != null && fd.Result.Job != IntPtr.Zero)
                             {
                                 var cpuNow = p.TotalProcessorTime; var at = DateTime.UtcNow;
                                 if (cpuSeen.TryGetValue(p.Id, out var prev) && (at - prev.At).TotalSeconds > 0.5 && fpsAll.TryGetValue(p.Id, out int nowFps) && nowFps > 0
@@ -334,7 +348,19 @@ public static class MemoryGuard
                     {
                         Exe = rule.Exe, WorkingMb = biggest / (1024 * 1024), Trims = tr.Count, LastTrim = tr.Count > 0 ? tr.Last.ToString("HH:mm:ss") : "",
                         CpuApplied = cpuDone.Values.Any(v => v.Exe.Equals(rule.Exe, StringComparison.OrdinalIgnoreCase) && v.Result != null),
+                        HookState = rule.TargetFps > 0 && UsesHook(rule) ? (hookState.TryGetValue(rule.Exe, out var hs) ? hs : "") : "",
                     });
+                }
+                // frame limits that no longer apply (row switched off or cleared, copy not matched any more) are lifted; closed programs are forgotten
+                foreach (var (pid, had) in limitSet.ToList())
+                    if (had > 0 && !wantedNow.ContainsKey(pid)) { FpsHook.SetLimit(dataDir, pid, 0); limitSet[pid] = 0; }
+                if ((DateTime.UtcNow - hookCleaned).TotalSeconds > 60)
+                {
+                    hookCleaned = DateTime.UtcNow;
+                    FpsHook.Cleanup(dataDir);
+                    var running = new HashSet<int>();
+                    foreach (var q in Process.GetProcesses()) { running.Add(q.Id); q.Dispose(); }
+                    foreach (int pid in hooked.Concat(limitSet.Keys).Where(x => !running.Contains(x)).ToList()) { hooked.Remove(pid); limitSet.Remove(pid); hookRetry.Remove(pid); }
                 }
                 foreach (int dead in cooldown.Keys.Where(k => (DateTime.UtcNow - cooldown[k]).TotalMinutes > 10).ToList()) cooldown.Remove(dead);
                 // programs that closed: forget them (their job object is closed)
@@ -364,7 +390,7 @@ public static class MemoryGuard
         {
             // the guard ends: what it set on programs is taken back (a cap would otherwise stay on a game that keeps running)
             try { foreach (var (pid, d) in cpuDone) if (d.Result != null) CpuLimiter.Revert(pid, d.Result); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
-            if (rtssStarted) RtssKit.Stop();
+            try { foreach (var (pid, had) in limitSet) if (had > 0) FpsHook.SetLimit(dataDir, pid, 0); } catch (InvalidOperationException) { }       // (the frame limits are lifted too)
             try { if (owned) mutex?.ReleaseMutex(); } catch (Exception e) when (e is ApplicationException or ObjectDisposedException) { }
             try { mutex?.Dispose(); } catch (ObjectDisposedException) { }
             if (owned) _heldMutex = null;
