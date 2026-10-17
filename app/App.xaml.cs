@@ -767,25 +767,12 @@ public partial class App : Application
         var iconStream = GetResourceStream(new Uri("pack://application:,,,/app.ico")).Stream;
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Open Utylix", null, (_, _) => Dispatcher.Invoke(() => ShowTab("downloads")));
-        menu.Items.Add("Downloads", null, (_, _) => Dispatcher.Invoke(() => ShowTab("downloads")));
-        menu.Items.Add("Multi Convert", null, (_, _) => Dispatcher.Invoke(() => ShowTab("converter")));
-        menu.Items.Add("Screen Capture", null, (_, _) => Dispatcher.Invoke(() => SnipWindow.Get(_manager!).Open()));      // opens the window like the Snipping Tool; Win + S snips at once
-        menu.Items.Add("Browser extension…", null, (_, _) => Dispatcher.Invoke(() => ExtensionFiles.ShowHelp()));
         menu.Items.Add("About Utylix…", null, (_, _) => Dispatcher.Invoke(() => AboutWindow.ShowIt(null)));
-        menu.Items.Add("Video Player", null, (_, _) => Dispatcher.Invoke(() => ShowTab("player")));
         menu.Items.Add("Video Editor", null, (_, _) => Dispatcher.Invoke(() => OpenVidEditor()));
         menu.Items.Add("Memory limits…", null, (_, _) => Dispatcher.Invoke(MemoryLimitsWindow.ShowPanel));
-        menu.Items.Add("Photo viewer…", null, (_, _) => Dispatcher.Invoke(ViewerWindow.Browse));
         menu.Items.Add("PDF editor…", null, (_, _) => Dispatcher.Invoke(PdfWindow.Browse));
-        menu.Items.Add("Music player", null, (_, _) => Dispatcher.Invoke(MusicWindow.OpenEmpty));
-        menu.Items.Add("Music: play / pause", null, (_, _) => MusicWindow.TogglePlayFromOutside());
-        menu.Items.Add("Music: next song", null, (_, _) => MusicWindow.NextFromOutside());
         menu.Items.Add("Screen Recorder", null, (_, _) => Dispatcher.Invoke(() => ShowTab("recorder")));
-        _stopRecordingItem = menu.Items.Add("Stop recording", null, (_, _) => Dispatcher.Invoke(() => { if (_recordingPage != null) _ = _recordingPage.StopAsync(); }));
-        _stopRecordingItem.Enabled = false;
         menu.Items.Add("Check for updates…", null, (_, _) => Dispatcher.Invoke(() => AppUpdateWindow.ShowWindow(_manager!)));
-        menu.Items.Add("Pause all", null, (_, _) => _manager?.PauseAll());
-        menu.Items.Add("Resume all", null, (_, _) => _manager?.ResumeAll());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("Brightness", null, (_, _) => Dispatcher.Invoke(BrightnessWindow.ShowPanel));      // right above Exit
         menu.Items.Add("Exit", null, (_, _) => Dispatcher.Invoke(Quit));
