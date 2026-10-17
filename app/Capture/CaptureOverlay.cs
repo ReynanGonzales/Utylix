@@ -121,7 +121,7 @@ public sealed class CaptureOverlay : Window
 
     private string HintFor(Kind k) => k == Kind.Window ? $"Click a window to {_what} it   ·   Esc to cancel"
         : k == Kind.FreeForm ? $"Draw around the object to {_what}   ·   Esc to cancel"
-        : $"Drag to select the area to {_what}   ·   Esc to cancel";
+        : $"Drag to select the area to {_what}   ·   Hold Space to move it   ·   Esc to cancel";
 
     /// <summary>The bar at the top, like the Snipping Tool's: change the kind of snip while choosing.</summary>
     private FrameworkElement BuildModeBar()
@@ -208,7 +208,7 @@ public sealed class CaptureOverlay : Window
         _barPress = null;
         if (_kind == Kind.Window || _done) return;                       // (windows are picked by clicking)
         Mouse.Capture(null);                                              // the button had the mouse: the picture takes it, so the button is never clicked
-        _start = from;
+        _start = _last = from;
         if (_kind == Kind.FreeForm) { _points.Clear(); _points.Add(from); _line.Points = new PointCollection(_points); }
         CaptureMouse();
         OnMove(this, e);
@@ -258,7 +258,7 @@ public sealed class CaptureOverlay : Window
             if (!_selection.IsEmpty) Finish(_selection);
             return;
         }
-        _start = e.GetPosition(this);
+        _start = _last = e.GetPosition(this);
         if (_kind == Kind.FreeForm) { _points.Clear(); _points.Add(_start.Value); _line.Points = new PointCollection(_points); }
         CaptureMouse();
     }
@@ -277,8 +277,26 @@ public sealed class CaptureOverlay : Window
         }
         if (_start is not { } s) return;
         if (_kind == Kind.FreeForm) { _points.Add(p); _line.Points.Add(p); return; }
+        if (Keyboard.IsKeyDown(Key.Space) && !_selection.IsEmpty)
+        {
+            // Space held while dragging: the selection keeps its size and moves with the pointer (kept on the screen), so it can be put where the
+            // thing to snip is; letting go of Space goes on resizing from the new place
+            double dx = p.X - _last.X, dy = p.Y - _last.Y;
+            dx = Math.Max(-_selection.Left, Math.Min(dx, Width - _selection.Right));
+            dy = Math.Max(-_selection.Top, Math.Min(dy, Height - _selection.Bottom));
+            _start = new Point(s.X + dx, s.Y + dy);
+            _last = p;
+            var moved = _selection; moved.Offset(dx, dy);
+            Highlight(moved);
+            Cursor = Cursors.SizeAll;
+            return;
+        }
+        Cursor = Cursors.Cross;
+        _last = p;
         Highlight(new Rect(new Point(Math.Min(s.X, p.X), Math.Min(s.Y, p.Y)), new Point(Math.Max(s.X, p.X), Math.Max(s.Y, p.Y))));
     }
+
+    private Point _last;                                              // where the pointer was at the previous move (for moving the selection)
 
     private void OnUp(object sender, MouseButtonEventArgs e)
     {
