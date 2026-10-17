@@ -321,8 +321,8 @@ internal sealed class MemoryLimitsWindow : Window
             if (_inst.TryGetValue(rule, out var instText))
             {
                 if (hiddenCount > 0) lines.Add($"•  {hiddenCount} more without a window (helpers), {hiddenBytes / (1024 * 1024)} MB together");
-                string hook = rule.TargetFps > 0 && status?.Rows.FirstOrDefault(r => r.Exe.Equals(rule.Exe, StringComparison.OrdinalIgnoreCase))?.HookState is { Length: > 0 } hs
-                    ? Environment.NewLine + "Frame limit not applied: " + hs : "";
+                string hook = (rule.TargetFps > 0 || rule.ShowFps) && status?.Rows.FirstOrDefault(r => r.Exe.Equals(rule.Exe, StringComparison.OrdinalIgnoreCase))?.HookState is { Length: > 0 } hs
+                    ? Environment.NewLine + "Frame hook: " + hs : "";
                 instText.Text = (lines.Count == 0 ? "" : "Running now:" + Environment.NewLine + string.Join(Environment.NewLine, lines)) + hook;
             }
             string cpuText = "";

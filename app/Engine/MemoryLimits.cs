@@ -200,6 +200,7 @@ public static class MemoryGuard
         var fpsTried = DateTime.MinValue;
         var hooked = new HashSet<int>();                                        // programs that have Utylix's frame limiter in them
         var hookRetry = new Dictionary<int, DateTime>();                        // when to try a program again that would not take it
+        var hookedAt = new Dictionary<int, DateTime>();                         // when the DLL was put into each program
         var limitSet = new Dictionary<int, int>();                              // the limit written for each program (process id -> fps)
         var wantedNow = new Dictionary<int, int>();                             // what this round of the loop wants
         var hookState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);       // per program name: why the limiter is not in (shown in the window)
@@ -214,10 +215,13 @@ public static class MemoryGuard
             wantedNow[pid] = want;
             limitSet.TryGetValue(pid, out int had);
             if (had != want) { FpsHook.SetLimit(dataDir, pid, want); limitSet[pid] = want; }
+            // the DLL reports the frame rate once a second as soon as it is in: no number after a while = an older copy of the DLL is what the program has
+            if (rule.ShowFps && hooked.Contains(pid) && hookedAt.TryGetValue(pid, out var since) && (DateTime.UtcNow - since).TotalSeconds > 10)
+                hookState[rule.Exe] = FpsHook.ReadFps(dataDir, pid) == null ? "no frame count from it yet: if it was started before the last Utylix update, close and start it again" : "";
             if ((want <= 0 && !rule.ShowFps) || hooked.Contains(pid)) return;
             if (hookRetry.TryGetValue(pid, out var at) && DateTime.UtcNow < at) return;
             string? problem = FpsHook.Inject(pid, dataDir);
-            if (problem == null) { hooked.Add(pid); hookState[rule.Exe] = ""; }
+            if (problem == null) { hooked.Add(pid); hookedAt[pid] = DateTime.UtcNow; hookState[rule.Exe] = ""; }
             else { hookRetry[pid] = DateTime.UtcNow.AddSeconds(30); hookState[rule.Exe] = problem; }
         }
 

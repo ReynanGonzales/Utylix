@@ -26,18 +26,21 @@ public static class FpsHook
     /// <summary>The copy of the DLL a program will load (kept in the data folder: the program folder may be read-only for the program's own account).</summary>
     private static string DllFor(string dataDir, bool is32)
     {
-        string name = is32 ? "UtylixFpsHook32.dll" : "UtylixFpsHook64.dll";
-        string src = Path.Combine(SourceDir, name), dst = Path.Combine(Dir(dataDir), name);
+        string name = is32 ? "UtylixFpsHook32" : "UtylixFpsHook64";
+        string src = Path.Combine(SourceDir, name + ".dll");
+        // The copy is named after its content: a program that already has an OLDER copy loaded keeps that file locked, and a new version could never
+        // replace it (the program would go on running the old one). A different file name is a different DLL for Windows.
+        string tag = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(src)))[..10].ToLowerInvariant();
+        string dst = Path.Combine(Dir(dataDir), $"{name}-{tag}.dll");
         Directory.CreateDirectory(Dir(dataDir));
-        try
+        try { if (!File.Exists(dst)) File.Copy(src, dst, true); }
+        catch (IOException) { /* (another Utylix is copying it right now) */ }
+        try   // (older copies that no program has loaded any more)
         {
-            if (!File.Exists(dst) || new FileInfo(dst).Length != new FileInfo(src).Length || File.GetLastWriteTimeUtc(dst) != File.GetLastWriteTimeUtc(src))
-            {
-                File.Copy(src, dst, true);
-                File.SetLastWriteTimeUtc(dst, File.GetLastWriteTimeUtc(src));
-            }
+            foreach (string old in Directory.GetFiles(Dir(dataDir), name + "*.dll"))
+                if (!string.Equals(old, dst, StringComparison.OrdinalIgnoreCase)) { try { File.Delete(old); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
         }
-        catch (IOException) { /* a program has the DLL loaded: that copy stays */ }
+        catch (IOException) { }
         return dst;
     }
 
