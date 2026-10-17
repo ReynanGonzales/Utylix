@@ -86,8 +86,9 @@ internal sealed class FpsOverlayWindow : Window
 {
     private readonly TextBlock _text = new()
     {
-        FontFamily = new FontFamily("Segoe UI Semibold"), FontSize = 24, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0x7C, 0xF0, 0x6B)),
-        Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 5, ShadowDepth = 0, Opacity = 1 },
+        // RivaTuner's look: bold Tahoma-like text, yellow, with a thin hard black shadow (no glow)
+        FontFamily = new FontFamily("Tahoma"), FontSize = 21, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0x00)),
+        Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 0, ShadowDepth = 1.6, Direction = 315, Opacity = 1 },
     };
 
     [DllImport("user32.dll")] private static extern IntPtr SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hgt, uint flags);
@@ -98,6 +99,7 @@ internal sealed class FpsOverlayWindow : Window
     {
         WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent; ShowInTaskbar = false; Topmost = true;
         ShowActivated = false; Focusable = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
+        TextOptions.SetTextFormattingMode(_text, TextFormattingMode.Display);
         Content = new Border { Padding = new Thickness(2), Child = _text };
         SourceInitialized += (_, _) =>
         {
