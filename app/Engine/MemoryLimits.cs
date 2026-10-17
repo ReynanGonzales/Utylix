@@ -79,7 +79,7 @@ public static class MemoryLimits
         try
         {
             var list = JsonSerializer.Deserialize<List<MemoryRule>>(File.ReadAllText(FileIn(dataDir)), Options) ?? new();
-            foreach (var r in list) { r.Exe = CleanExe(r.Exe); r.LimitMb = r.LimitMb <= 0 ? 0 : Math.Clamp(r.LimitMb, 20, 65536); r.Cpu = Math.Clamp(r.Cpu, 0, 3); r.Scope = Math.Clamp(r.Scope, 0, 3); r.TargetFps = r.TargetFps <= 0 ? 0 : Math.Clamp(r.TargetFps, 5, 500); r.CapPercent = Math.Clamp(r.CapPercent, 1, 100); }
+            foreach (var r in list) { r.Exe = CleanExe(r.Exe); r.LimitMb = r.LimitMb <= 0 ? 0 : Math.Clamp(r.LimitMb, 20, 65536); r.Cpu = Math.Clamp(r.Cpu, 0, 3); r.Scope = Math.Clamp(r.Scope, 0, 3); r.TargetFps = r.TargetFps <= 0 ? 0 : Math.Clamp(r.TargetFps, 1, 500); r.CapPercent = Math.Clamp(r.CapPercent, 1, 100); }
             return list.Where(r => r.Exe.Length > 0).ToList();
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }

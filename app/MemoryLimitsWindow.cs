@@ -25,6 +25,8 @@ internal sealed class MemoryLimitsWindow : Window
     private readonly Button _allow;
     private readonly TextBlock _rtssState = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Opacity = 0.85 };
     private readonly Button _rtssButton;
+    private readonly TextBlock _rtssRun;                       // whether RivaTuner is running, when a row has a frame limit
+    private readonly Button _rtssStart;
     private readonly DispatcherTimer _tick = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
     private readonly List<MemoryRule> _rules;
@@ -107,6 +109,13 @@ internal sealed class MemoryLimitsWindow : Window
             RefreshRtss(keepText: true);
         };
         root.Children.Add(_rtssButton);
+        _rtssRun = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0), Visibility = Visibility.Collapsed };
+        AutomationProperties.SetAutomationId(_rtssRun, "MemLimitRtssRunning");
+        root.Children.Add(_rtssRun);
+        _rtssStart = new Button { Content = "Start RivaTuner (asks for administrator)", Style = primary, Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
+        AutomationProperties.SetAutomationId(_rtssStart, "MemLimitRtssStart");
+        _rtssStart.Click += (_, _) => { RtssKit.StartElevated(); Refresh(); };
+        root.Children.Add(_rtssStart);
         RefreshRtss(keepText: false);
 
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -217,13 +226,13 @@ internal sealed class MemoryLimitsWindow : Window
             fpsBox.SetResourceReference(Control.ForegroundProperty, "TextBrush");
             fpsBox.Background = new SolidColorBrush(Color.FromArgb(34, 128, 128, 128));
             fpsBox.SetResourceReference(Control.BorderBrushProperty, "MutedBrush");
-            fpsBox.ToolTip = "Frames per second these copies should be held to (empty = no limit)." + Environment.NewLine + "Utylix counts their frames and keeps their processor use just low enough. Needs the administrator guard; only about right for programs that are limited by the processor.";
+            fpsBox.ToolTip = "Frames per second these copies should be held to, 1 to 500 (empty = no limit)." + Environment.NewLine + "Utylix counts their frames and keeps their processor use just low enough. Needs the administrator guard; only about right for programs that are limited by the processor.";
             AutomationProperties.SetAutomationId(fpsBox, "MemLimitFps_" + r.Exe);
             fpsBox.TextChanged += (_, _) =>
             {
                 string t = fpsBox.Text.Trim();
                 if (t.Length == 0) { r.TargetFps = 0; fpsBox.SetResourceReference(Control.ForegroundProperty, "TextBrush"); Changed(); }
-                else if (int.TryParse(t, out int v) && v >= 5 && v <= 500) { r.TargetFps = v; fpsBox.SetResourceReference(Control.ForegroundProperty, "TextBrush"); Changed(); }
+                else if (int.TryParse(t, out int v) && v >= 1 && v <= 500) { r.TargetFps = v; fpsBox.SetResourceReference(Control.ForegroundProperty, "TextBrush"); Changed(); }
                 else fpsBox.Foreground = Brushes.IndianRed;
             };
             var fpsUnit = new TextBlock { Text = "FPS", Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
@@ -375,5 +384,19 @@ internal sealed class MemoryLimitsWindow : Window
         // a guard that is not there although something is to watch (the tray was restarted, the guard ended): start it again
         if (active && !running && (DateTime.UtcNow - _lastEnsure).TotalSeconds > 8) { _lastEnsure = DateTime.UtcNow; MemoryGuard.Ensure(App.DataDir); }
         _allow.Visibility = active && !(status?.Elevated ?? false) && !task && MemoryTask.CanBeSilent ? Visibility.Visible : Visibility.Collapsed;
+
+        // RivaTuner needs administrator rights to start: say plainly whether it is running (a limit does nothing without it)
+        bool wantsLimit = _rules.Any(r => r.Enabled && r.TargetFps > 0);
+        if (!RtssKit.Has || !wantsLimit) { _rtssRun.Visibility = Visibility.Collapsed; _rtssStart.Visibility = Visibility.Collapsed; }
+        else
+        {
+            bool on = RtssKit.IsRunning;
+            _rtssRun.Visibility = Visibility.Visible;
+            _rtssRun.Text = on
+                ? "RivaTuner is running (in the notification area, no window): each limit above is written to its profile for that program. It limits games (DirectX / OpenGL / Vulkan); a browser's pages are drawn by a helper it usually cannot reach, so Brave and Chrome are not a good test."
+                : "RivaTuner is NOT running, so no frame limit is applied yet. It needs administrator rights: use the button below, or start Utylix as administrator.";
+            _rtssRun.Foreground = on ? (Brush)FindResource("TextBrush") : Brushes.Orange;
+            _rtssStart.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        }
     }
 }

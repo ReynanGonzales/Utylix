@@ -148,16 +148,34 @@ public static class RtssKit
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
     }
 
-    /// <summary>Starts RTSS from its folder when it is not running (it keeps itself in the notification area).</summary>
+    /// <summary>
+    /// Starts RTSS from its folder when it is not running (it keeps itself in the notification area, with no window). RTSS.exe asks for administrator
+    /// rights in its manifest, so only an administrator copy of Utylix (or its guard) can start it without a question; anything else returns false
+    /// (the Memory limits window then offers <see cref="StartElevated"/>). A normal start used to fail here without a word: no RivaTuner, no limit.
+    /// </summary>
     public static bool EnsureRunning()
     {
         try
         {
             if (!Has) return false;
             if (IsRunning) return true;
-            Process.Start(new ProcessStartInfo(Exe) { WorkingDirectory = Dir, UseShellExecute = false })?.Dispose();
+            if (!MemoryCleaner.IsElevated) return false;
+            Process.Start(new ProcessStartInfo(Exe) { WorkingDirectory = Dir, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden })?.Dispose();
             return true;
         }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return false; }
+    }
+
+    /// <summary>Starts RTSS with the administrator question (Windows asks once). False when it was refused or could not be started.</summary>
+    public static bool StartElevated()
+    {
+        try
+        {
+            if (!Has) return false;
+            if (IsRunning) return true;
+            Process.Start(new ProcessStartInfo(Exe) { WorkingDirectory = Dir, UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden })?.Dispose();
+            return true;
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return false; }      // (the question was answered No)
     }
 }
