@@ -40,13 +40,15 @@ public sealed class DashboardPage : UserControl
 
         // ---- quick actions (in the fans' area, under the fan cards and above the safety settings) ----
         Fans.ExtraSlot.Children.Add(Heading("Quick actions"));
-        var tiles = new WrapPanel();
+        // every tile is the same size and the rows fill the width evenly (the number of tiles per row follows the width of the window)
+        var tiles = new System.Windows.Controls.Primitives.UniformGrid { Columns = 5 };
+        tiles.SizeChanged += (_, _) => tiles.Columns = Math.Clamp((int)(tiles.ActualWidth / 190), 2, 7);
         void Tile(string glyph, string label, string id, Action action)
         {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
             content.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 20, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) }.Live(TextBlock.ForegroundProperty, "AccentBrush"));
             content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
-            var b = new Button { Content = content, Style = (Style)R("DialogButton"), MinWidth = 168, Height = 52, Margin = new Thickness(0, 0, 10, 10), HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(16, 0, 16, 0) };
+            var b = new Button { Content = content, Style = (Style)R("DialogButton"), Height = 52, Margin = new Thickness(0, 0, 10, 10), HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(16, 0, 16, 0) };
             AutomationProperties.SetAutomationId(b, id);
             b.Click += (_, _) => action();
             tiles.Children.Add(b);

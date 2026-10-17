@@ -82,10 +82,11 @@ internal sealed class RgbPanel : UserControl
         _fans = fans;
         var R = (string key) => Application.Current.FindResource(key);
         _intro.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");   // (by name: they follow a change of theme)
-        _intro.Text = "Set the colour and effect of the lights on your RAM, like Armoury Crate does, without Armoury Crate. It needs the same administrator helper as the fan control (Windows asks once) and the free PawnIO driver. What you change shows at once; \"Save in the RAM\" keeps it inside the sticks, so it stays even when Utylix is closed.";
+        _intro.Text = "Colour and effect of your RAM lights, without Armoury Crate.";
+        _intro.ToolTip = "Needs the administrator helper (as for fan control) and the free PawnIO driver. What you change shows at once; \"Save in the RAM\" keeps it inside the sticks, so it stays when Utylix is closed.";
         _status.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         _saveNote.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-        _saveNote.Text = "Saving writes into the RAM's own memory, which can only be written a limited number of times: use it when you are happy with the look, not for every try.";
+        _saveNote.Text = "Saving wears the RAM's memory a little: save only when you like the look.";
 
         _find.Content = "Find my RAM lights";
         _find.Style = (Style)R("PrimaryButton");
@@ -257,7 +258,7 @@ internal sealed class RgbPanel : UserControl
                 // a quiet look only uses a helper that already runs with administrator rights
                 if (!interactive)
                 {
-                    if (!canTask && !_intro.Text.Contains(FansPage.NeedsAdminPassword)) _intro.Text += "\n\n" + FansPage.NeedsAdminPassword;
+                    if (!canTask && !_intro.Text.Contains("password")) _intro.Text += " Windows asks for an administrator password once per session.";
                     return;
                 }
                 _find.IsEnabled = false;
@@ -277,7 +278,7 @@ internal sealed class RgbPanel : UserControl
                 _controls.Visibility = Visibility.Collapsed;
                 _intro.Visibility = Visibility.Visible;
                 SetStatus("No lit RAM found");
-                _intro.Text = "No RAM with lights that Utylix can drive was found. Utylix drives the Aura-compatible kind (the lighting chip used by ASUS Aura Sync and by many T-Force and other RGB RAM). If Armoury Crate is running, it can hide the sticks: switch it off and press Find again.";
+                _intro.Text = "No RAM lights found (only the Aura-compatible kind works). If Armoury Crate is running, switch it off and press Find again.";
                 return;
             }
             _found = true;
