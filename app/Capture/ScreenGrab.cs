@@ -52,9 +52,22 @@ public static class ScreenGrab
         GetWindowThreadProcessId(GetForegroundWindow(), out _);
         uint owner = GetWindowThreadProcessId(GetForegroundWindow(), out _);
         bool attached = owner != 0 && owner != me && AttachThreadInput(me, owner, true);
-        try { BringWindowToTop(window); SetForegroundWindow(window); }
+        try
+        {
+            BringWindowToTop(window);
+            if (!SetForegroundWindow(window) || GetForegroundWindow() != window)
+            {
+                // still refused (the shortcut was pressed in another program): a tapped Alt key counts as input and lets the call through
+                keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
+                keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                SetForegroundWindow(window);
+            }
+        }
         finally { if (attached) AttachThreadInput(me, owner, false); }
     }
+    private const byte VK_MENU = 0x12;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+    [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int L, T, R, B; }
 
     /// <summary>Everything on all screens, in screen pixels (the top-left can be negative with several monitors).</summary>

@@ -23,6 +23,7 @@ public sealed class CaptureOverlay : Window
     private Kind _kind;
     private List<ScreenWindow> _windows;
     private readonly string _what;
+    private readonly System.Diagnostics.Stopwatch _born;               // the first moments after it opened: see Deactivated
     private readonly TextBlock _hintText = new() { Foreground = Brushes.White, FontSize = 13.5, FontFamily = new FontFamily("Segoe UI") };
     private readonly Dictionary<Kind, RadioButton> _modeButtons = new();
     private readonly double _scale = ScreenGrab.Scale;
@@ -59,6 +60,7 @@ public sealed class CaptureOverlay : Window
     public CaptureOverlay(BitmapSource shot, Int32Rect area, Kind kind, string what = "capture", bool modeBar = false)
     {
         _what = what;
+        _born = System.Diagnostics.Stopwatch.StartNew();
         _shot = shot;
         _area = area;
         _kind = kind;
@@ -103,7 +105,18 @@ public sealed class CaptureOverlay : Window
         MouseRightButtonUp += (_, _) => Finish(null);
         KeyDown += (_, e) => { if (e.Key == Key.Escape) Finish(null); };
         Loaded += (_, _) => { ScreenGrab.ForceForeground(new System.Windows.Interop.WindowInteropHelper(this).Handle); Activate(); Focus(); };
-        Deactivated += (_, _) => { if (IsLoaded) Finish(null); };     // clicked elsewhere / Alt+Tab: never leave a dimmed screen behind
+        Deactivated += (_, _) =>
+        {
+            if (!IsLoaded) return;
+            // in its first moments Windows may hand the focus elsewhere (the shortcut was pressed in another program, the snip window is hiding):
+            // take it back instead of cancelling the snip that was just asked for
+            if (_born.ElapsedMilliseconds < 1500)
+            {
+                Dispatcher.BeginInvoke(new Action(() => { if (IsVisible) { ScreenGrab.ForceForeground(new System.Windows.Interop.WindowInteropHelper(this).Handle); Activate(); } }));
+                return;
+            }
+            Finish(null);                                                // clicked elsewhere / Alt+Tab: never leave a dimmed screen behind
+        };
     }
 
     private string HintFor(Kind k) => k == Kind.Window ? $"Click a window to {_what} it   ·   Esc to cancel"
