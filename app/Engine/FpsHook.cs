@@ -58,15 +58,30 @@ public static class FpsHook
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
-    /// <summary>Removes the limit files of programs that have closed.</summary>
+    /// <summary>The frames per second the program really shows (written by the DLL once a second), or null when the DLL is not in it / the number is stale.</summary>
+    public static double? ReadFps(string dataDir, int pid)
+    {
+        try
+        {
+            string path = Path.Combine(Dir(dataDir), $"fps-{pid}.txt");
+            if (!File.Exists(path) || (DateTime.UtcNow - File.GetLastWriteTimeUtc(path)).TotalSeconds > 4) return null;
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var sr = new StreamReader(fs);
+            return double.TryParse(sr.ReadToEnd().Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v) ? v : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>Removes the limit and fps files of programs that have closed.</summary>
     public static void Cleanup(string dataDir)
     {
         try
         {
             if (!Directory.Exists(Dir(dataDir))) return;
-            foreach (string f in Directory.GetFiles(Dir(dataDir), "limit-*.txt"))
+            foreach (string f in Directory.GetFiles(Dir(dataDir), "*-*.txt").Where(x => { string b = Path.GetFileName(x); return b.StartsWith("limit-") || b.StartsWith("fps-"); }))
             {
-                string n = Path.GetFileNameWithoutExtension(f)["limit-".Length..];
+                string stem = Path.GetFileNameWithoutExtension(f);
+                string n = stem[(stem.IndexOf('-') + 1)..];
                 if (!int.TryParse(n, out int pid)) continue;
                 bool alive;
                 try { using var p = System.Diagnostics.Process.GetProcessById(pid); alive = !p.HasExited; }

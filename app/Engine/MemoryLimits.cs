@@ -25,6 +25,8 @@ public sealed class MemoryRule
     /// <summary>0 = no frame-rate limit. Otherwise the copies this row is for are held to about this many frames per second: the guard counts their frames
     /// (nothing is put into the game) and moves a processor cap up or down until the number fits. Needs the administrator guard.</summary>
     public int TargetFps { get; set; }
+    /// <summary>Show the frames per second of the copies this row is for, on top of the program's window (Utylix's own counter, like RivaTuner's).</summary>
+    public bool ShowFps { get; set; }
 
     /// <summary>Does this row apply to the copy with this window title? <paramref name="frontPid"/> = the copy of this program that was last in front.</summary>
     public bool Matches(string title, int pid, int frontPid)
@@ -212,7 +214,7 @@ public static class MemoryGuard
             wantedNow[pid] = want;
             limitSet.TryGetValue(pid, out int had);
             if (had != want) { FpsHook.SetLimit(dataDir, pid, want); limitSet[pid] = want; }
-            if (want <= 0 || hooked.Contains(pid)) return;
+            if ((want <= 0 && !rule.ShowFps) || hooked.Contains(pid)) return;
             if (hookRetry.TryGetValue(pid, out var at) && DateTime.UtcNow < at) return;
             string? problem = FpsHook.Inject(pid, dataDir);
             if (problem == null) { hooked.Add(pid); hookState[rule.Exe] = ""; }
@@ -297,7 +299,7 @@ public static class MemoryGuard
                             }
                             long ws = p.WorkingSet64;
                             biggest = Math.Max(biggest, ws);
-                            if (UsesHook(rule)) HookCopy(rule, p.Id, rule.TargetFps);
+                            if (UsesHook(rule) || (rule.ShowFps && FpsHook.Available)) HookCopy(rule, p.Id, UsesHook(rule) ? rule.TargetFps : 0);
                             // the processor: once per program (again when it was restarted: a new process id)
                             var mode = EffMode(rule);
                             bool canApply = rule.TargetFps <= 0 || UsesHook(rule) || fps.Running;          // (a frame-rate limit without frame counting would only be a blind cap: not applied)
@@ -348,7 +350,7 @@ public static class MemoryGuard
                     {
                         Exe = rule.Exe, WorkingMb = biggest / (1024 * 1024), Trims = tr.Count, LastTrim = tr.Count > 0 ? tr.Last.ToString("HH:mm:ss") : "",
                         CpuApplied = cpuDone.Values.Any(v => v.Exe.Equals(rule.Exe, StringComparison.OrdinalIgnoreCase) && v.Result != null),
-                        HookState = rule.TargetFps > 0 && UsesHook(rule) ? (hookState.TryGetValue(rule.Exe, out var hs) ? hs : "") : "",
+                        HookState = (rule.TargetFps > 0 || rule.ShowFps) && FpsHook.Available ? (hookState.TryGetValue(rule.Exe, out var hs) ? hs : "") : "",
                     });
                 }
                 // frame limits that no longer apply (row switched off or cleared, copy not matched any more) are lifted; closed programs are forgotten

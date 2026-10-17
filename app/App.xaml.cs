@@ -234,6 +234,7 @@ public partial class App : Application
             ShellMenu.RegisterTorrent(_manager.Config.TorrentHandler);                 // magnet links and .torrent files can be opened with Utylix
         }
         MemoryGuard.Ensure(dataDir);                                                   // limits chosen in "Memory limits": watched while Utylix runs
+        FpsOverlay.Apply(dataDir);                                                     // (and the "Show FPS" counters, only when a row asks for one)
         // (and looked at every half minute: a guard that ended, for example while Utylix was restarting, is started again; nothing happens when the list is empty)
         _guardTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _guardTimer.Tick += (_, _) => MemoryGuard.Ensure(dataDir);

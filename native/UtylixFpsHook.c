@@ -67,9 +67,10 @@ typedef BOOL(WINAPI *PFN_FlushInstructionCache)(void *process, void *addr, uptr 
 typedef void *(WINAPI *PFN_CreateWindowExA)(DWORD ex, const char *cls, const char *title, DWORD style, int x, int y, int w, int h, void *parent, void *menu, void *inst, void *param);
 typedef BOOL(WINAPI *PFN_DestroyWindow)(void *h);
 
-#ifdef UTYLIX_DEBUG                                                 /* (only for testing: a trace next to the limit file) */
 typedef BOOL(WINAPI *PFN_WriteFile)(void *h, const void *buf, DWORD n, DWORD *written, void *ov);
 static PFN_WriteFile pWriteFile;
+
+#ifdef UTYLIX_DEBUG                                                 /* (only for testing: a trace next to the limit file) */
 static u16 g_logPath[300];
 static void dbg(const char *text, u32 value);
 #else
@@ -193,9 +194,7 @@ static int resolve_all(void)
     K(pCreateFileW, PFN_CreateFileW, "CreateFileW")
     K(pReadFile, PFN_ReadFile, "ReadFile")
     K(pCloseHandle, PFN_CloseHandle, "CloseHandle")
-#ifdef UTYLIX_DEBUG
     K(pWriteFile, PFN_WriteFile, "WriteFile")
-#endif
     K(pGetModuleFileNameW, PFN_GetModuleFileNameW, "GetModuleFileNameW")
     K(pGetCurrentProcessId, PFN_GetCurrentProcessId, "GetCurrentProcessId")
     K(pVirtualProtect, PFN_VirtualProtect, "VirtualProtect")
@@ -223,10 +222,13 @@ static double clock_ticks(void)                                    /* (the 64-bi
     return (double)w[1] * 4294967296.0 + (double)w[0];
 }
 
+static volatile long g_frames;                                     /* frames shown so far (counted for the FPS display) */
+
 static void throttle(void)
 {
     long lim = g_limit;
     double now, wait, coarse;
+    g_frames++;
     if (lim <= 0) { g_next = 0; return; }
     now = clock_ticks();
     {
@@ -552,22 +554,34 @@ static int hook_dxgi(void)
 }
 
 /* ---------- the limit file ---------- */
-static u16 g_path[300];
+static u16 g_path[300];                                            /* limit-<pid>.txt: what Utylix wants (read) */
+static u16 g_fpsPath[300];                                         /* fps-<pid>.txt: what the program really shows (written once a second) */
+
+static int put_name(u16 *to, int at, const u16 *dir, int dirLen, const char *prefix)
+{
+    int i, k = 0, n = 0;
+    u32 pid = pGetCurrentProcessId();
+    char digits[12];
+    static const char suffix[] = ".txt";
+    for (i = 0; i < dirLen; i++) ((volatile u16 *)to)[n++] = dir[i];
+    for (i = 0; prefix[i]; i++) to[n++] = (u16)prefix[i];
+    if (pid == 0) digits[k++] = '0';
+    while (pid) { digits[k++] = (char)('0' + pid % 10); pid /= 10; }
+    while (k) to[n++] = (u16)digits[--k];
+    for (i = 0; suffix[i]; i++) to[n++] = (u16)suffix[i];
+    to[n] = 0;
+    (void)at;
+    return n;
+}
 
 static void make_path(void *self)
 {
-    int n = (int)pGetModuleFileNameW(self, g_path, 260), i, k;
-    u32 pid = pGetCurrentProcessId();
-    char digits[12];
-    static const char prefix[] = "limit-";
-    static const char suffix[] = ".txt";
-    while (n > 0 && g_path[n - 1] != '\\') n--;
-    for (i = 0; prefix[i]; i++) g_path[n++] = (u16)prefix[i];
-    k = 0; if (pid == 0) digits[k++] = '0';
-    while (pid) { digits[k++] = (char)('0' + pid % 10); pid /= 10; }
-    while (k) g_path[n++] = (u16)digits[--k];
-    for (i = 0; suffix[i]; i++) g_path[n++] = (u16)suffix[i];
-    g_path[n] = 0;
+    u16 dir[300];
+    int n = (int)pGetModuleFileNameW(self, dir, 260), i;
+    while (n > 0 && dir[n - 1] != '\\') n--;
+    i = put_name(g_path, 0, dir, n, "limit-");
+    put_name(g_fpsPath, 0, dir, n, "fps-");
+    n = i;
 #ifdef UTYLIX_DEBUG
     for (i = 0; i <= n; i++) ((volatile u16 *)g_logPath)[i] = g_path[i];     /* (volatile: not turned into a memcpy call) */
     g_logPath[n - 3] = 'l'; g_logPath[n - 2] = 'o'; g_logPath[n - 1] = 'g';
@@ -604,18 +618,52 @@ static void read_limit(void)
     g_limit = v;
 }
 
+/* the frames per second of the last second, with one decimal, as text ("59.9"): for the on-screen counter */
+static void write_fps(double fps)
+{
+    void *h;
+    char text[16];
+    int n = 0, whole, tenth;
+    DWORD w;
+    if (fps < 0) fps = 0;
+    if (fps > 99999) fps = 99999;
+    tenth = (int)(fps * 10.0 + 0.5);
+    whole = tenth / 10; tenth %= 10;
+    {
+        char digits[8]; int k = 0;
+        if (whole == 0) digits[k++] = '0';
+        while (whole) { digits[k++] = (char)('0' + whole % 10); whole /= 10; }
+        while (k) text[n++] = digits[--k];
+    }
+    text[n++] = '.'; text[n++] = (char)('0' + tenth);
+    h = pCreateFileW(g_fpsPath, 0x40000000u, 7, NULL, 2 /* CREATE_ALWAYS */, 0x80, NULL);
+    if (h == (void *)(u64)-1 || !h) return;
+    pWriteFile(h, text, (DWORD)n, &w, NULL);
+    pCloseHandle(h);
+}
+
 static DWORD WINAPI worker(void *self)
 {
     int d3d9done = 0, dxgidone = 0, tries;
     i64 f;
+    long lastFrames = 0;
+    double lastTime = 0;
     if (!resolve_all()) return 0;
     pQPF(&f); g_freq = (double)((u32 *)&f)[1] * 4294967296.0 + (double)((u32 *)&f)[0];
     g_timer = pCreateWaitableTimerExW ? pCreateWaitableTimerExW(NULL, NULL, 0x2 /* high resolution */, 0x1F0003) : NULL;
     make_path(self);
     dbg("worker started, timer", (u32)(u64)g_timer);
+    lastTime = clock_ticks();
     for (tries = 0;; tries++)
     {
         read_limit();
+        if (tries % 2 == 1)                                                            /* once a second: how many frames since last time */
+        {
+            double now = clock_ticks();
+            long frames = g_frames;
+            if (now > lastTime) write_fps((double)(frames - lastFrames) * g_freq / (now - lastTime));
+            lastFrames = frames; lastTime = now;
+        }
         if (tries < 240 && tries % 4 == 0 && (!d3d9done || !dxgidone))                 /* (every two seconds for two minutes: a game loads its graphics late) */
         {
             if (!d3d9done && pGetModuleHandleW(L"d3d9.dll") && hook_d3d9()) d3d9done = 1;

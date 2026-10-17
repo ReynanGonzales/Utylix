@@ -100,6 +100,7 @@ internal sealed class MemoryLimitsWindow : Window
     {
         MemoryLimits.Save(App.DataDir, _rules);
         MemoryGuard.Ensure(App.DataDir);                       // (starts the guard when there is something to watch; it reads the file by itself)
+        FpsOverlay.Apply(App.DataDir);                         // (the on-screen counters follow the "Show FPS" boxes)
         Refresh();
     }
 
@@ -201,6 +202,11 @@ internal sealed class MemoryLimitsWindow : Window
             scope.SelectionChanged += (_, _) => titleBox.Visibility = r.Scope == 1 || r.Scope == 2 ? Visibility.Visible : Visibility.Collapsed;
             var fpsGroup = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(12, 0, 10, 0) };
             fpsLabel.Margin = new Thickness(0, 0, 6, 0);
+            var showFps = new CheckBox { Content = "Show FPS", IsChecked = r.ShowFps, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0),
+                                         ToolTip = "Shows the frames per second on top of the program's window while it is in front (top-left corner). Needs the same access as the frame limit." };
+            AutomationProperties.SetAutomationId(showFps, "MemLimitShowFps_" + r.Exe);
+            showFps.Click += (_, _) => { r.ShowFps = showFps.IsChecked == true; Changed(); };
+            fpsGroup.Children.Add(showFps);
             fpsGroup.Children.Add(fpsLabel); fpsGroup.Children.Add(fpsBox); fpsGroup.Children.Add(fpsUnit);
             Grid.SetColumn(scope, 0); Grid.SetColumn(titleBox, 1); Grid.SetColumn(fpsGroup, 2);
             titleLine.Children.Add(scope); titleLine.Children.Add(titleBox); titleLine.Children.Add(fpsGroup);
