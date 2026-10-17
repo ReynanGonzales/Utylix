@@ -27,6 +27,8 @@ public sealed class MemoryRule
     public int TargetFps { get; set; }
     /// <summary>Show the frames per second of the copies this row is for, on top of the program's window (Utylix's own counter, like RivaTuner's).</summary>
     public bool ShowFps { get; set; }
+    /// <summary>What the on-screen display shows: 0 the frames per second only, 1 the full display (GPU, memory, CPU, RAM, graphics API and frames per second).</summary>
+    public int OsdMode { get; set; }
 
     /// <summary>Does this row apply to the copy with this window title? <paramref name="frontPid"/> = the copy of this program that was last in front.</summary>
     public bool Matches(string title, int pid, int frontPid)

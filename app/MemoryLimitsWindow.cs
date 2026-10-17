@@ -205,8 +205,13 @@ internal sealed class MemoryLimitsWindow : Window
             var showFps = new CheckBox { Content = "Show FPS", IsChecked = r.ShowFps, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0),
                                          ToolTip = "Shows the frames per second on top of the program's window while it is in front (top-left corner). Needs the same access as the frame limit." };
             AutomationProperties.SetAutomationId(showFps, "MemLimitShowFps_" + r.Exe);
-            showFps.Click += (_, _) => { r.ShowFps = showFps.IsChecked == true; Changed(); };
-            fpsGroup.Children.Add(showFps);
+            var osdMode = new ComboBox { Width = 112, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0), SelectedIndex = r.OsdMode == 1 ? 1 : 0, IsEnabled = r.ShowFps,
+                                         ToolTip = "FPS only, or the full display: graphics card, its memory, processor, RAM, graphics API and FPS. The processor's temperature, clock and power need Utylix to run as administrator." };
+            osdMode.Items.Add("FPS only"); osdMode.Items.Add("Full display");
+            AutomationProperties.SetAutomationId(osdMode, "MemLimitOsdMode_" + r.Exe);
+            osdMode.SelectionChanged += (_, _) => { r.OsdMode = osdMode.SelectedIndex == 1 ? 1 : 0; Changed(); };
+            showFps.Click += (_, _) => { r.ShowFps = showFps.IsChecked == true; osdMode.IsEnabled = r.ShowFps; Changed(); };
+            fpsGroup.Children.Add(showFps); fpsGroup.Children.Add(osdMode);
             fpsGroup.Children.Add(fpsLabel); fpsGroup.Children.Add(fpsBox); fpsGroup.Children.Add(fpsUnit);
             Grid.SetColumn(scope, 0); Grid.SetColumn(titleBox, 1); Grid.SetColumn(fpsGroup, 2);
             titleLine.Children.Add(scope); titleLine.Children.Add(titleBox); titleLine.Children.Add(fpsGroup);

@@ -62,7 +62,7 @@ public static class FpsHook
     }
 
     /// <summary>The frames per second the program really shows (written by the DLL once a second), or null when the DLL is not in it / the number is stale.</summary>
-    public static double? ReadFps(string dataDir, int pid)
+    public static (double Fps, string Api)? ReadFps(string dataDir, int pid)
     {
         try
         {
@@ -70,7 +70,9 @@ public static class FpsHook
             if (!File.Exists(path) || (DateTime.UtcNow - File.GetLastWriteTimeUtc(path)).TotalSeconds > 4) return null;
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var sr = new StreamReader(fs);
-            return double.TryParse(sr.ReadToEnd().Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v) ? v : null;
+            string[] parts = sr.ReadToEnd().Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);       // "59.9 D3D11" (the API is there once the program has drawn a frame)
+            if (parts.Length == 0 || !double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v)) return null;
+            return (v, parts.Length > 1 ? parts[1] : "");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }

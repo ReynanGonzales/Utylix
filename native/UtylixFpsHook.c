@@ -267,11 +267,31 @@ static PresentEx9_t o_PresentEx9;
 static PresentDxgi_t o_Dxgi;
 static Present1Dxgi_t o_Dxgi1;
 
-static HRESULT WINAPI h_Present9(void *self, const void *a, const void *b, void *w, const void *c) { static int seen; if (!seen) { seen = 1; dbg("called Present9", 0); } throttle(); return o_Present9(self, a, b, w, c); }
-static HRESULT WINAPI h_Present9Ex(void *self, const void *a, const void *b, void *w, const void *c) { static int seen; if (!seen) { seen = 1; dbg("called Present9Ex", 0); } throttle(); return o_Present9Ex(self, a, b, w, c); }
-static HRESULT WINAPI h_PresentEx9(void *self, const void *a, const void *b, void *w, const void *c, DWORD f) { static int seen; if (!seen) { seen = 1; dbg("called PresentEx9", 0); } throttle(); return o_PresentEx9(self, a, b, w, c, f); }
-static HRESULT WINAPI h_Dxgi(void *self, u32 sync, u32 flags) { static int seen; if (!seen) { seen = 1; dbg("called Dxgi Present", 0); } throttle(); return o_Dxgi(self, sync, flags); }
-static HRESULT WINAPI h_Dxgi1(void *self, u32 sync, u32 flags, const void *p) { throttle(); return o_Dxgi1(self, sync, flags, p); }
+#define VT(obj) (*(void ***)(obj))
+#define CALL(obj, idx, type) ((type)VT(obj)[idx])
+
+/* which graphics API the program draws with, for the on-screen counter ("D3D11"): 9 for Direct3D 9, for DXGI it is asked once from the swap chain's device */
+static volatile int g_api;                                         /* 0 unknown, 9, 10, 11, 12 */
+
+static void detect_dxgi_api(void *swap)
+{
+    typedef HRESULT(WINAPI * GetDevice_t)(void *, const void *, void **);
+    typedef u32(WINAPI * Release_t)(void *);
+    static const u8 iid12[16] = { 0xf1, 0x19, 0x98, 0x18, 0xb6, 0x1d, 0x57, 0x4b, 0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7 };     /* ID3D12Device */
+    static const u8 iid11[16] = { 0xdb, 0x6d, 0x6f, 0xdb, 0x77, 0xac, 0x88, 0x4e, 0x82, 0x53, 0x81, 0x9d, 0xf9, 0xbb, 0xf1, 0x40 };     /* ID3D11Device */
+    void *dev = NULL;
+    if (g_api) return;
+    if (CALL(swap, 7, GetDevice_t)(swap, iid12, &dev) >= 0 && dev) { g_api = 12; CALL(dev, 2, Release_t)(dev); return; }
+    dev = NULL;
+    if (CALL(swap, 7, GetDevice_t)(swap, iid11, &dev) >= 0 && dev) { g_api = 11; CALL(dev, 2, Release_t)(dev); return; }
+    g_api = 10;
+}
+
+static HRESULT WINAPI h_Present9(void *self, const void *a, const void *b, void *w, const void *c) { static int seen; if (!seen) { seen = 1; g_api = 9; dbg("called Present9", 0); } throttle(); return o_Present9(self, a, b, w, c); }
+static HRESULT WINAPI h_Present9Ex(void *self, const void *a, const void *b, void *w, const void *c) { static int seen; if (!seen) { seen = 1; g_api = 9; dbg("called Present9Ex", 0); } throttle(); return o_Present9Ex(self, a, b, w, c); }
+static HRESULT WINAPI h_PresentEx9(void *self, const void *a, const void *b, void *w, const void *c, DWORD f) { static int seen; if (!seen) { seen = 1; g_api = 9; dbg("called PresentEx9", 0); } throttle(); return o_PresentEx9(self, a, b, w, c, f); }
+static HRESULT WINAPI h_Dxgi(void *self, u32 sync, u32 flags) { static int seen; if (!seen) { seen = 1; detect_dxgi_api(self); dbg("called Dxgi Present", 0); } throttle(); return o_Dxgi(self, sync, flags); }
+static HRESULT WINAPI h_Dxgi1(void *self, u32 sync, u32 flags, const void *p) { static int seen; if (!seen) { seen = 1; detect_dxgi_api(self); } throttle(); return o_Dxgi1(self, sync, flags, p); }
 
 /* ---------- putting a hook on a function ----------
  * The function's first instructions (5 bytes or a little more, whole instructions) are copied to a small stub with a jump back behind them;
@@ -431,8 +451,6 @@ static int patch_slot(void **vtable, int index, void *hook, void **original)
     return 1;
 }
 
-#define VT(obj) (*(void ***)(obj))
-#define CALL(obj, idx, type) ((type)VT(obj)[idx])
 
 static void *g_wnd;
 static void *make_window(void) { return g_wnd ? g_wnd : (g_wnd = pCreateWindowExA(0, "STATIC", "", (DWORD)0x80000000, 0, 0, 2, 2, NULL, NULL, NULL, NULL)); }
@@ -622,7 +640,7 @@ static void read_limit(void)
 static void write_fps(double fps)
 {
     void *h;
-    char text[16];
+    char text[24];
     int n = 0, whole, tenth;
     DWORD w;
     if (fps < 0) fps = 0;
@@ -636,6 +654,11 @@ static void write_fps(double fps)
         while (k) text[n++] = digits[--k];
     }
     text[n++] = '.'; text[n++] = (char)('0' + tenth);
+    if (g_api)                                                                         /* " D3D11" after the number */
+    {
+        text[n++] = ' '; text[n++] = 'D'; text[n++] = '3'; text[n++] = 'D';
+        if (g_api >= 10) { text[n++] = '1'; text[n++] = (char)('0' + g_api - 10); } else text[n++] = '9';
+    }
     h = pCreateFileW(g_fpsPath, 0x40000000u, 7, NULL, 2 /* CREATE_ALWAYS */, 0x80, NULL);
     if (h == (void *)(u64)-1 || !h) return;
     pWriteFile(h, text, (DWORD)n, &w, NULL);
