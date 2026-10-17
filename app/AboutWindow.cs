@@ -16,7 +16,7 @@ internal static class AppInfo
     public const string Tagline = "A personal all-in-one toolbox for Windows";
 }
 
-/// <summary>"About Utylix": the logo, the version, who made it, the link to its page, and the free tools it is built on.</summary>
+/// <summary>"About Utylix": the logo, the version, who made it, a way to support it, and the free tools it is built on.</summary>
 public sealed class AboutWindow : Window
 {
     private static AboutWindow? _open;
@@ -33,7 +33,7 @@ public sealed class AboutWindow : Window
     private AboutWindow()
     {
         Title = "About Utylix";
-        Width = 520; SizeToContent = SizeToContent.Height; MaxHeight = 760; ResizeMode = ResizeMode.NoResize;
+        Width = 520; SizeToContent = SizeToContent.Height; MaxHeight = 900; ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = (Brush)Application.Current.FindResource("BgBrush");
         Foreground = (Brush)Application.Current.FindResource("TextBrush");
@@ -57,13 +57,24 @@ public sealed class AboutWindow : Window
         var made = new TextBlock { Text = "Made by " + AppInfo.Author, FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = text, Margin = new Thickness(0, 20, 0, 0) };
         System.Windows.Automation.AutomationProperties.SetAutomationId(made, "AboutAuthor");
         root.Children.Add(made);
-        root.Children.Add(new TextBlock { Text = AppInfo.Tagline + ": downloads from the web, videos and torrents, converting files, a PDF editor, screen recorder and snip tool, video, music and photo viewers, archives, background remover, brightness and fan control.", TextWrapping = TextWrapping.Wrap, Foreground = muted, Margin = new Thickness(0, 6, 0, 0) });
+        root.Children.Add(new TextBlock { Text = AppInfo.Tagline + ": downloads, converting files, PDF and video editors, screen recorder and snip tool, video, music and photo players, archives, background remover, brightness, fan and RAM-light control, and memory / CPU / frame-rate limits.", TextWrapping = TextWrapping.Wrap, Foreground = muted, Margin = new Thickness(0, 6, 0, 0) });
 
-        var link = new Button { Content = "Open Utylix's page on GitHub", Style = (Style)Application.Current.FindResource("DialogPrimary"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 16, 0, 0) };
-        System.Windows.Automation.AutomationProperties.SetAutomationId(link, "AboutGithub");
-        link.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(AppInfo.Page) { UseShellExecute = true }); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { } };
-        root.Children.Add(link);
-        root.Children.Add(new TextBlock { Text = AppInfo.Page, Foreground = muted, FontSize = 12, Margin = new Thickness(0, 6, 0, 0) });
+        // support: a GCash QR code (scanned with the GCash app)
+        var support = new Border { Margin = new Thickness(0, 18, 0, 0), Padding = new Thickness(14), CornerRadius = new CornerRadius(10), Style = (Style)Application.Current.FindResource("Section") };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(support, "AboutSupport");
+        var supportRow = new Grid();
+        supportRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+        supportRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var qr = new Border { CornerRadius = new CornerRadius(8), Background = Brushes.White, Padding = new Thickness(4), VerticalAlignment = VerticalAlignment.Top,
+                              Child = new Image { Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/gcash.png")), Width = 204, Stretch = Stretch.Uniform } };
+        var supportText = new StackPanel { Margin = new Thickness(16, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        supportText.Children.Add(new TextBlock { Text = "Support me", FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = text });
+        supportText.Children.Add(new TextBlock { Text = "If Utylix helps you, you can say thanks with a small tip. Scan the QR with the GCash app.", TextWrapping = TextWrapping.Wrap, Foreground = muted, Margin = new Thickness(0, 6, 0, 0) });
+        supportText.Children.Add(new TextBlock { Text = "Salamat po!", Foreground = text, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0) });
+        Grid.SetColumn(qr, 0); Grid.SetColumn(supportText, 1);
+        supportRow.Children.Add(qr); supportRow.Children.Add(supportText);
+        support.Child = supportRow;
+        root.Children.Add(support);
 
         root.Children.Add(new TextBlock { Text = "Built with free tools", FontWeight = FontWeights.SemiBold, Foreground = text, Margin = new Thickness(0, 22, 0, 6) });
         var credits = new StackPanel();
