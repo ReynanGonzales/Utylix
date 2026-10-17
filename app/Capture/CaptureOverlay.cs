@@ -94,8 +94,9 @@ public sealed class CaptureOverlay : Window
         _canvas.Children.Add(_label);
         _canvas.Children.Add(hint);
         if (bar != null) _canvas.Children.Add(bar);
-        hint.SizeChanged += (_, _) => { Canvas.SetLeft(hint, Math.Max(0, (Width - hint.ActualWidth) / 2)); Canvas.SetTop(hint, bar == null ? 24 : 78); };
-        if (bar != null) bar.SizeChanged += (_, _) => { Canvas.SetLeft(bar, Math.Max(0, (Width - bar.ActualWidth) / 2)); Canvas.SetTop(bar, 20); };
+        _hintEl = hint; _barEl = bar;
+        hint.SizeChanged += (_, _) => PlaceBar();
+        if (bar != null) bar.SizeChanged += (_, _) => PlaceBar();
         Content = _canvas;
         UpdateDim();
 
@@ -134,7 +135,10 @@ public sealed class CaptureOverlay : Window
         };
         border.PreviewMouseLeftButtonDown += BarPressed;
         border.PreviewMouseMove += BarMoved;
-        border.PreviewMouseLeftButtonUp += (_, _) => _barPress = null;
+        border.PreviewMouseLeftButtonUp += (_, _) => { _barPress = null; if (_barGrab != null) { _barGrab = null; border.ReleaseMouseCapture(); } };
+        border.Cursor = Cursors.SizeAll;                              // buttons on it keep the hand
+        border.ToolTip = "Drag the grip to move this bar";
+        row.Children.Add(new TextBlock { Text = "⋮⋮", FontFamily = new FontFamily("Segoe UI"), FontSize = 16, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0xA7, 0xAE, 0xBF)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 8, 0) });
         void Add(Kind k, string glyph, string label)
         {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
@@ -197,10 +201,47 @@ public sealed class CaptureOverlay : Window
     // moves a few pixels is treated as the start of the selection (the button is not clicked); a plain click still switches the kind.
     private Point? _barPress;
 
-    private void BarPressed(object sender, MouseButtonEventArgs e) => _barPress = e.GetPosition(this);
+    private void BarPressed(object sender, MouseButtonEventArgs e)
+    {
+        for (var d = e.OriginalSource as DependencyObject; d != null && d != sender; d = d is Visual ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+            if (d is System.Windows.Controls.Primitives.ButtonBase) { _barPress = e.GetPosition(this); return; }
+        // anywhere else on the bar (the grip, the edges, the text) is a handle: drag it out of the way of what is to be snipped
+        _barGrab = e.GetPosition(_barEl);
+        _barEl!.CaptureMouse();
+        e.Handled = true;
+    }
+
+    // The bar (and the hint under it) can be moved: it would otherwise cover the very thing someone wants to snip at the top of the screen.
+    private FrameworkElement? _barEl, _hintEl;
+    private Point? _barAt;                                            // where the person put the bar (null: centred at the top)
+    private Point? _barGrab;                                          // while dragging the bar: where on it the pointer took hold
+
+    private void PlaceBar()
+    {
+        if (_hintEl == null) return;
+        if (_barEl == null)
+        {
+            Canvas.SetLeft(_hintEl, Math.Max(0, (Width - _hintEl.ActualWidth) / 2)); Canvas.SetTop(_hintEl, 24);
+            return;
+        }
+        var at = _barAt ?? new Point(Math.Max(0, (Width - _barEl.ActualWidth) / 2), 20);
+        Canvas.SetLeft(_barEl, at.X); Canvas.SetTop(_barEl, at.Y);
+        Canvas.SetLeft(_hintEl, Math.Max(0, Math.Min(at.X + (_barEl.ActualWidth - _hintEl.ActualWidth) / 2, Width - _hintEl.ActualWidth)));
+        double below = at.Y + 58;                                     // under the bar, or above it when the bar was put near the bottom
+        Canvas.SetTop(_hintEl, below + _hintEl.ActualHeight > Height ? Math.Max(0, at.Y - _hintEl.ActualHeight - 8) : below);
+    }
 
     private void BarMoved(object sender, MouseEventArgs e)
     {
+        if (_barGrab is { } grab)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) { _barGrab = null; _barEl!.ReleaseMouseCapture(); return; }
+            var at = e.GetPosition(this);
+            _barAt = new Point(Math.Max(0, Math.Min(at.X - grab.X, Width - _barEl!.ActualWidth)), Math.Max(0, Math.Min(at.Y - grab.Y, Height - _barEl.ActualHeight)));
+            PlaceBar();
+            e.Handled = true;
+            return;
+        }
         if (_barPress is not { } from) return;
         if (e.LeftButton != MouseButtonState.Pressed) { _barPress = null; return; }
         var now = e.GetPosition(this);
