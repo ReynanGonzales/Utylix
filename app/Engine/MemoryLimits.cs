@@ -191,6 +191,7 @@ public static class MemoryGuard
         using var fps = new FpsMeter();
         var fpsTried = DateTime.MinValue;
         var rtssApplied = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        bool rtssStarted = false;                                               // RivaTuner was started (or found running) for a frame limit
         var cpuAdjusted = new Dictionary<int, DateTime>();
         var fpsPrev = new Dictionary<int, double>();
         var cpuSeen = new Dictionary<int, (TimeSpan Cpu, DateTime At)>();       // for the frame-rate limit: how much processor a copy really used
@@ -239,7 +240,8 @@ public static class MemoryGuard
                         if (rtssApplied.TryGetValue(r.Exe, out int had) ? had == want : want == 0) continue;
                         if (RtssKit.SetLimit(r.Exe, want)) rtssApplied[r.Exe] = want;
                     }
-                    if (rtssApplied.Values.Any(v => v > 0)) RtssKit.EnsureRunning();
+                    if (rtssApplied.Values.Any(v => v > 0)) { if (RtssKit.EnsureRunning()) rtssStarted = true; }
+                    else if (rtssStarted) { RtssKit.Stop(); rtssStarted = false; }       // (no limit left: RivaTuner goes away, it is only there for the limits)
                 }
 
                 var rows = new List<GuardRow>();
@@ -362,6 +364,7 @@ public static class MemoryGuard
         {
             // the guard ends: what it set on programs is taken back (a cap would otherwise stay on a game that keeps running)
             try { foreach (var (pid, d) in cpuDone) if (d.Result != null) CpuLimiter.Revert(pid, d.Result); } catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+            if (rtssStarted) RtssKit.Stop();
             try { if (owned) mutex?.ReleaseMutex(); } catch (Exception e) when (e is ApplicationException or ObjectDisposedException) { }
             try { mutex?.Dispose(); } catch (ObjectDisposedException) { }
             if (owned) _heldMutex = null;

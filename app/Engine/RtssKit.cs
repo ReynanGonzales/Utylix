@@ -166,6 +166,23 @@ public static class RtssKit
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return false; }
     }
 
+    /// <summary>Ends RivaTuner (and its hook loaders) when Utylix started it and no limit needs it any more. Only an administrator copy can end it.</summary>
+    public static void Stop()
+    {
+        try
+        {
+            if (!MemoryCleaner.IsElevated) return;
+            foreach (string name in new[] { "RTSS", "RTSSHooksLoader64", "RTSSHooksLoader", "EncoderServer", "EncoderServer64" })
+                foreach (var p in Process.GetProcessesByName(name))
+                {
+                    try { if (p.MainModule?.FileName?.StartsWith(Dir, StringComparison.OrdinalIgnoreCase) == true) p.Kill(); }
+                    catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException) { }
+                    finally { p.Dispose(); }
+                }
+        }
+        catch (InvalidOperationException) { }
+    }
+
     /// <summary>Starts RTSS with the administrator question (Windows asks once). False when it was refused or could not be started.</summary>
     public static bool StartElevated()
     {
