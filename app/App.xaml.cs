@@ -162,6 +162,7 @@ public partial class App : Application
         }
 
         if (toolCmd?.Op == "play") VlcEngine.Prewarm();          // a video or song is about to play: start the playback engine now, while everything else starts up
+        else VlcEngine.WarmFilesLater();                         // otherwise: a minute from now, quietly read the engine's files once so the first video later is quick
         AppUpdater.CleanLeftovers();
         ApplyTheme();
         _manager = new Manager(dataDir);

@@ -62,6 +62,44 @@ public static class VlcEngine
         _ = Task.Run(() => { try { _ = Instance; } catch (Exception e) when (e is IOException or InvalidOperationException or VLCException or DllNotFoundException or BadImageFormatException) { } });
     }
 
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr GetCurrentThread();
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool SetThreadPriority(IntPtr thread, int priority);
+    private static bool _warmStarted;
+
+    /// <summary>
+    /// The first video after the PC has started is slow because the engine loads about 360 plugin files (140 MB) that Windows (and its virus scanner) have not
+    /// looked at yet; later ones are fast because they are cached. A minute after Utylix starts, in the background, at the lowest priority (also for the disk),
+    /// the files are read once, so the first video finds them ready. Nothing stays in Utylix's memory; nothing happens when the engine is already in use.
+    /// </summary>
+    public static void WarmFilesLater()
+    {
+        if (_warmStarted) return;
+        _warmStarted = true;
+        var t = new Thread(() =>
+        {
+            try
+            {
+                Thread.Sleep(TimeSpan.FromSeconds(60));
+                string? dir = Find();
+                if (dir == null || _instance != null) return;
+                SetThreadPriority(GetCurrentThread(), 0x00010000);                       // THREAD_MODE_BACKGROUND_BEGIN: low processor and disk priority
+                var buffer = new byte[256 * 1024];
+                foreach (string file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+                {
+                    if (_instance != null) return;                                       // a video is being played: it does the work itself now
+                    try
+                    {
+                        using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
+                        while (fs.Read(buffer, 0, buffer.Length) > 0) { }
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ThreadInterruptedException) { }
+        }) { IsBackground = true, Name = "Utylix engine warm-up", Priority = ThreadPriority.Lowest };
+        t.Start();
+    }
+
     /// <summary>The shared engine (created on first use). Throws when the engine is missing.</summary>
     public static LibVLC Instance
     {
