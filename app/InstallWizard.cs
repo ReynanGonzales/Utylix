@@ -289,6 +289,8 @@ internal static partial class Installer
         packButtons.Children.Add(packUse); packButtons.Children.Add(packPick);
         downloadsPage.Children.Add(packMsg);
         downloadsPage.Children.Add(packButtons);
+        // the offline setup file brings the tools with it: they are copied at once, nothing to press and nothing to download
+        if (nearby != null && Environment.GetEnvironmentVariable("UTYLIX_OFFLINE") == "1") _ = CopyPack(nearby);
         downloadsPage.Children.Add(dYt); downloadsPage.Children.Add(dFf); downloadsPage.Children.Add(dVlc); downloadsPage.Children.Add(dAi); downloadsPage.Children.Add(dPawn);
         var links = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
         links.Children.Add(selectAll); links.Children.Add(selectNone);

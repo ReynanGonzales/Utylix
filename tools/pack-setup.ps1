@@ -1,8 +1,11 @@
-# Makes Utylix-Setup.exe: the small setup starter (setup\SetupStub.cs, compiled with Windows' own C# compiler, so it runs on any
+﻿# Makes Utylix-Setup.exe: the small setup starter (setup\SetupStub.cs, compiled with Windows' own C# compiler, so it runs on any
 # Windows 10 / 11 PC with nothing installed) with the Utylix program folder attached as a ZIP, then its length and "UTYLIXPK".
 param(
     [string]$Program = (Join-Path $PSScriptRoot "..\app\publish"),
-    [string]$Out = (Join-Path $PSScriptRoot "..\Utylix-Setup.exe")
+    [string]$Out = (Join-Path $PSScriptRoot "..\Utylix-Setup.exe"),
+    # OFFLINE setup: the tools folder (the programs Utylix normally downloads: yt-dlp, ffmpeg, the video player engine, the background remover model,
+    # the JavaScript helper) to carry inside the setup file, as "Utylix-tools" - normally the tools folder of a PC that has them
+    [string]$Tools = ""
 )
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -31,6 +34,25 @@ if (Test-Path $zip) { [IO.File]::Delete($zip) }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($program, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
 
+# offline: the tools go into the same ZIP, in a folder "Utylix-tools" (the setup wizard finds it next to Utylix.exe after unpacking and uses it by itself)
+if ($Tools) {
+    $toolsRoot = Resolve-Path $Tools
+    $archive = [IO.Compression.ZipFile]::Open($zip, [IO.Compression.ZipArchiveMode]::Update)
+    try {
+        foreach ($name in "yt-dlp.exe", "ffmpeg", "vlc", "models", "deno") {
+            $path = Join-Path $toolsRoot $name
+            if (-not (Test-Path $path)) { Write-Warning "Tools part missing, left out: $name"; continue }
+            $files = if ((Get-Item $path).PSIsContainer) { Get-ChildItem $path -Recurse -File } else { Get-Item $path }
+            foreach ($file in $files) {
+                $relative = $file.FullName.Substring($toolsRoot.Path.Length).TrimStart([char]92).Replace([char]92, [char]47)
+                $level = if ($file.Extension -in ".onnx", ".zip") { [IO.Compression.CompressionLevel]::NoCompression } else { [IO.Compression.CompressionLevel]::Optimal }
+                [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, "Utylix-tools/" + $relative, $level)
+            }
+            Write-Host "  tools: $name"
+        }
+    } finally { $archive.Dispose() }
+}
+
 # starter + ZIP + length + mark
 $o = [IO.File]::Create($Out)
 try {
@@ -39,4 +61,4 @@ try {
     $mark = [Text.Encoding]::ASCII.GetBytes("UTYLIXPK"); $o.Write($mark, 0, 8)
 } finally { $o.Dispose() }
 [IO.File]::Delete($zip)
-"Utylix-Setup.exe: {0:0.0} MB" -f ((Get-Item $Out).Length / 1MB)
+"{0}: {1:0.0} MB" -f (Split-Path $Out -Leaf), ((Get-Item $Out).Length / 1MB)

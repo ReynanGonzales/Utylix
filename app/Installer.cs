@@ -166,6 +166,7 @@ internal static partial class Installer
         return Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(root, f))
             .Where(r => !r.StartsWith("FanHelper" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)       // (the fan helper's own protected copy)
+                        && !r.StartsWith("Utylix-tools" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)   // (the offline setup's tools: they go to the tools folder, not into the program)
                         && !r.Equals(Manifest, StringComparison.OrdinalIgnoreCase) && !r.Equals(".complete", StringComparison.Ordinal)
                         && !r.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase) && !r.EndsWith(".old", StringComparison.OrdinalIgnoreCase)
                         && !r.EndsWith(".update", StringComparison.OrdinalIgnoreCase) && !r.EndsWith(".new", StringComparison.OrdinalIgnoreCase))

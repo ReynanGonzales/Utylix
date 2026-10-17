@@ -106,6 +106,8 @@ where Utylix has never run, a plain `Utylix.exe` offers the same wizard. It has 
    that has these parts, open *Settings > Video sites > Save the tools for another PC…* and choose the USB stick: it makes a
    `Utylix-tools` folder (about 650 MB with everything). Put `Utylix-Setup.exe` on the same stick and run it on the offline
    PC: this page finds the folder by itself (or use *Choose a folder…*) and copies the parts, so nothing has to be downloaded.
+   **Or one file:** `Utylix-Setup-Offline.exe` (about 560 MB) is the same setup with those parts inside it - it copies them by
+   itself on this page, nothing to download or carry separately (made with `tools\pack-setup.ps1 -Tools <tools folder> -Out ...`).
    The same two buttons are in an installed Utylix (*Save the tools for another PC…* / *Use a folder…*). Video-site and
    torrent downloads still need the internet; the converter, recorder, player, background remover and PDF tools do not.
 5. **Installing** – a progress bar, then *Start Utylix now*.

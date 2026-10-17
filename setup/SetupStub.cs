@@ -75,6 +75,16 @@ static class SetupStub
             var psi = new ProcessStartInfo(exe, command.ToString()) { UseShellExecute = false, WorkingDirectory = dir };
             // where this setup file lies: a folder "Utylix-tools" beside it (made on another PC) is offered as the downloads, for a PC without internet
             try { psi.EnvironmentVariables["UTYLIX_SETUP_DIR"] = Path.GetDirectoryName(self); } catch (Exception) { }
+            // the OFFLINE setup file carries that folder inside itself (Utylix-tools next to Utylix.exe once unpacked): the wizard then uses it by itself
+            try
+            {
+                if (Directory.Exists(Path.Combine(dir, "Utylix-tools")))
+                {
+                    psi.EnvironmentVariables["UTYLIX_SETUP_DIR"] = dir;
+                    psi.EnvironmentVariables["UTYLIX_OFFLINE"] = "1";
+                }
+            }
+            catch (Exception) { }
             using (var p = Process.Start(psi))
             {
                 p.WaitForExit();
