@@ -59,11 +59,12 @@ internal sealed class MemoryLimitsWindow : Window
         root.Children.Add(new TextBlock { Text = "Memory and CPU limits", FontSize = 22, FontWeight = FontWeights.SemiBold });
         root.Children.Add(new TextBlock
         {
-            Text = "Pick a program. Memory: when it uses more than the limit, Utylix gives back what it is not using right now (nothing is closed); a limit that is too low only makes a game stutter, start with 500 MB or more, 0 = no memory limit. " +
-                   "CPU: lower its priority, put it in efficiency mode, or cap the share of the whole processor it may use. " +
-                   "Several clients of one game: under each row choose which copies it is for (for example everything except your main account's title) and, if you like, a frames-per-second limit. " +
-                   "FPS numbers and the FPS limit need the administrator guard. Nothing is closed and nothing is put into the game.",
+            Text = "Pick a program, then give it a memory limit, a CPU setting or a frame limit.",
             Opacity = 0.75, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 14),
+            ToolTip = "Memory: above the limit, Utylix gives back what the program is not using right now (nothing is closed). Start with 500 MB or more; 0 = no memory limit." + Environment.NewLine +
+                      "CPU: lower priority, efficiency mode, or a cap on the share of the whole processor." + Environment.NewLine +
+                      "Several clients of one game: under each row choose which copies it is for." + Environment.NewLine +
+                      "Limit to FPS: Utylix's own frame limiter (Direct3D 9 - 12). A program that runs as administrator needs the administrator guard. Some anti-cheat programs do not like it.",
         });
 
         var header = new Grid { Margin = new Thickness(4, 0, 4, 4) };
@@ -85,14 +86,6 @@ internal sealed class MemoryLimitsWindow : Window
         AutomationProperties.SetAutomationId(_allow, "MemLimitAllow");
         _allow.Click += (_, _) => AllowAdministrator();
         root.Children.Add(_allow);
-
-        root.Children.Add(new TextBlock
-        {
-            Text = "Frame limit (\"Limit to … FPS\"): Utylix puts a small part of itself into the program's graphics (Direct3D 9, 10, 11 and 12 - the same method RivaTuner uses; not OpenGL / Vulkan yet), " +
-                   "and its frame call waits until the next frame is due. It does this for the copies a row is for, only while the limit is set, and nothing else in the program is touched. " +
-                   "Programs that run as administrator need the administrator guard above. Some anti-cheat programs do not like any program that does this. A browser's pages are not drawn this way, so Brave or Chrome do not show a limit.",
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Opacity = 0.8, FontSize = 12.5,
-        });
 
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         BuildRows();

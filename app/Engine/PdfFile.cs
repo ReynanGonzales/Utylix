@@ -52,24 +52,101 @@ public sealed partial class PdfFile : IDisposable
     public static PdfFile Open(string path, string? password = null)
     {
         Pdfium.Init();
-        byte[] bytes = File.ReadAllBytes(path);
+        byte[] bytes = ReadShared(path);
+        var file = TryLoad(path, password, bytes, out uint error);
+        if (file != null) return file;
+        if (error == Pdfium.ErrPassword) throw new PdfPasswordException();
+
+        // A file from a shared folder / server is sometimes not quite a clean PDF (a few bytes in front of the header, a file that was cut short or rewritten by
+        // some server software): the same file is tried again after the usual repairs, before it is given up.
+        foreach (byte[] repaired in Repairs(bytes, password))
+        {
+            file = TryLoad(path, password, repaired, out uint again);
+            if (file != null) { LogOpen(path, bytes, error, "opened after a repair"); return file; }
+            if (again == Pdfium.ErrPassword) throw new PdfPasswordException();
+        }
+        LogOpen(path, bytes, error, "not opened");
+        throw new IOException(error switch
+        {
+            2 => "The file can't be found or opened.",
+            3 => "This doesn't look like a PDF, or it is damaged (Utylix also tried to repair it).",
+            5 => "This PDF uses a kind of protection Utylix can't open.",
+            _ => "This PDF can't be opened.",
+        } + $" (size {bytes.Length:N0} bytes, code {error})");
+    }
+
+    /// <summary>The file's bytes. Read so that a file somebody else has open (a server file in use, the same file open in another program) can still be read; a network hiccup gets two more tries.</summary>
+    private static byte[] ReadShared(string path)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16, FileOptions.SequentialScan);
+                var bytes = new byte[fs.Length];
+                int got = 0;
+                while (got < bytes.Length) { int n = fs.Read(bytes, got, bytes.Length - got); if (n <= 0) break; got += n; }
+                if (got < bytes.Length) Array.Resize(ref bytes, got);
+                return bytes;
+            }
+            catch (IOException) when (attempt < 2) { System.Threading.Thread.Sleep(400); }
+        }
+    }
+
+    private static PdfFile? TryLoad(string path, string? password, byte[] bytes, out uint error)
+    {
+        error = 0;
+        if (bytes.Length == 0) { error = 3; return null; }
         IntPtr data = Marshal.AllocHGlobal(bytes.Length);
         Marshal.Copy(bytes, 0, data, bytes.Length);
         lock (Pdfium.Sync)
         {
             IntPtr doc = Pdfium.FPDF_LoadMemDocument64(data, (UIntPtr)bytes.Length, password);
             if (doc != IntPtr.Zero) return new PdfFile(path, password, doc, data, bytes.Length);
-            uint error = Pdfium.FPDF_GetLastError();
+            error = Pdfium.FPDF_GetLastError();
             Marshal.FreeHGlobal(data);
-            if (error == Pdfium.ErrPassword) throw new PdfPasswordException();
-            throw new IOException(error switch
-            {
-                2 => "The file can't be found or opened.",
-                3 => "This doesn't look like a PDF, or it is damaged.",
-                5 => "This PDF uses a kind of protection Utylix can't open.",
-                _ => "This PDF can't be opened.",
-            });
+            return null;
         }
+    }
+
+    /// <summary>Copies of the bytes with the usual damage taken out, in the order to try them.</summary>
+    private static IEnumerable<byte[]> Repairs(byte[] bytes, string? password)
+    {
+        // 1) something in front of "%PDF-" (PDFium only looks for the header at the very start)
+        int header = IndexOf(bytes, "%PDF-"u8);
+        if (header > 0) yield return bytes[header..];
+
+        // 2) read and written again by PdfSharp, which rebuilds a broken cross-reference table
+        byte[]? rewritten = null;
+        try
+        {
+            using var input = new MemoryStream(header > 0 ? bytes[header..] : bytes);
+            using var doc = PdfSharp.Pdf.IO.PdfReader.Open(input, password ?? "", PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
+            using var output = new MemoryStream();
+            doc.Save(output, false);
+            rewritten = output.ToArray();
+        }
+        catch (Exception e) when (e is not OutOfMemoryException) { /* it is not repairable that way */ }
+        if (rewritten != null) yield return rewritten;
+    }
+
+    private static int IndexOf(byte[] data, ReadOnlySpan<byte> pattern)
+    {
+        int limit = Math.Min(data.Length, 1 << 20);                      // (the header is at the start: no need to look further than the first megabyte)
+        return data.AsSpan(0, limit).IndexOf(pattern);
+    }
+
+    /// <summary>A line in pdf-open.log (data folder) for a file that gave trouble, so the cause can be found afterwards.</summary>
+    private static void LogOpen(string path, byte[] bytes, uint error, string result)
+    {
+        try
+        {
+            string head = BitConverter.ToString(bytes, 0, Math.Min(16, bytes.Length));
+            string tail = BitConverter.ToString(bytes, Math.Max(0, bytes.Length - 8), Math.Min(8, bytes.Length));
+            File.AppendAllText(System.IO.Path.Combine(App.DataDir, "pdf-open.log"),
+                $"{DateTime.Now:s}  {result}  code {error}  {bytes.Length} bytes  starts {head}  ends {tail}  {path}{Environment.NewLine}");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>The page's size in points (1/72 inch), already turned the way the PDF says.</summary>
