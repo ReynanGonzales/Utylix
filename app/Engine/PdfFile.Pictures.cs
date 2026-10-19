@@ -80,6 +80,18 @@ public sealed partial class PdfFile
                 IntPtr obj = Pdfium.FPDFPage_GetObject(page, objectIndex);
                 if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetType(obj) != Pdfium.ObjImage) throw new IOException("That isn't a picture.");
                 if (Pdfium.FPDFPageObj_GetMatrix(obj, out var m) == 0) throw new IOException("The picture's place can't be read.");
+                // a background put there before is changed to the new colour (not piled up)
+                IntPtr before = objectIndex > 0 ? Pdfium.FPDFPage_GetObject(page, objectIndex - 1) : IntPtr.Zero;
+                if (before != IntPtr.Zero && Pdfium.FPDFPageObj_GetType(before) == Pdfium.ObjPath
+                    && Pdfium.FPDFPageObj_GetBounds(before, out float bl, out float bb, out float br, out float bt) != 0
+                    && Pdfium.FPDFPageObj_GetBounds(obj, out float il, out float ib, out float ir, out float it) != 0
+                    && Math.Abs(bl - il) < 0.6 && Math.Abs(bb - ib) < 0.6 && Math.Abs(br - ir) < 0.6 && Math.Abs(bt - it) < 0.6)
+                {
+                    Pdfium.FPDFPageObj_SetFillColor(before, colour.R, colour.G, colour.B, colour.A);
+                    if (Pdfium.FPDFPage_GenerateContent(page) == 0) throw new IOException("Page " + (pageIndex + 1) + " couldn't be written.");
+                    _texts.Remove(pageIndex); _runs.Remove(pageIndex);
+                    return objectIndex;
+                }
                 IntPtr path = Pdfium.FPDFPageObj_CreateNewPath(m.E, m.F);
                 if (path == IntPtr.Zero) throw new IOException("The background couldn't be added.");
                 Pdfium.FPDFPath_LineTo(path, m.E + m.A, m.F + m.B);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -9,12 +9,14 @@ namespace IdmClone;
 
 /// <summary>
 /// Copy, cut, paste and duplicate of what was added on the pages (text, text boxes, check boxes, pictures, stamps, shapes, drawings, notes):
-/// Ctrl+C / Ctrl+X / Ctrl+V / Ctrl+D while editing, and Paste in the right-click menu. Inside Utylix only (the text of a copied text also goes to the Windows clipboard).
+/// Ctrl+C / Ctrl+X / Ctrl+V / Ctrl+D while editing, and Paste in the right-click menu. Inside Utylix only, but between all its editor windows (the text of a copied text also goes to the Windows clipboard).
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private List<EditItem> _itemClipboard = new();
-    private int _pasteStep;
+    // (static: every Utylix Editor window of this program shares the same copy, so what is copied in one window can be pasted in another)
+    private static List<EditItem> _itemClipboard = new();
+    private static int _pasteStep;
+    private static PdfWindow? _clipOwner;                          // (the window it was copied in: pasted in the same place only there)
 
     private List<EditItem> ChosenItems() => _group.Count > 0 ? _group.ToList() : _selected != null ? new List<EditItem> { _selected } : new List<EditItem>();
 
@@ -22,22 +24,22 @@ public sealed partial class PdfWindow
     private static bool Copyable(EditItem item) => item is not (TextMarkupItem or RunEditItem or PageObjectItem or LinkPick or LinkDraft);
 
     // things that were already in the PDF (picked up with Select): a small PDF holding just them, and where they were
-    private byte[]? _objectClip;
-    private Rect _objectClipBox;
-    private int _objectClipPage;
+    private static byte[]? _objectClip;
+    private static Rect _objectClipBox;
+    private static int _objectClipPage;
 
     private bool CopyItems()
     {
         if (_selected is PageObjectItem picked && _pdf != null)
         {
             if (picked.Indices.Any(PdfFile.IsAnnotation)) { Toast("A comment of the PDF can't be copied. Double-click a text comment to turn its words into a text box, which can be copied"); return false; }
-            try { _objectClip = _pdf.CopyPageObjects(picked.Page, picked.Indices); }
+            try { _objectClip = _pdf.CopyPageObjects(picked.Page, WithBackdrop(picked)); }
             catch (Exception e) when (e is IOException or InvalidOperationException or OutOfMemoryException or ObjectDisposedException or PdfProtectedException)
             {
                 Toast("Couldn't copy it: " + e.Message);
                 return false;
             }
-            _objectClipBox = picked.Box; _objectClipPage = picked.Page;
+            _objectClipBox = picked.Box; _objectClipPage = picked.Page; _clipOwner = this;
             _itemClipboard = new List<EditItem>();                     // (the last copy is the one that is pasted)
             _pasteStep = 0;
             Toast("Copied: Ctrl+V pastes it");
@@ -46,7 +48,7 @@ public sealed partial class PdfWindow
         var items = ChosenItems().Where(Copyable).ToList();
         if (items.Count == 0) return false;
         _objectClip = null;
-        _itemClipboard = items.Select(i => i.Clone()).ToList();
+        _itemClipboard = items.Select(i => i.Clone()).ToList(); _clipOwner = this;
         _pasteStep = 0;
         if (items.Count == 1 && items[0] is TextItem { Text.Length: > 0 } text)
         {
@@ -72,7 +74,7 @@ public sealed partial class PdfWindow
         int page = Math.Clamp(onPage ?? _current, 0, _pages.Count - 1);
         _pasteStep++;
         var box = _objectClipBox;
-        Vector shift = at is Point p ? p - box.TopLeft : _objectClipPage == page ? new Vector(14 * _pasteStep, 14 * _pasteStep) : new Vector(0, 0);
+        Vector shift = at is Point p ? p - box.TopLeft : _clipOwner == this && _objectClipPage == page ? new Vector(14 * _pasteStep, 14 * _pasteStep) : new Vector(0, 0);
         var size = _sizes.Length > page ? _sizes[page] : new Size(595, 842);
         double right = box.Right + shift.X, bottom = box.Bottom + shift.Y;
         if (right > size.Width) shift.X -= right - size.Width;
@@ -96,7 +98,7 @@ public sealed partial class PdfWindow
         var first = _itemClipboard.Select(i => i.Bounds).Where(b => !b.IsEmpty).Aggregate(Rect.Empty, (all, b) => { all.Union(b); return all; });
         Vector shift;
         if (at is Point p && !first.IsEmpty) shift = p - first.TopLeft;
-        else shift = _itemClipboard[0].Page == page ? new Vector(14 * _pasteStep, 14 * _pasteStep) : new Vector(0, 0);
+        else shift = _clipOwner == this && _itemClipboard[0].Page == page ? new Vector(14 * _pasteStep, 14 * _pasteStep) : new Vector(0, 0);
         var size = _sizes.Length > page ? _sizes[page] : new Size(595, 842);
         if (!first.IsEmpty)                                                  // (kept on the page)
         {

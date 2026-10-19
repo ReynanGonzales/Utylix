@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -33,6 +34,25 @@ public sealed partial class PdfWindow
         _pictureRow.Children.Add(Make("Remove background", "Take the background out of this picture (the AI model runs on this PC)", "PdfPictureRemoveBackground", _ => RemovePictureBackground()));
         _pictureRow.Children.Add(Make("Background ▾", "Put a colour behind this picture (it shows where the picture is see-through)", "PdfPictureBackground", ShowPictureBackgroundMenu));
         return _pictureRow;
+    }
+
+    /// <summary>The colour shape put just under a picture of the PDF by "Background" (it travels with the picture: moved, resized, deleted, copied), or null.</summary>
+    private int? BackdropOf(int page, int imageIndex)
+    {
+        var list = PageObjects(page);
+        var image = list.FirstOrDefault(o => o.Index == imageIndex);
+        var before = list.FirstOrDefault(o => o.Index == imageIndex - 1);
+        if (image == null || before == null || image.Kind != Pdfium.ObjImage || before.Kind != Pdfium.ObjPath) return null;
+        bool same = Math.Abs(before.Box.X - image.Box.X) < 0.6 && Math.Abs(before.Box.Y - image.Box.Y) < 0.6 && Math.Abs(before.Box.Width - image.Box.Width) < 0.6 && Math.Abs(before.Box.Height - image.Box.Height) < 0.6;
+        return same ? before.Index : null;
+    }
+
+    /// <summary>The indexes of a picked thing, with its background shape when it is one picture that has one.</summary>
+    private List<int> WithBackdrop(PageObjectItem po)
+    {
+        var indices = po.Indices.ToList();
+        if (indices.Count == 1 && BackdropOf(po.Page, indices[0]) is int back) indices.Add(back);
+        return indices;
     }
 
     /// <summary>The chosen thing is a picture that can be given or relieved of its background.</summary>
