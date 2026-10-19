@@ -102,21 +102,40 @@ public static class ShellMenu
     // ---------- free up memory ----------
     private const string MemoryVerb = "Utylix.FreeMemory";
 
-    /// <summary>Right-click on the desktop &gt; "Free up memory" (runs "Utylix.exe --free-memory": see MemoryToast).</summary>
+    /// <summary>
+    /// Right-click on the desktop &gt; "Free up memory" &gt; "Trim" (runs "Utylix.exe --free-memory") or "Deep clean" ("--free-memory-deep": goes further and
+    /// reaches programs that run as administrator, so it asks for administrator rights once): see MemoryToast. A cascading menu: the verb has an empty
+    /// SubCommands value and its own "shell" key with the two entries. Written only when it is not already as wanted.
+    /// </summary>
     public static void RegisterMemory(string dataDir, bool enabled, string? exePath = null)
     {
         try
         {
             string exe = exePath ?? Environment.ProcessPath!;
             string key = $@"Software\Classes\DesktopBackground\Shell\{MemoryVerb}";
+            string trim = $"\"{exe}\" --free-memory", deep = $"\"{exe}\" --free-memory-deep";
+            if (!enabled) { Registry.CurrentUser.DeleteSubKeyTree(key, throwOnMissingSubKey: false); return; }
+            using (var existing = Registry.CurrentUser.OpenSubKey(key + @"\shell\1Trim\command"))
+            using (var existingDeep = Registry.CurrentUser.OpenSubKey(key + @"\shell\2Deep\command"))
+                if (existing?.GetValue("") as string == trim && existingDeep?.GetValue("") as string == deep) return;           // already right
             Registry.CurrentUser.DeleteSubKeyTree(key, throwOnMissingSubKey: false);
-            if (!enabled) return;
             using var verb = Registry.CurrentUser.CreateSubKey(key);
             verb.SetValue("MUIVerb", "Free up memory");
             verb.SetValue("Icon", IconOf(exe));
+            verb.SetValue("SubCommands", "");
             // (no "Position": it lands in the middle group with "Open Git GUI here" and NVIDIA Control Panel, the one the owner asked for)
-            using var command = verb.CreateSubKey("command");
-            command.SetValue("", $"\"{exe}\" --free-memory");
+            using (var one = verb.CreateSubKey(@"shell\1Trim"))
+            {
+                one.SetValue("MUIVerb", "Trim");
+                using var command = one.CreateSubKey("command");
+                command.SetValue("", trim);
+            }
+            using (var two = verb.CreateSubKey(@"shell\2Deep"))
+            {
+                two.SetValue("MUIVerb", "Deep clean");
+                using var command = two.CreateSubKey("command");
+                command.SetValue("", deep);
+            }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* not fatal */ }
     }

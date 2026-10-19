@@ -21,10 +21,24 @@ public static class MemoryToast
     private static DispatcherTimer? _timer;
     private static bool _closeOnClick;
 
+    /// <summary>True in the elevated helper: the notice goes away, the program stays (it serves the next Deep clean).</summary>
+    public static bool KeepAlive { get; set; }
+
+    private static void End()
+    {
+        if (!KeepAlive) { Application.Current.Shutdown(); return; }
+        _timer?.Stop();
+        try { _window?.Close(); } catch (InvalidOperationException) { }
+        _window = null;
+        // the helper waits for hours: give its memory back now (it is read again, little by little, at the next request)
+        GC.Collect(); GC.WaitForPendingFinalizers();
+        MemoryCleaner.TrimProcess(Environment.ProcessId);
+    }
+
     public static void Run(bool deep, string? rememberSid = null)
     {
         var app = Application.Current;
-        Open(deep ? "Freeing up memory…" : "Freeing up memory…", deep ? "Trimming Windows' own memory too. This can take a few seconds." : "");
+        Open(deep ? "Freeing up memory…" : "Freeing up memory…", deep ? "Going further, one program at a time, so the disk is not hit all at once. This can take a few seconds." : "");
         // started as administrator for the deep clean: do it at once; otherwise a quick trim first (no permission needed)
         Task.Run(() =>
         {
@@ -56,6 +70,7 @@ public static class MemoryToast
 
     private static void Open(string title, string body)
     {
+        if (_window != null) { try { _window.Close(); } catch (InvalidOperationException) { } _window = null; }       // (a second request while the first notice is still up)
         _card = Card(Lines(title, body));
         _window = new Window
         {
@@ -71,7 +86,7 @@ public static class MemoryToast
         }
         _window.Loaded += (_, _) => Place();
         _window.SizeChanged += (_, _) => Place();
-        _window.MouseLeftButtonUp += (_, _) => { if (_closeOnClick) Application.Current.Shutdown(); };
+        _window.MouseLeftButtonUp += (_, _) => { if (_closeOnClick) End(); };
         _window.Show();
     }
 
@@ -84,9 +99,11 @@ public static class MemoryToast
         else
         {
             long freed = Math.Max(0, r.FreeAfter - r.FreeBefore);
-            title = freed >= 1 << 20 ? "Freed " + MemoryCleaner.Bytes(freed) : "Memory is already tidy";
-            body = $"{MemoryCleaner.Bytes(r.FreeAfter)} free of {MemoryCleaner.Bytes(r.Total)}  ·  {r.Trimmed} programs trimmed";
-            if (r.Deep) body += "\nWindows' own memory was trimmed too." + (nowSilent ? "\nNext time it will not ask again." : "");
+            title = r.AlreadyFine ? "Memory is already fine" : freed >= 1 << 20 ? "Freed " + MemoryCleaner.Bytes(freed) : "Memory is already tidy";
+            body = r.AlreadyFine
+                ? $"{MemoryCleaner.Bytes(r.FreeAfter)} free of {MemoryCleaner.Bytes(r.Total)}. Nothing was touched, so your disk stays quiet."
+                : $"{MemoryCleaner.Bytes(r.FreeAfter)} free of {MemoryCleaner.Bytes(r.Total)}  ·  {r.Trimmed} programs trimmed";
+            if (r.Deep) body += "\nIt went further, and also reached programs that run as administrator." + (nowSilent ? "\nNext time it will not ask again." : "");
             else if (!MemoryCleaner.IsElevated) offerDeep = true;
         }
 
@@ -95,7 +112,7 @@ public static class MemoryToast
         {
             var deepLink = new TextBlock
             {
-                Text = "Also trim Windows' own memory (asks for permission once)", FontSize = 12.5, Foreground = accent, Margin = new Thickness(0, 8, 0, 0),
+                Text = "Go further, also reaching programs that run as administrator (asks for permission once)", FontSize = 12.5, Foreground = accent, Margin = new Thickness(0, 8, 0, 0),
                 Cursor = Cursors.Hand, TextDecorations = TextDecorations.Underline,
             };
             panel.Children.Add(deepLink);
@@ -103,8 +120,12 @@ public static class MemoryToast
             {
                 try
                 {
-                    string sid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? "";
-                    Process.Start(new ProcessStartInfo(Environment.ProcessPath!, "--free-memory-deep" + (sid.Length > 0 ? " --remember " + sid : "")) { UseShellExecute = true, Verb = "runas" });
+                    if (MemoryTask.CanBeSilent)         // (an administrator account with a locked program folder: a task, nothing stays running)
+                    {
+                        string sid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? "";
+                        Process.Start(new ProcessStartInfo(Environment.ProcessPath!, "--free-memory-deep" + (sid.Length > 0 ? " --remember " + sid : "")) { UseShellExecute = true, Verb = "runas" });
+                    }
+                    else MemoryHelper.StartElevated();  // (otherwise the permission is asked once and a helper keeps it for the next ones)
                 }
                 catch (System.ComponentModel.Win32Exception) { /* permission was refused */ }
                 Application.Current.Shutdown();
@@ -114,7 +135,7 @@ public static class MemoryToast
         _closeOnClick = !offerDeep;
         _timer?.Stop();
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(offerDeep ? 9 : 4.5) };
-        _timer.Tick += (_, _) => { _timer.Stop(); Application.Current.Shutdown(); };
+        _timer.Tick += (_, _) => { _timer.Stop(); End(); };
         _timer.Start();
     }
 }

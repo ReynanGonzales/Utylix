@@ -348,6 +348,7 @@ internal static partial class Installer
     /// <summary>Ends a running copy of Utylix that lives at <paramref name="exe"/> (so it can be replaced), other than this one.</summary>
     private static void StopRunning(string exe)
     {
+        MemoryHelper.TryQuit();                       // (the elevated Deep clean helper cannot be ended from here: it is asked to end itself)
         foreach (var p in Process.GetProcessesByName("Utylix"))
         {
             try

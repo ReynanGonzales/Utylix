@@ -111,13 +111,45 @@ public partial class App : Application
         int guardSetup = Array.IndexOf(e.Args, "--memory-guard-setup");
         if (guardSetup >= 0 && guardSetup + 1 < e.Args.Length) { Shutdown(MemoryTask.InstallGuard(e.Args[guardSetup + 1]) ? 0 : 1); return; }
 
+        // the elevated helper of "Deep clean" (started once with the account's administrator permission, stays hidden, does the later ones on request)
+        int helperAt = Array.IndexOf(e.Args, "--memory-helper");
+        if (helperAt >= 0)
+        {
+            int forAt = Array.IndexOf(e.Args, "--for");
+            if (forAt < 0 || forAt + 1 >= e.Args.Length) { Shutdown(1); return; }
+            ApplyTheme();
+            MemoryHelper.RunHelper(e.Args[forAt + 1], e.Args.Contains("--now"));
+            return;
+        }
+
         // the desktop right-click "Free up memory": trim what the programs are not using, show a small notice, end (the tray copy is not involved)
         if (e.Args.Contains("--free-memory") || e.Args.Contains("--free-memory-deep"))
         {
             bool deepRun = e.Args.Contains("--free-memory-deep");
-            // said yes once: the task does it as administrator, without a question (it shows the notice itself)
-            if (!deepRun && MemoryTask.Exists() && MemoryTask.RunNow()) { Shutdown(); return; }
             int rem = Array.IndexOf(e.Args, "--remember");
+            // "Deep clean" from the desktop menu needs administrator rights (to reach programs that run as administrator). In order:
+            //  1. an administrator account that said yes once has a task that does it without a question (it shows the notice itself);
+            //  2. a helper that an earlier Deep clean started (the password was typed then) is asked to do it: nothing to type;
+            //  3. otherwise Windows asks now: where a task is possible this copy starts again as administrator (and makes the task),
+            //     elsewhere (a standard account: the password of an administrator) the helper is started, which then stays for the next ones.
+            // "Trim" (--free-memory) never needs them: it is always the plain, gentle trim.
+            if (deepRun && !MemoryCleaner.IsElevated)
+            {
+                if (MemoryTask.Exists() && MemoryTask.RunNow()) { Shutdown(); return; }
+                if (MemoryHelper.TryAsk()) { Shutdown(); return; }
+                if (MemoryTask.CanBeSilent)
+                {
+                    try
+                    {
+                        string sid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? "";
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!, "--free-memory-deep" + (sid.Length > 0 ? " --remember " + sid : "")) { UseShellExecute = true, Verb = "runas" });
+                    }
+                    catch (System.ComponentModel.Win32Exception) { /* permission was refused: nothing is done */ }
+                }
+                else MemoryHelper.StartElevated();
+                Shutdown();
+                return;
+            }
             ApplyTheme();
             MemoryToast.Run(deepRun, rem >= 0 && rem + 1 < e.Args.Length ? e.Args[rem + 1] : null);
             return;
