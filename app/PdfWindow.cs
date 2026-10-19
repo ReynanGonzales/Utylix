@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -382,6 +382,8 @@ public sealed partial class PdfWindow : Window
         {
             RememberPlace();
             StopReading();
+            _recoveryTimer?.Stop();
+            if (_path != null) PdfRecovery.Delete(_path);                  // (closed: saved or thrown away on purpose, nothing left to bring back)
             Windows.Remove(this);
             RefreshAllTabs();
             _generation++;
@@ -391,6 +393,7 @@ public sealed partial class PdfWindow : Window
         };
 
         Windows.Add(this);
+        StartRecovery();
         ShowEmpty();
     }
 
@@ -449,6 +452,7 @@ public sealed partial class PdfWindow : Window
         var keepFit = _fit;
         bool sameLook = keepEditing && _sizes.Length == sizes.Length && _rotation == 0;
         if (!keepEditing) { RememberPlace(); StopReading(); }       // (where you stopped in the file that is being left)
+        if (!keepEditing && _path != null && !string.Equals(_path, path, StringComparison.OrdinalIgnoreCase)) PdfRecovery.Delete(_path);
         _pdf?.Dispose();
         _pdf = pdf; _path = path; _sizes = sizes; _rotation = 0; _current = keepEditing ? keepPage : 0;
         ResetEdits(keepEditing);
@@ -478,6 +482,7 @@ public sealed partial class PdfWindow : Window
             else RestorePlace(path);
         }
         _scroll.Focus();
+        if (!keepEditing) OfferRecovery(path);
     }
 
     /// <summary>Saves where you are (page and zoom) for the file that is open, so it opens there next time.</summary>

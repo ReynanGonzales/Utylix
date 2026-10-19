@@ -1990,6 +1990,7 @@ public sealed partial class PdfWindow
         }
         finally { Mouse.OverrideCursor = null; }
         _dirty = false; _fieldsLifted = false;
+        PdfRecovery.Delete(_path);                                      // (saved: the safety copy is not needed)
         bool other = !string.Equals(System.IO.Path.GetFullPath(target), System.IO.Path.GetFullPath(_path), StringComparison.OrdinalIgnoreCase);
         _ = LoadAsync(target, password, keepEditing: true);
         string saved = other ? "Saved as " + System.IO.Path.GetFileName(target) : "Saved";

@@ -75,6 +75,13 @@ public sealed partial class PdfFile : IDisposable
         } + $" (size {bytes.Length:N0} bytes, code {error})");
     }
 
+    /// <summary>Opens a PDF that is only in memory (<paramref name="name"/> is what it is called).</summary>
+    public static PdfFile OpenBytes(byte[] bytes, string name)
+    {
+        Pdfium.Init();
+        return TryLoad(name, null, bytes, out uint error) ?? throw new IOException("This PDF can't be opened (code " + error + ").");
+    }
+
     /// <summary>The file's bytes. Read so that a file somebody else has open (a server file in use, the same file open in another program) can still be read; a network hiccup gets two more tries.</summary>
     private static byte[] ReadShared(string path)
     {
