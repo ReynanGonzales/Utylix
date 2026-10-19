@@ -22,10 +22,11 @@ public sealed record PdfTextRun(int Index, Rect Box, string Text, double Size, s
 /// </summary>
 /// <remarks>
 /// <paramref name="Family"/> (any font name Windows knows), <paramref name="Bold"/>, <paramref name="Size"/> (points, as shown) and <paramref name="Color"/> are only set
-/// when the person changed the look of the text; null keeps the PDF's own.
+/// when the person changed the look of the text; null keeps the PDF's own. <paramref name="Backdrop"/> (with <paramref name="BackdropBox"/>, points as shown) is a
+/// colour painted behind the text, in the page's drawing order just under it.
 /// </remarks>
 public sealed record PdfReplaceTextMark(int Page, int Index, string OldText, string NewText, double Dx = 0, double Dy = 0, double LineAdvance = 0,
-                                        string? Family = null, bool? Bold = null, double? Size = null, Color? Color = null) : PdfMark(Page);
+                                        string? Family = null, bool? Bold = null, double? Size = null, Color? Color = null, Color? Backdrop = null, Rect? BackdropBox = null) : PdfMark(Page);
 
 /// <summary>
 /// Write a new piece of text that looks like one already in the page (the "donor": its font, size and colour; Windows' copy of the font when the
@@ -198,7 +199,20 @@ internal static class PdfTextRuns
                 if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetType(obj) != Pdfium.ObjText || TextOf(obj, tp) != m.OldText)
                     throw new IOException("Page " + (m.Page + 1) + " isn't as it was when the text was changed. Open the PDF again and redo the change.");
                 string[] lines = m.NewText.Replace("\r\n", "\n").Split('\n');
-                if (m.NewText.Trim().Length == 0) { Pdfium.FPDFPage_RemoveObject(page, obj); Pdfium.FPDFPageObj_Destroy(obj); continue; }
+                // the colour behind the text goes in where the old text was (everything above it, the new text too, stays on top of it)
+                void Backdrop()
+                {
+                    if (m.Backdrop is not Color bc || m.BackdropBox is not Rect bb || bb.Width <= 0 || bb.Height <= 0) return;
+                    var p1 = map.ToPage(bb.TopLeft); var p2 = map.ToPage(bb.TopRight); var p3 = map.ToPage(bb.BottomRight); var p4 = map.ToPage(bb.BottomLeft);
+                    IntPtr path = Pdfium.FPDFPageObj_CreateNewPath((float)p1.X, (float)p1.Y);
+                    if (path == IntPtr.Zero) return;
+                    Pdfium.FPDFPath_LineTo(path, (float)p2.X, (float)p2.Y); Pdfium.FPDFPath_LineTo(path, (float)p3.X, (float)p3.Y); Pdfium.FPDFPath_LineTo(path, (float)p4.X, (float)p4.Y);
+                    Pdfium.FPDFPath_Close(path);
+                    Pdfium.FPDFPageObj_SetFillColor(path, bc.R, bc.G, bc.B, bc.A);
+                    Pdfium.FPDFPath_SetDrawMode(path, Pdfium.FillWinding, 0);
+                    if (Pdfium.FPDFPage_InsertObjectAtIndex(page, path, (UIntPtr)(uint)m.Index) == 0) Pdfium.FPDFPage_InsertObject(page, path);
+                }
+                if (m.NewText.Trim().Length == 0) { Pdfium.FPDFPage_RemoveObject(page, obj); Pdfium.FPDFPageObj_Destroy(obj); Backdrop(); continue; }
                 // the move, as a step in page space
                 var origin = map.ToPage(new Point(0, 0)); var step = map.ToPage(new Point(m.Dx, m.Dy));
                 double moveX = step.X - origin.X, moveY = step.Y - origin.Y;
@@ -206,7 +220,7 @@ internal static class PdfTextRuns
 
                 bool fontChanged = m.Family != null || m.Bold != null;
                 bool restyled = fontChanged || m.Size != null || m.Color != null;
-                if (lines.Length == 1 && m.NewText == m.OldText && !restyled) { Shift(obj); continue; }             // only moved
+                if (lines.Length == 1 && m.NewText == m.OldText && !restyled) { Shift(obj); Backdrop(); continue; }             // only moved
 
                 IntPtr font = Pdfium.FPDFTextObj_GetFont(obj);
                 letters ??= LettersByFont(page, tp);
@@ -247,6 +261,7 @@ internal static class PdfTextRuns
                     Pdfium.FPDFPage_InsertObject(page, fresh);
                 }
                 if (!firstDone) { Pdfium.FPDFPage_RemoveObject(page, obj); Pdfium.FPDFPageObj_Destroy(obj); }
+                Backdrop();
             }
         }
         finally { if (tp != IntPtr.Zero) Pdfium.FPDFText_ClosePage(tp); }

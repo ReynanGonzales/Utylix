@@ -428,6 +428,14 @@ public sealed partial class PdfWindow
             Item("Crop this picture…", "", true, CropChosenPicture);
             Item("Save this picture…", "", true, SaveChosenPicture);
         }
+        if (PictureChosen)
+        {
+            if (!TryChosenPicture(out _, out _)) menu.Items.Add(new Separator());
+            Item("Remove background", "", true, RemovePictureBackground);
+            var back = new MenuItem { Header = "Background colour…" };
+            back.Click += (_, _) => ShowPictureBackgroundMenu((FrameworkElement?)_pictureRow ?? pv.Overlay);
+            menu.Items.Add(back);
+        }
         if (_editing && (CanGroup || CanUngroup))
         {
             menu.Items.Add(new Separator());

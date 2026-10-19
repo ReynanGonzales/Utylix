@@ -23,6 +23,9 @@ public sealed partial class PdfWindow
         public PdfTextRun Run = null!;
         public string NewText = "";
         public Color Cover = Colors.White;
+        /// <summary>The colour the person chose for behind the words (null = the page's own, as it is; the old words are still hidden with <see cref="Cover"/> on screen).</summary>
+        public Color? BackColor;
+        public bool HasBack => BackColor != null;
 
         public static FontFamily Family(PdfTextRun run)
         {
@@ -56,12 +59,38 @@ public sealed partial class PdfWindow
         public override Rect Bounds => Moved;
         public override bool Hit(Point p) => Inflate(Moved, 1).Contains(p);
         public override EditItem Clone() => (RunEditItem)MemberwiseClone();
+
+        /// <summary>The area the chosen background covers: where the line is now, and as wide as the new words are.</summary>
+        public Rect BackBox
+        {
+            get
+            {
+                var box = Moved;
+                var lines = NewText.Replace("\r\n", "\n").Split('\n');
+                double widest = 0;
+                var typeface = new Typeface(EffFamily, Run.Italic && FontOverride == null ? FontStyles.Italic : FontStyles.Normal, EffBold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
+                foreach (var line in lines)
+                    if (line.Length > 0) widest = Math.Max(widest, new FormattedText(line, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, EffSize, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace);
+                var text = new Rect(Run.Baseline.X + Offset.X, Top + Offset.Y, widest, EffFamily.LineSpacing * EffSize + (lines.Length - 1) * LineAdvance);
+                box.Union(text);
+                box.Inflate(0.6, 0.6);
+                return box;
+            }
+        }
+
         public override FrameworkElement Build()
         {
             var canvas = new Canvas();
             var cover = new Rectangle { Width = Run.Box.Width + 1.2, Height = Run.Box.Height + 1.2, Fill = new SolidColorBrush(Cover) };      // (hides the original where it was)
             Canvas.SetLeft(cover, Run.Box.X - 0.6); Canvas.SetTop(cover, Run.Box.Y - 0.6);
             canvas.Children.Add(cover);
+            if (BackColor is Color back)
+            {
+                var b = BackBox;
+                var fill = new Rectangle { Width = b.Width, Height = b.Height, Fill = new SolidColorBrush(back) };
+                Canvas.SetLeft(fill, b.X); Canvas.SetTop(fill, b.Y);
+                canvas.Children.Add(fill);
+            }
             var text = new TextBlock
             {
                 Text = NewText, FontFamily = EffFamily, FontSize = EffSize, Foreground = new SolidColorBrush(EffColor),
@@ -79,15 +108,16 @@ public sealed partial class PdfWindow
         }
         public override IEnumerable<PdfMark> Marks()
         {
-            if (NewText == Run.Text && Offset.X == 0 && Offset.Y == 0 && !Styled) yield break;
-            if (Run.Parts == null) { yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, NewText, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride); yield break; }
+            if (NewText == Run.Text && Offset.X == 0 && Offset.Y == 0 && !Styled && !HasBack) yield break;
+            Color? back = BackColor; Rect? backBox = back != null ? BackBox : null;
+            if (Run.Parts == null) { yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, NewText, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride, back, backBox); yield break; }
             // a line the PDF keeps in bits: unchanged words, every bit moves; changed words (or a changed look), the first bit takes them all and the others go
             bool same = NewText == Run.Text && !Styled;
             for (int i = 0; i < Run.Parts.Count; i++)
             {
                 var part = Run.Parts[i];
-                if (same) yield return new PdfReplaceTextMark(Page, part.Index, part.Text, part.Text, Offset.X, Offset.Y, LineAdvance);
-                else if (i == 0) yield return new PdfReplaceTextMark(Page, part.Index, part.Text, NewText, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride);
+                if (same) yield return new PdfReplaceTextMark(Page, part.Index, part.Text, part.Text, Offset.X, Offset.Y, LineAdvance, Backdrop: i == 0 ? back : null, BackdropBox: i == 0 ? backBox : null);
+                else if (i == 0) yield return new PdfReplaceTextMark(Page, part.Index, part.Text, NewText, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride, back, backBox);
                 else yield return new PdfReplaceTextMark(Page, part.Index, part.Text, "");
             }
         }
@@ -164,7 +194,7 @@ public sealed partial class PdfWindow
         {
             Text = item.NewText, AcceptsReturn = false, Padding = new Thickness(0), BorderThickness = new Thickness(0), MinWidth = run.Box.Width + 4,
             FontFamily = item.EffFamily, FontSize = item.EffSize, FontWeight = item.EffBold ? FontWeights.Bold : FontWeights.Normal, FontStyle = run.Italic && item.FontOverride == null ? FontStyles.Italic : FontStyles.Normal,
-            Foreground = new SolidColorBrush(item.EffColor), Background = new SolidColorBrush(item.Cover),
+            Foreground = new SolidColorBrush(item.EffColor), Background = new SolidColorBrush(item.BackColor ?? item.Cover),
             CaretBrush = new SolidColorBrush(Colors.Black),
             Template = (ControlTemplate)XamlReader.Parse(
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='TextBox'>" +
@@ -188,7 +218,7 @@ public sealed partial class PdfWindow
         {
             if (ev.NewFocus is DependencyObject nf && IsInside(nf, _editBar)) return;
             // (the list of fonts takes the keyboard for a moment: the line stays open for it)
-            Dispatcher.BeginInvoke(() => { if (_runBox == box && !box.IsKeyboardFocusWithin && _fontPopup?.IsOpen != true) CloseRunBox(); });
+            Dispatcher.BeginInvoke(() => { if (_runBox == box && !box.IsKeyboardFocusWithin && _fontPopup?.IsOpen != true && !_runMenuOpen) CloseRunBox(); });
         };
         _runBox = box;
         RenderItems(item.Page);
@@ -205,6 +235,7 @@ public sealed partial class PdfWindow
         _runBox.FontWeight = item.EffBold ? FontWeights.Bold : FontWeights.Normal;
         _runBox.FontStyle = item.Run.Italic && item.FontOverride == null ? FontStyles.Italic : FontStyles.Normal;
         _runBox.Foreground = new SolidColorBrush(item.EffColor);
+        _runBox.Background = new SolidColorBrush(item.BackColor ?? item.Cover);
         Canvas.SetTop(_runBox, item.Top + item.Offset.Y);
         _dirty = true; UpdateTitle();
         UpdateProperties();
@@ -219,7 +250,7 @@ public sealed partial class PdfWindow
         var item = _runTyping;
         item.NewText = _runBox.Text;
         _runBox = null; _runTyping = null;
-        if (item.NewText == item.Run.Text && !item.Styled)          // (a line that was only moved was moved before: opening it again changed nothing)
+        if (item.NewText == item.Run.Text && !item.Styled && !item.HasBack)          // (a line that was only moved was moved before: opening it again changed nothing)
         {
             // unchanged: undo the opening (and drop the item)
             if (_undo.Count > 0) { var before = _undo.Pop(); _items.Clear(); _items.AddRange(before); }

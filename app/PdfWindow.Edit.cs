@@ -407,6 +407,7 @@ public sealed partial class PdfWindow
         public byte[]? Jpeg;
         public BitmapSource Pixels = null!;
         public double AngleDeg;                          // turned clockwise around the middle of the picture
+        public Color? BackColor;                         // a colour behind the picture (shows through its see-through parts)
         public override Rect Bounds => Box;
         public override bool KeepAspect => true;
         public override bool CanRotate => true;
@@ -420,10 +421,23 @@ public sealed partial class PdfWindow
             RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
             Canvas.SetLeft(img, Box.X); Canvas.SetTop(img, Box.Y);
             if (AngleDeg != 0) img.RenderTransform = new RotateTransform(AngleDeg, Box.Width / 2, Box.Height / 2);
-            return img;
+            if (BackColor is not Color back) return img;
+            var behind = new Rectangle { Width = Box.Width, Height = Box.Height, Fill = new SolidColorBrush(back) };
+            Canvas.SetLeft(behind, Box.X); Canvas.SetTop(behind, Box.Y);
+            if (AngleDeg != 0) behind.RenderTransform = new RotateTransform(AngleDeg, Box.Width / 2, Box.Height / 2);
+            var both = new Canvas();
+            both.Children.Add(behind); both.Children.Add(img);
+            return both;
         }
         public override IEnumerable<PdfMark> Marks()
         {
+            if (BackColor is Color back)
+            {
+                var centre = new Point(Box.X + Box.Width / 2, Box.Y + Box.Height / 2);
+                var corners = new[] { Box.TopLeft, Box.TopRight, Box.BottomRight, Box.BottomLeft }.Select(c => AngleDeg == 0 ? c : Rot(c, centre, AngleDeg)).ToList();
+                var square = new PdfFigure(corners[0], corners.Skip(1).Select(PdfSegment.Line).ToList(), true);
+                yield return new PdfPathMark(Page, new[] { square }, null, 0, back, false);
+            }
             yield return new PdfImageMark(Page, Box, Jpeg, Jpeg == null ? Pixels : null, Angle: AngleDeg, Pivot: AngleDeg != 0 ? new Point(Box.X + Box.Width / 2, Box.Y + Box.Height / 2) : null);
         }
         public override void MoveBy(Vector d) => Box.Offset(d);
@@ -777,6 +791,7 @@ public sealed partial class PdfWindow
         AddListButtons();
         _fontRow.Children.Add(FontPickerButton());
         _fontRow.Children.Add(StyleButton());
+        _fontRow.Children.Add(RunBackButton());
         _fontButtons[PdfFontKind.Sans].IsChecked = true;
 
         // undo, delete, save
@@ -807,7 +822,7 @@ public sealed partial class PdfWindow
         _fontRow.Margin = new Thickness(14, 0, 0, 0);
         _toolHint.Margin = new Thickness(14, 0, 0, 0);
         sizeRow.Margin = new Thickness(14, 0, 0, 0);
-        foreach (UIElement part in new UIElement[] { _colorRow, sizeRow, _thickRow, _fontRow }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
+        foreach (UIElement part in new UIElement[] { _colorRow, sizeRow, _thickRow, _fontRow, PictureBackgroundRow() }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
         look.Children.Add(_toolHint);                                   // (last: it takes what is left, and is cut with "..." when it is long)
 
         var row2 = new DockPanel { Height = 36, Margin = new Thickness(6, 2, 0, 0), LastChildFill = true };
@@ -1005,6 +1020,9 @@ public sealed partial class PdfWindow
         bool underlining = item is TextMarkupItem { Subtype: Pdfium.AnnotUnderline or Pdfium.AnnotStrikeOut } || (item == null && _tool is EditTool.Underline or EditTool.Strike);   // underline / strike-out: Line
         _fontRow.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
         if (_styleButton != null) _styleButton.Visibility = item is TextItem || _typing != null || (item == null && _tool is EditTool.Text) ? Visibility.Visible : Visibility.Collapsed;
+        if (_pictureRow != null) _pictureRow.Visibility = PictureChosen ? Visibility.Visible : Visibility.Collapsed;
+        if (_runBackButton != null) _runBackButton.Visibility = typingRun != null ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var chip in _fontButtons.Values) chip.Visibility = typingRun != null ? Visibility.Collapsed : Visibility.Visible;      // (a line of the PDF: its own font is kept; the list picks another - this makes room for "Background")
         if (_fillButton != null) _fillButton.Visibility = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse } || (item == null && _tool is EditTool.Shapes && _shapeKind is ShapeKind.Rectangle or ShapeKind.Ellipse) ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)_sizeLabel.Parent).Visibility = text || line || mark ? Visibility.Visible : Visibility.Collapsed;
         _sizeLabel.Text = text || mark ? "Size" : "Line";

@@ -113,6 +113,27 @@ public sealed partial class PdfWindow
             if (color is Color col) c.Foreground = new SolidColorBrush(col.R + col.G + col.B > 600 ? Colors.Black : Colors.White);
             fills.Add((c, color)); fillRow.Children.Add(c);
         }
+        // a colour that is not one of the chips (the text's own, or one chosen with "Other colour…")
+        RadioButton? customChip = null;
+        void ShowCustom(Color col)
+        {
+            if (customChip == null)
+            {
+                customChip = Chip("Chosen", "tbfill", true, "PdfBoxFillChosen");
+                fills.Add((customChip, col)); fillRow.Children.Add(customChip);
+            }
+            else { int at = fills.FindIndex(f => f.Chip == customChip); fills[at] = (customChip, col); }
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            content.Children.Add(new System.Windows.Shapes.Rectangle { Width = 14, Height = 12, Margin = new Thickness(0, 0, 6, 0), Fill = new SolidColorBrush(col), Stroke = new SolidColorBrush(Color.FromArgb(160, 128, 128, 128)), StrokeThickness = 1 });
+            content.Children.Add(new TextBlock { Text = $"#{col.R:X2}{col.G:X2}{col.B:X2}" });
+            customChip.Content = content;
+            customChip.IsChecked = true;
+        }
+        if (item.Fill is Color own && BoxFills.All(f => f.Color != own)) ShowCustom(own);
+        var otherFill = new Button { Content = "Other colour…", Style = (Style)Application.Current.FindResource("DialogButton"), Margin = new Thickness(6, 0, 0, 0), Padding = new Thickness(10, 4, 10, 4) };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(otherFill, "PdfBoxFillOther");
+        otherFill.Click += (_, _) => { if (PickCustomColour(fills.FirstOrDefault(f => f.Chip.IsChecked == true).Color ?? item.Fill) is Color picked) ShowCustom(picked); };
+        fillRow.Children.Add(otherFill);
         if (!fills.Any(f => f.Chip.IsChecked == true)) fills[0].Chip.IsChecked = true;
 
         var ok = new Button { Content = "OK", Style = (Style)Application.Current.FindResource("DialogPrimary"), IsDefault = true, Margin = new Thickness(0, 0, 8, 0) };

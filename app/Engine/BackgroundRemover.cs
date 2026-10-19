@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -71,21 +71,13 @@ public static class BackgroundRemover
         if (!HasModel) throw new IOException("The AI model is not installed yet.");
 
         var picture = ImageConverter.LoadPicture(source);
-        int w = picture.PixelWidth, h = picture.PixelHeight;
-        if (w * (long)h > MaxPixels) throw new IOException("That picture is too large.");
-
-        var pixels = new byte[w * h * 4];
-        new FormatConvertedBitmap(picture, PixelFormats.Bgra32, null, 0).CopyPixels(pixels, w * 4, 0);
-
-        float[] mask = Predict(picture);                                   // 1024 x 1024, 0..1
-        ApplyMask(pixels, w, h, mask);
+        var result = RemoveFrom(picture);
 
         string dir = outDir is { Length: > 0 } ? outDir : Path.GetDirectoryName(Path.GetFullPath(source))!;
         Directory.CreateDirectory(dir);
         string output = ImageConverter.ReserveName(dir, Path.GetFileNameWithoutExtension(source) + " (no background)", "png");
         try
         {
-            var result = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, pixels, w * 4);
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(result));
             using var fs = new FileStream(output, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -97,6 +89,21 @@ public static class BackgroundRemover
             throw;
         }
         return output;
+    }
+
+    /// <summary>The same picture with its background see-through (Bgra32, frozen). Needs the model; call from an STA thread.</summary>
+    public static BitmapSource RemoveFrom(BitmapSource picture)
+    {
+        if (!HasModel) throw new IOException("The AI model is not installed yet.");
+        int w = picture.PixelWidth, h = picture.PixelHeight;
+        if (w * (long)h > MaxPixels) throw new IOException("That picture is too large.");
+        var pixels = new byte[w * h * 4];
+        new FormatConvertedBitmap(picture, PixelFormats.Bgra32, null, 0).CopyPixels(pixels, w * 4, 0);
+        float[] mask = Predict(picture);                                   // 1024 x 1024, 0..1
+        ApplyMask(pixels, w, h, mask);
+        var result = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, pixels, w * 4);
+        result.Freeze();
+        return result;
     }
 
     /// <summary>The picture squeezed to 1024 x 1024 (on white, so see-through parts count as background), run through the model.</summary>

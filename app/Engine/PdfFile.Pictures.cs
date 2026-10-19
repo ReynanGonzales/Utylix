@@ -65,6 +65,39 @@ public sealed partial class PdfFile
     }
 
     /// <summary>
+    /// Puts a colour behind a picture (where the picture is see-through the colour shows): a filled shape the size and slant of the picture, drawn just under it.
+    /// The picture's place in the page's list moves up by one; that new place is returned.
+    /// </summary>
+    public int AddPictureBackdrop(int pageIndex, int objectIndex, Color colour)
+    {
+        BakeTextSpacing();
+        lock (Pdfium.Sync)
+        {
+            ThrowIfClosed();
+            IntPtr page = LoadPageOrThrow(pageIndex);
+            try
+            {
+                IntPtr obj = Pdfium.FPDFPage_GetObject(page, objectIndex);
+                if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetType(obj) != Pdfium.ObjImage) throw new IOException("That isn't a picture.");
+                if (Pdfium.FPDFPageObj_GetMatrix(obj, out var m) == 0) throw new IOException("The picture's place can't be read.");
+                IntPtr path = Pdfium.FPDFPageObj_CreateNewPath(m.E, m.F);
+                if (path == IntPtr.Zero) throw new IOException("The background couldn't be added.");
+                Pdfium.FPDFPath_LineTo(path, m.E + m.A, m.F + m.B);
+                Pdfium.FPDFPath_LineTo(path, m.E + m.A + m.C, m.F + m.B + m.D);
+                Pdfium.FPDFPath_LineTo(path, m.E + m.C, m.F + m.D);
+                Pdfium.FPDFPath_Close(path);
+                Pdfium.FPDFPageObj_SetFillColor(path, colour.R, colour.G, colour.B, colour.A);
+                Pdfium.FPDFPath_SetDrawMode(path, Pdfium.FillWinding, 0);
+                if (Pdfium.FPDFPage_InsertObjectAtIndex(page, path, (UIntPtr)(uint)objectIndex) == 0) throw new IOException("The background couldn't be added.");
+                if (Pdfium.FPDFPage_GenerateContent(page) == 0) throw new IOException("Page " + (pageIndex + 1) + " couldn't be written.");
+            }
+            finally { Pdfium.FPDF_ClosePage(page); }
+            _texts.Remove(pageIndex); _runs.Remove(pageIndex);
+        }
+        return objectIndex + 1;
+    }
+
+    /// <summary>
     /// Cuts a picture down to a part of itself. The fractions (0..1) are cut from each edge of the picture as it looks. The unused pixels are really removed from the picture (a JPEG stays a JPEG),
     /// and the picture's place on the page is the part that is left, so it doesn't move or stretch.
     /// </summary>
