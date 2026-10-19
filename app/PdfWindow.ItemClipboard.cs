@@ -42,6 +42,7 @@ public sealed partial class PdfWindow
             _objectClipBox = picked.Box; _objectClipPage = picked.Page; _clipOwner = this;
             _itemClipboard = new List<EditItem>();                     // (the last copy is the one that is pasted)
             _pasteStep = 0;
+            MarkOwnClipboard();
             Toast("Copied: Ctrl+V pastes it");
             return true;
         }
@@ -54,6 +55,7 @@ public sealed partial class PdfWindow
         {
             try { Clipboard.SetText(text.Text); } catch (Exception e) when (e is System.Runtime.InteropServices.COMException or System.Runtime.InteropServices.ExternalException) { /* the clipboard is busy: the copy inside Utylix still works */ }
         }
+        MarkOwnClipboard();
         Toast(items.Count == 1 ? "Copied: Ctrl+V pastes it" : $"Copied {items.Count} things: Ctrl+V pastes them");
         return true;
     }
@@ -65,7 +67,7 @@ public sealed partial class PdfWindow
     }
 
     /// <summary>Pastes what was copied onto the page being looked at: a little below and right of the original on the same page, or where you right-clicked (<paramref name="at"/>).</summary>
-    private bool HasCopy => _itemClipboard.Count > 0 || _objectClip != null;
+    private bool HasCopy => _itemClipboard.Count > 0 || _objectClip != null || ClipboardHasOtherText();
 
     /// <summary>Pastes things copied from the PDF's own content: as one thing on the page, then chosen so it can be moved.</summary>
     private bool PastePageObjects(Point? at, int? onPage)
@@ -91,6 +93,7 @@ public sealed partial class PdfWindow
 
     private bool PasteItems(Point? at = null, int? onPage = null)
     {
+        if (ClipboardHasOtherText()) return PasteCleanText(at, onPage);          // (text copied somewhere else, later than the last copy here: pasted as plain text)
         if (_itemClipboard.Count == 0 && _objectClip != null) return PastePageObjects(at, onPage);
         if (_itemClipboard.Count == 0 || _pages.Count == 0) return false;
         int page = Math.Clamp(onPage ?? _current, 0, _pages.Count - 1);

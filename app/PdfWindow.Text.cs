@@ -409,7 +409,10 @@ public sealed partial class PdfWindow
             Item("Cut", "Ctrl+X", true, CutItems);
         }
         else Item("Copy", "Ctrl+C", sel, CopySelection);
-        if (_editing && HasCopy) Item("Paste here", "Ctrl+V", true, () => PasteItems(p, pv.Index));
+        bool otherText = ClipboardHasOtherText();
+        if (_editing && HasCopy) Item(otherText ? "Paste the text here (plain text)" : "Paste here", "Ctrl+V", true, () => PasteItems(p, pv.Index));
+        if (_editing && ClipboardHasText() && !otherText) Item("Paste the clipboard's text here (plain text)", "", true, () => PasteCleanText(p, pv.Index));
+        if (_editing && ClipboardHasText()) Item("Paste the text here as one paragraph", "", true, () => PasteCleanText(p, pv.Index, join: true));
         if (_editing && RunAt(pv.Index, p) is { } lineUnder)
         {
             menu.Items.Add(new Separator());
