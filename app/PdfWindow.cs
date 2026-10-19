@@ -100,7 +100,13 @@ public sealed partial class PdfWindow : Window
         {
             var w = Windows.FirstOrDefault(x => string.Equals(x._path, file, StringComparison.OrdinalIgnoreCase))
                     ?? Windows.FirstOrDefault(x => x._path == null);
-            if (w == null) { w = new PdfWindow(); w.Show(); }
+            if (w == null)
+            {
+                var basis = Windows.LastOrDefault(x => x.IsVisible && x._path != null && x.IsActive) ?? Windows.LastOrDefault(x => x.IsVisible && x._path != null);
+                w = new PdfWindow();
+                if (basis != null) w.TakePlaceOf(basis);                 // (a new tab of the PDF window that is open, not a window somewhere else)
+                w.Show();
+            }
             WindowTheme.BringToFront(w);
             if (!string.Equals(w._path, file, StringComparison.OrdinalIgnoreCase)) _ = w.LoadAsync(file);
         }
@@ -333,6 +339,9 @@ public sealed partial class PdfWindow : Window
         body.Children.Add(stage);
 
         var layout = new DockPanel();
+        var tabs = TabBar();
+        DockPanel.SetDock(tabs, Dock.Top);
+        layout.Children.Add(tabs);
         DockPanel.SetDock(top, Dock.Top);
         layout.Children.Add(top);
         var editBar = BuildEditBar();
@@ -374,6 +383,7 @@ public sealed partial class PdfWindow : Window
             RememberPlace();
             StopReading();
             Windows.Remove(this);
+            RefreshAllTabs();
             _generation++;
             _thumbs.Clear();
             _pdf?.Dispose(); _pdf = null;
@@ -748,7 +758,7 @@ public sealed partial class PdfWindow : Window
             case Key.S when ctrl: if (_editing || _dirty) _ = SaveEditsAsync(saveAs: false); else SaveCopy(); break;      // (a filled-in form saves too)
             case Key.E when ctrl: if (_pdf != null) { if (_editing) ExitEditing(); else EnterEditing(); } break;           // (Edit on / off)
             case Key.G when ctrl: _pageBox.Focus(); _pageBox.SelectAll(); break;                                        // (go to a page)
-            case Key.H when ctrl: FindAndReplace(); break;
+            case Key.H when ctrl: FindAndReplace(_searchBar.Visibility == Visibility.Visible ? _searchText.Text : null); break;
             case Key.P when ctrl: Print(); break;
             case Key.R when ctrl: Rotate(); break;
             case Key.OemPlus or Key.Add when ctrl: ZoomBy(1.2); break;

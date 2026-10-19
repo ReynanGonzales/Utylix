@@ -27,6 +27,30 @@ public sealed partial class PdfWindow
 
     private sealed record CommentRow(int Page, string Kind, string Quote, string Text, PdfNote? Saved);
 
+    private string _commentFilter = "all";
+
+    private bool CommentShown(CommentRow row) => _commentFilter switch
+    {
+        "note" => row.Kind.StartsWith("Note"),
+        "highlight" => row.Kind.StartsWith("Highlight"),
+        "line" => row.Kind.StartsWith("Underline") || row.Kind.StartsWith("Strike"),
+        _ => true,
+    };
+
+    private void ApplyCommentFilter()
+    {
+        int shown = 0;
+        foreach (var item in _commentList.Items.OfType<ListBoxItem>())
+        {
+            bool show = item.Tag is CommentRow row && CommentShown(row);
+            item.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (show) shown++;
+        }
+        if (_comments.Count > 0)
+            _commentHint.Text = _commentFilter == "all" ? $"{_comments.Count} comment{(_comments.Count == 1 ? "" : "s")}. Click to go there, double-click to read or change."
+                                                        : $"{shown} of {_comments.Count} comments shown. Click to go there, double-click to read or change.";
+    }
+
     private static string KindName(int subtype) => subtype switch
     {
         Pdfium.AnnotText => "Note", Pdfium.AnnotHighlight => "Highlight", Pdfium.AnnotUnderline => "Underline", Pdfium.AnnotStrikeOut => "Strike out", _ => "Comment",
@@ -46,6 +70,15 @@ public sealed partial class PdfWindow
         buttons.Children.Add(Small("Refresh", "Read the comments again", "PdfCommentsRefresh", () => _ = RefreshCommentsAsync()));
         buttons.Children.Add(Small("Save a summary…", "Save every comment with its page and words as a text file", "PdfCommentsSave", SaveCommentSummary));
         buttons.Children.Add(Small("Copy", "Copy the summary of all comments", "PdfCommentsCopy", CopyCommentSummary));
+        // show only some kinds: all / notes / highlights / underlines and strike-outs
+        var filters = new WrapPanel { Margin = new Thickness(8, 2, 8, 2) };
+        foreach (var (key, text) in new[] { ("all", "All"), ("note", "Notes"), ("highlight", "Highlights"), ("line", "Lines") })
+        {
+            var chip = new RadioButton { Content = text, GroupName = "pdfcommentfilter", IsChecked = key == "all", Style = (Style)Application.Current.FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4), Focusable = false };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(chip, "PdfCommentsFilter" + text);
+            chip.Checked += (_, _) => { _commentFilter = key; ApplyCommentFilter(); };
+            filters.Children.Add(chip);
+        }
         _commentList.ItemContainerStyle = (Style)System.Windows.Markup.XamlReader.Parse(
             "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListBoxItem'><Setter Property='Margin' Value='6,2' /><Setter Property='Template'><Setter.Value>" +
             "<ControlTemplate TargetType='ListBoxItem'><Border x:Name='bd' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' CornerRadius='6' Padding='8,6' Background='#22FFFFFF'><ContentPresenter /></Border>" +
@@ -57,8 +90,8 @@ public sealed partial class PdfWindow
         _commentList.SelectionChanged += (_, _) => { if (_commentList.SelectedItem is ListBoxItem { Tag: CommentRow row }) ShowComment(row); };
         _commentList.MouseDoubleClick += (_, _) => { if (_commentList.SelectedItem is ListBoxItem { Tag: CommentRow { Saved: not null } row }) OpenSavedNote(row.Page, row.Saved!); };
         var panel = new DockPanel { Visibility = Visibility.Collapsed };
-        DockPanel.SetDock(buttons, Dock.Top); DockPanel.SetDock(_commentHint, Dock.Top);
-        panel.Children.Add(buttons); panel.Children.Add(_commentHint); panel.Children.Add(_commentList);
+        DockPanel.SetDock(buttons, Dock.Top); DockPanel.SetDock(filters, Dock.Top); DockPanel.SetDock(_commentHint, Dock.Top);
+        panel.Children.Add(buttons); panel.Children.Add(filters); panel.Children.Add(_commentHint); panel.Children.Add(_commentList);
         return panel;
     }
 
@@ -81,6 +114,8 @@ public sealed partial class PdfWindow
                     var t = pdf.GetText(page);
                     foreach (var note in t.Notes.Where(n => n.Subtype is Pdfium.AnnotText or Pdfium.AnnotHighlight or Pdfium.AnnotUnderline or Pdfium.AnnotStrikeOut or 3 or 4 or 5 or 6 or 7 or 8 or 11 or 13))
                         rows.Add(new CommentRow(page, KindName(note.Subtype), note.Subtype == Pdfium.AnnotText ? "" : Quote(t, note.Box), note.Text, note));
+                    foreach (var mark in t.Markups)                        // (marked words with no comment: still listed, so they can be found)
+                        rows.Add(new CommentRow(page, KindName(mark.Subtype), Quote(t, mark.Box), "(no comment)", mark));
                 }
             });
         }
@@ -91,6 +126,7 @@ public sealed partial class PdfWindow
         foreach (var n in _items.OfType<NoteItem>().Where(n => n.Text.Trim().Length > 0)) Add(new CommentRow(n.Page, "Note (not saved yet)", "", n.Text.Trim(), null));
         foreach (var m in _items.OfType<TextMarkupItem>().Where(m => m.Comment.Trim().Length > 0)) Add(new CommentRow(m.Page, KindName(m.Subtype) + " (not saved yet)", Quote(Text(m.Page), m.Bounds), m.Comment.Trim(), null));
         _commentHint.Text = _comments.Count == 0 ? "No comments in this PDF yet. Add a note, or select words and right-click > Add a comment." : $"{_comments.Count} comment{(_comments.Count == 1 ? "" : "s")}. Click to go there, double-click to read or change.";
+        if (_comments.Count > 0 && _commentFilter != "all") ApplyCommentFilter();
 
         void Add(CommentRow row)
         {
@@ -99,7 +135,7 @@ public sealed partial class PdfWindow
             stack.Children.Add(new TextBlock { Text = $"Page {row.Page + 1}  ·  {row.Kind}", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Soft });
             if (row.Quote.Length > 0) stack.Children.Add(new TextBlock { Text = "“" + row.Quote + "”", FontSize = 11.5, FontStyle = FontStyles.Italic, Foreground = Soft, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), MaxHeight = 36, TextTrimming = TextTrimming.CharacterEllipsis });
             stack.Children.Add(new TextBlock { Text = row.Text, FontSize = 12.5, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0), MaxHeight = 80, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = row.Text });
-            _commentList.Items.Add(new ListBoxItem { Content = stack, Tag = row, Foreground = Brushes.White });
+            _commentList.Items.Add(new ListBoxItem { Content = stack, Tag = row, Foreground = Brushes.White, Visibility = CommentShown(row) ? Visibility.Visible : Visibility.Collapsed });
         }
     }
 

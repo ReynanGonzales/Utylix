@@ -735,26 +735,8 @@ public sealed partial class PdfWindow
         _tabChips[_editTab].IsChecked = true;
 
         // colours, size, font
-        foreach (var c in Swatches)
-        {
-            var b = new Button
-            {
-                Width = 24, Height = 24, Margin = new Thickness(1, 0, 1, 0), Focusable = false, ToolTip = ColorName(c), Cursor = Cursors.Hand,
-                // (the chosen colour gets a white ring with a gap; the ring is there even for the white dot)
-                Template = (ControlTemplate)XamlReader.Parse(
-                    "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
-                    "<Grid><Border x:Name='ring' CornerRadius='12' BorderBrush='Transparent' BorderThickness='2' />" +
-                    "<Border x:Name='bd' Margin='3' Background='{TemplateBinding Background}' CornerRadius='9' BorderBrush='#55FFFFFF' BorderThickness='1' /></Grid>" +
-                    "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bd' Property='BorderBrush' Value='White' /></Trigger>" +
-                    "<Trigger Property='Tag' Value='picked'><Setter TargetName='ring' Property='BorderBrush' Value='White' /></Trigger></ControlTemplate.Triggers></ControlTemplate>"),
-                Background = new SolidColorBrush(c),
-            };
-            b.Click += (_, _) => SetColor(c);
-            System.Windows.Automation.AutomationProperties.SetAutomationId(b, "PdfColor" + _swatchButtons.Count);
-            System.Windows.Automation.AutomationProperties.SetName(b, ColorName(c));
-            _swatchButtons.Add((b, c));
-            _colorRow.Children.Add(b);
-        }
+        foreach (var c in Swatches) _colorRow.Children.Add(ColourDot(c, "PdfColor"));
+        BuildHighlighterRow();
         var more = new Button { Content = "…", Width = 24, Height = 22, Padding = new Thickness(0), Margin = new Thickness(3, 0, 0, 0), Focusable = false, ToolTip = "More colours", Background = Brushes.Transparent, Foreground = Brushes.White };
         more.Click += (_, _) =>
         {
@@ -822,7 +804,7 @@ public sealed partial class PdfWindow
         _fontRow.Margin = new Thickness(14, 0, 0, 0);
         _toolHint.Margin = new Thickness(14, 0, 0, 0);
         sizeRow.Margin = new Thickness(14, 0, 0, 0);
-        foreach (UIElement part in new UIElement[] { _colorRow, sizeRow, _thickRow, _fontRow, PictureBackgroundRow() }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
+        foreach (UIElement part in new UIElement[] { _colorRow, _highlightRow, sizeRow, _thickRow, _fontRow, PictureBackgroundRow() }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
         look.Children.Add(_toolHint);                                   // (last: it takes what is left, and is cut with "..." when it is long)
 
         var row2 = new DockPanel { Height = 36, Margin = new Thickness(6, 2, 0, 0), LastChildFill = true };
@@ -1055,7 +1037,9 @@ public sealed partial class PdfWindow
         bool fieldTool = item is FieldItem || (item == null && _tool is EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField);
         // nothing to set: no colour dots, size or font for a tool or a choice that has none (the bar only shows what the tool uses)
         bool nothingToSet = (item == null && _tool is EditTool.Select or EditTool.EditText or EditTool.Paragraph or EditTool.Image or EditTool.Signature or EditTool.Link) && typingRun == null;
-        _colorRow.Visibility = item is ImageItem or PageObjectItem or LinkPick || (run && typingRun == null) || redact || nothingToSet ? Visibility.Collapsed : Visibility.Visible;
+        bool highlighting = item is TextMarkupItem { Subtype: Pdfium.AnnotHighlight } || (item == null && _tool == EditTool.Highlight);
+        _colorRow.Visibility = item is ImageItem or PageObjectItem or LinkPick || (run && typingRun == null) || redact || nothingToSet || highlighting ? Visibility.Collapsed : Visibility.Visible;
+        _highlightRow.Visibility = highlighting ? Visibility.Visible : Visibility.Collapsed;
         if (nothingToSet && !run)
         {
             _toolHint.Text = _tool == EditTool.Link

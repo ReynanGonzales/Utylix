@@ -33,6 +33,19 @@ public static class PdfPageTools
         finally { lock (Pdfium.Sync) Pdfium.FPDF_CloseDocument(target); }
     }
 
+    /// <summary>Puts copies of some pages of an open PDF into <paramref name="dest"/> at this place (0 = in front of the first page). Returns how many came in.</summary>
+    public static int InsertPages(PdfFile dest, PdfFile source, IReadOnlyList<int> pages, int at)
+    {
+        if (pages.Count == 0) return 0;
+        if (source.IsProtected) throw new PdfProtectedException("The pages of a password-protected PDF can't be copied to another PDF.");
+        lock (Pdfium.Sync)
+        {
+            if (Pdfium.FPDF_ImportPagesByIndex(dest.Handle, source.Handle, pages.ToArray(), (uint)pages.Count, Math.Clamp(at, 0, dest.PageCount)) == 0) throw new IOException("The pages couldn't be copied.");
+        }
+        dest.Reload();
+        return pages.Count;
+    }
+
     /// <summary>Puts every page of another PDF into <paramref name="dest"/> at this place (0 = in front of the first page).</summary>
     public static int InsertPdf(PdfFile dest, string path, int at)
     {

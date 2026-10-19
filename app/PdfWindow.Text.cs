@@ -528,7 +528,10 @@ public sealed partial class PdfWindow
         var redactAll = new Button { Content = BarLabel("Redact all"), Template = BarButtonTemplate(), Height = 26, Padding = new Thickness(10, 0, 10, 0), Margin = new Thickness(4, 0, 4, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White, ToolTip = "Put a black box over every match: saving then removes them from the file for good" };
         System.Windows.Automation.AutomationProperties.SetAutomationId(redactAll, "PdfSearchRedactAll");
         redactAll.Click += (_, _) => RedactMatches();
-        row.Children.Add(_searchText); row.Children.Add(_searchCount); row.Children.Add(prev); row.Children.Add(next); row.Children.Add(redactAll); row.Children.Add(close);
+        var replace = new Button { Content = BarLabel("Replace…"), Template = BarButtonTemplate(), Height = 26, Padding = new Thickness(10, 0, 10, 0), Margin = new Thickness(4, 0, 0, 0), Focusable = false, Background = Brushes.Transparent, Foreground = Brushes.White, ToolTip = "Change these words to other words everywhere in the PDF (Ctrl+H)" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(replace, "PdfSearchReplace");
+        replace.Click += (_, _) => FindAndReplace(_searchText.Text);
+        row.Children.Add(_searchText); row.Children.Add(_searchCount); row.Children.Add(prev); row.Children.Add(next); row.Children.Add(replace); row.Children.Add(redactAll); row.Children.Add(close);
         _searchBar = new Border
         {
             Child = row, Background = new SolidColorBrush(Color.FromRgb(0x1B, 0x1F, 0x29)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x52)), BorderThickness = new Thickness(1),

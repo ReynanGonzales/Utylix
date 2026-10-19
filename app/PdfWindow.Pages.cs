@@ -91,6 +91,7 @@ public sealed partial class PdfWindow
         Item("Add pages from a scanner…", InsertFromScanner);
         Item("Add a blank page after", AddBlankPage);
         Item("Take the page(s) out as a new PDF…", ExtractSelectedPages);
+        AddSendToMenu(menu);
         _strip.ContextMenu = Themed(menu);
     }
 

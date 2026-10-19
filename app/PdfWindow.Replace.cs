@@ -25,7 +25,10 @@ public sealed partial class PdfWindow
         return new Regex(p, (matchCase ? RegexOptions.None : RegexOptions.IgnoreCase) | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
     }
 
-    private void FindAndReplace()
+    private void FindAndReplace() => FindAndReplace(null);
+
+    /// <summary>The dialog, with <paramref name="prefill"/> (what the search box held) already typed in "Find".</summary>
+    private void FindAndReplace(string? prefill)
     {
         if (_pdf == null || _path == null) return;
         if (!_editing) { EnterEditing(); if (!_editing) return; }
@@ -35,6 +38,7 @@ public sealed partial class PdfWindow
         var dlg = MakeDialog("Find and replace", 520);
         var find = Field("", "PdfReplaceFind"); var with = Field("", "PdfReplaceWith");
         if (HasSelection && SelectedWords() is { Length: > 0 and < 120 } picked && !picked.Contains('\n')) find.Text = picked;
+        else if (!string.IsNullOrWhiteSpace(prefill) && prefill.Length < 120 && !prefill.Contains('\n')) find.Text = prefill.Trim();
         var matchCase = new CheckBox { Content = "Match upper / lower case", Margin = new Thickness(0, 10, 0, 0) }; Id("PdfReplaceCase", matchCase);
         var whole = new CheckBox { Content = "Whole words only", Margin = new Thickness(0, 6, 0, 0) }; Id("PdfReplaceWhole", whole);
         var count = new TextBlock { Text = "Reading the text of the pages…", Opacity = 0.75, Margin = new Thickness(0, 12, 0, 0), TextWrapping = TextWrapping.Wrap }; Id("PdfReplaceCount", count);

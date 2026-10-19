@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -66,6 +66,8 @@ public sealed class PdfPageText
     public Rect[] Boxes { get; }                     // Rect.Empty for letters PDFium made up (spaces, line ends)
     public IReadOnlyList<PdfLink> Links { get; }
     public IReadOnlyList<PdfNote> Notes { get; }
+    /// <summary>Highlights, underlines and strike-outs that have no comment (so they are not in <see cref="Notes">).</summary>
+    public IReadOnlyList<PdfNote> Markups { get; internal init; } = Array.Empty<PdfNote>();
 
     internal PdfPageText(string text, Rect[] boxes, List<PdfLink> links, List<PdfNote> notes) { Text = text; Boxes = boxes; Links = links; Notes = notes; }
 
@@ -290,6 +292,7 @@ internal static class PdfTextReader
 
             // notes already in the PDF (their text shows when the pointer is on them)
             var notes = new List<PdfNote>();
+            var markups = new List<PdfNote>();                  // (highlights / underlines / strike-outs that have no comment text)
             int annots = Pdfium.FPDFPage_GetAnnotCount(page);
             for (int i = 0; i < annots; i++)
             {
@@ -300,12 +303,13 @@ internal static class PdfTextReader
                     int sub = Pdfium.FPDFAnnot_GetSubtype(a);
                     if (sub is Pdfium.AnnotPopup or 2 /* link */ or 20 /* widget */) continue;
                     string text = Utf16(a, "Contents");
+                    if (text.Trim().Length == 0 && sub is Pdfium.AnnotHighlight or Pdfium.AnnotUnderline or Pdfium.AnnotStrikeOut && Pdfium.FPDFAnnot_GetRect(a, out var mr) != 0) { markups.Add(new PdfNote(map.ToShown(mr.Left, mr.Bottom, mr.Right, mr.Top), "", i, sub)); continue; }
                     if (text.Trim().Length == 0 || Pdfium.FPDFAnnot_GetRect(a, out var ar) == 0) continue;
                     notes.Add(new PdfNote(map.ToShown(ar.Left, ar.Bottom, ar.Right, ar.Top), text.Trim(), i, sub));
                 }
                 finally { Pdfium.FPDFPage_CloseAnnot(a); }
             }
-            return new PdfPageText(sb.ToString(), boxes.ToArray(), links, notes);
+            return new PdfPageText(sb.ToString(), boxes.ToArray(), links, notes) { Markups = markups };
         }
         finally
         {
