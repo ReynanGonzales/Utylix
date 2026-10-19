@@ -8,7 +8,7 @@ using System.Windows;
 namespace IdmClone.Engine;
 
 /// <summary>An area of a page to black out for good. Box: points from the top-left of the page as it is shown.</summary>
-public sealed record PdfRedactMark(int Page, Rect Box) : PdfMark(Page);
+public sealed record PdfRedactMark(int Page, Rect Box, bool Blur = false) : PdfMark(Page);
 
 /// <summary>
 /// Real redaction, not just a black box: what is under the areas is taken out of the page - the letters (a piece of text only partly under
@@ -345,7 +345,7 @@ public static class PdfRedactor
                             Pdfium.FPDF_GetPageSizeByIndexF(doc, group.Key, out var size);
                             var map = new PageMapping(page, size.Width, size.Height);
                             CheckText(page, map, boxes, group.Key);
-                            CheckObjects(page, map, boxes, group.Key);
+                            CheckObjects(page, map, boxes, group.Key, group.Where(g => g.Blur).Select(g => g.Box).ToList());
                         }
                         finally { Pdfium.FPDF_ClosePage(page); }
                     }
@@ -373,7 +373,7 @@ public static class PdfRedactor
         finally { Pdfium.FPDFText_ClosePage(tp); }
     }
 
-    private static void CheckObjects(IntPtr page, PageMapping map, IReadOnlyList<Rect> boxes, int index)
+    private static void CheckObjects(IntPtr page, PageMapping map, IReadOnlyList<Rect> boxes, int index, IReadOnlyList<Rect> blurred)
     {
         var objects = new List<Found>();
         Collect(page, false, IntPtr.Zero, Aff.Identity, objects, 0);
@@ -381,7 +381,9 @@ public static class PdfRedactor
         {
             if (Pdfium.FPDFPageObj_GetMatrix(f.Obj, out var im) == 0) continue;
             var m = Aff.Of(im).Then(f.M);
-            if (!Touches(BoundsOf(m, 0, 0, 1, 1, map), boxes)) continue;
+            var shown = BoundsOf(m, 0, 0, 1, 1, map);
+            if (!Touches(shown, boxes)) continue;
+            if (blurred.Any(b => Math.Abs(b.Left - shown.Left) < 1.5 && Math.Abs(b.Top - shown.Top) < 1.5 && Math.Abs(b.Right - shown.Right) < 1.5 && Math.Abs(b.Bottom - shown.Bottom) < 1.5)) continue;      // (the blurred picture put there on purpose)
             IntPtr bmp = Pdfium.FPDFImageObj_GetBitmap(f.Obj);
             if (bmp == IntPtr.Zero) throw new IOException($"A picture under a black box on page {index + 1} could not be checked, so nothing was saved.");
             try

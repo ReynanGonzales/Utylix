@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -318,6 +318,9 @@ public static class ShellMenu
                 menu.SetValue("Icon", OwnIcon(dataDir, "pdf", IconOf(exe)));
                 Add(menu, "1reduce", "Reduce file size…", $"\"{exe}\" --pdf-reduce \"%1\"");
                 Add(menu, "2combine", "Combine into one PDF…", $"\"{exe}\" --pdf-combine \"%1\"");
+                Add(menu, "3small5", "Small copy for email (under 5 MB)", $"\"{exe}\" --pdf-small5 \"%1\"");
+                Add(menu, "4small2", "Small copy for chat (under 2 MB)", $"\"{exe}\" --pdf-small2 \"%1\"");
+                Add(menu, "5small1", "Very small copy (under 1 MB)", $"\"{exe}\" --pdf-small1 \"%1\"");
             }
             foreach (string ext in PdfCombiner.PictureExtensions)
             {

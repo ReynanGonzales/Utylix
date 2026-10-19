@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -22,7 +22,7 @@ namespace IdmClone;
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField, DropField, Link, Paragraph }
+    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField, DropField, Link, Paragraph, Blur }
 
     // ---------- what can be on a page ----------
     private abstract class EditItem
@@ -214,7 +214,7 @@ public sealed partial class PdfWindow
         }
         public override bool KeepAspect => BoxWidth <= 0;
     }
-    public enum ShapeKind { Rectangle, Ellipse, Line, Arrow, Highlight, WhiteOut, Check, Cross, Redact }
+    public enum ShapeKind { Rectangle, Ellipse, Line, Arrow, Highlight, WhiteOut, Check, Cross, Redact, Blur }
 
     private sealed class ShapeItem : EditItem
     {
@@ -295,6 +295,7 @@ public sealed partial class PdfWindow
             ShapeKind.Highlight => (null, 0, Color.FromArgb(140, Color.R, Color.G, Color.B), true, 1),
             ShapeKind.WhiteOut => (null, 0, Color, false, 1),
             ShapeKind.Redact => (null, 0, Colors.Black, false, 1),
+            ShapeKind.Blur => (null, 0, Color.FromArgb(70, 120, 120, 120), false, 1),
             ShapeKind.Check or ShapeKind.Cross => (Color, StampWidth, null, false, 1),
             ShapeKind.Rectangle or ShapeKind.Ellipse => (Color, Width, Fill, false, 1),
             _ => (Color, Width, null, false, 1),
@@ -482,7 +483,7 @@ public sealed partial class PdfWindow
         [EditTool.TextField] = Colors.Black, [EditTool.CheckField] = Colors.Black, [EditTool.Table] = Colors.Black, [EditTool.RadioField] = Colors.Black, [EditTool.SignField] = Colors.Black, [EditTool.DropField] = Colors.Black,
         [EditTool.Text] = Colors.Black, [EditTool.Stamp] = Color.FromRgb(0x2E, 0x7D, 0x32), [EditTool.Date] = Colors.Black, [EditTool.Signature] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Check] = Colors.Black, [EditTool.Cross] = Colors.Black,
         [EditTool.Highlight] = Color.FromRgb(0xFF, 0xE0, 0x30), [EditTool.Underline] = Color.FromRgb(0x1E, 0x63, 0xE9), [EditTool.Strike] = Color.FromRgb(0xD3, 0x2F, 0x2F),
-        [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White, [EditTool.Redact] = Colors.Black,
+        [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White, [EditTool.Redact] = Colors.Black, [EditTool.Blur] = Colors.Black,
     };
     private ShapeKind _shapeKind = ShapeKind.Rectangle;                   // (what the Shapes tool draws)
     private double _textSize = 12, _lineWidth = 2;
@@ -604,7 +605,7 @@ public sealed partial class PdfWindow
     private static string? TabOf(EditTool tool) => tool switch
     {
         EditTool.Text or EditTool.EditText or EditTool.Paragraph or EditTool.Date or EditTool.Image or EditTool.Signature or EditTool.Stamp or EditTool.Link => "Add",
-        EditTool.Highlight or EditTool.Underline or EditTool.Strike or EditTool.Note or EditTool.Pen or EditTool.Shapes or EditTool.Table or EditTool.Check or EditTool.Cross => "Mark up",
+        EditTool.Highlight or EditTool.Underline or EditTool.Strike or EditTool.Note or EditTool.Pen or EditTool.Shapes or EditTool.Table or EditTool.Check or EditTool.Cross or EditTool.Blur => "Mark up",
         EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField => "Forms",
         EditTool.WhiteOut or EditTool.Redact => "Page",
         _ => null,                                                          // (Select is on every tab)
@@ -649,10 +650,13 @@ public sealed partial class PdfWindow
                          Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
                          Children = { ColumnBar(), ColumnBar(), ColumnBar() },
                      });
+        ActionButton("QR", "Make a QR code (a web link, text, e-mail, phone number or Wi-Fi) and put it on the page", AddQr, "PdfActionQr",
+                     new TextBlock { Text = "▦", FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 17, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, -2, 0, -1) });
         ToolButton(EditTool.Signature,"", "Sign", "Add your signature (draw it once, use it again)");
         ToolButton(EditTool.Image, "", "Picture", "Add a picture");
         ToolButton(EditTool.Check, "", "Check", "Click to put a check mark");
         ToolButton(EditTool.Cross, "", "Cross", "Click to put a cross");
+        ToolButton(EditTool.Blur, "▒", "Blur", "Drag over something to blur it (a name, a number, a face on a picture). Saving also takes out the words and pictures under it, so nobody can copy them out; the Blur button next to the colour dots changes how strong it is", "Segoe UI Symbol");
         ToolButton(EditTool.Stamp, "", "Stamp", "Put a stamp (Approved, Paid, Confidential ...) on the page: click this button again to choose which",
                    icon: new Border { BorderBrush = Brushes.White, BorderThickness = new Thickness(1.6), CornerRadius = new CornerRadius(4), Padding = new Thickness(3, 0, 3, 0), Height = 19, HorizontalAlignment = HorizontalAlignment.Center,
                                       Child = new TextBlock { Text = "OK", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center } });
@@ -720,8 +724,8 @@ public sealed partial class PdfWindow
         }
         UIElement[] T(params EditTool[] list) => list.Select(t => (UIElement)_toolButtons[t]).ToArray();
         UIElement[] A(params string[] list) => list.Select(id => (UIElement)actions[id]).ToArray();
-        Tab("Add", "Put something on the page: text, the date, columns, pictures, your signature, stamps", T(EditTool.Text, EditTool.EditText, EditTool.Paragraph, EditTool.Date).Concat(A("PdfActionColumns")).ToArray(), T(EditTool.Image, EditTool.Signature, EditTool.Stamp, EditTool.Link));
-        Tab("Mark up", "Comment and draw: highlight, underline, notes, pen, shapes, tables, check marks", T(EditTool.Highlight, EditTool.Underline, EditTool.Strike, EditTool.Note), T(EditTool.Pen, EditTool.Shapes, EditTool.Table, EditTool.Check, EditTool.Cross));
+        Tab("Add", "Put something on the page: text, the date, columns, pictures, your signature, stamps", T(EditTool.Text, EditTool.EditText, EditTool.Paragraph, EditTool.Date).Concat(A("PdfActionColumns", "PdfActionQr")).ToArray(), T(EditTool.Image, EditTool.Signature, EditTool.Stamp, EditTool.Link));
+        Tab("Mark up", "Comment and draw: highlight, underline, notes, pen, shapes, tables, check marks", T(EditTool.Highlight, EditTool.Underline, EditTool.Strike, EditTool.Note), T(EditTool.Pen, EditTool.Shapes, EditTool.Table, EditTool.Check, EditTool.Cross, EditTool.Blur));
         Tab("Forms", "Fields people can fill in: text box, check box, option buttons, signature box", T(EditTool.TextField, EditTool.CheckField, EditTool.RadioField, EditTool.DropField, EditTool.SignField));
         Tab("Page", "Hide or remove things, a frame, a watermark, page numbers", T(EditTool.WhiteOut, EditTool.Redact), A("PdfActionBorder", "PdfActionWatermark", "PdfActionPageNumbers"));
         Tab("Convert", "Make a Word or Excel file or pictures from this PDF", A("PdfActionToWord", "PdfActionToExcel", "PdfActionToPictures"));
@@ -804,7 +808,7 @@ public sealed partial class PdfWindow
         _fontRow.Margin = new Thickness(14, 0, 0, 0);
         _toolHint.Margin = new Thickness(14, 0, 0, 0);
         sizeRow.Margin = new Thickness(14, 0, 0, 0);
-        foreach (UIElement part in new UIElement[] { _colorRow, _highlightRow, sizeRow, _thickRow, _fontRow, PictureBackgroundRow() }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
+        foreach (UIElement part in new UIElement[] { _colorRow, _highlightRow, sizeRow, _thickRow, _fontRow, PictureBackgroundRow(), BlurButton() }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
         look.Children.Add(_toolHint);                                   // (last: it takes what is left, and is cut with "..." when it is long)
 
         var row2 = new DockPanel { Height = 36, Margin = new Thickness(6, 2, 0, 0), LastChildFill = true };
@@ -1003,6 +1007,7 @@ public sealed partial class PdfWindow
         _fontRow.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
         if (_styleButton != null) _styleButton.Visibility = item is TextItem || _typing != null || (item == null && _tool is EditTool.Text) ? Visibility.Visible : Visibility.Collapsed;
         if (_pictureRow != null) _pictureRow.Visibility = PictureChosen ? Visibility.Visible : Visibility.Collapsed;
+        if (_blurButton != null) _blurButton.Visibility = item is BlurItem || (item == null && _tool == EditTool.Blur) ? Visibility.Visible : Visibility.Collapsed;
         if (_runBackButton != null) _runBackButton.Visibility = typingRun != null ? Visibility.Visible : Visibility.Collapsed;
         foreach (var chip in _fontButtons.Values) chip.Visibility = typingRun != null ? Visibility.Collapsed : Visibility.Visible;      // (a line of the PDF: its own font is kept; the list picks another - this makes room for "Background")
         if (_fillButton != null) _fillButton.Visibility = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse } || (item == null && _tool is EditTool.Shapes && _shapeKind is ShapeKind.Rectangle or ShapeKind.Ellipse) ? Visibility.Visible : Visibility.Collapsed;
@@ -1036,9 +1041,9 @@ public sealed partial class PdfWindow
         bool redact = item is ShapeItem { Kind: ShapeKind.Redact } || (item == null && _tool == EditTool.Redact);
         bool fieldTool = item is FieldItem || (item == null && _tool is EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField);
         // nothing to set: no colour dots, size or font for a tool or a choice that has none (the bar only shows what the tool uses)
-        bool nothingToSet = (item == null && _tool is EditTool.Select or EditTool.EditText or EditTool.Paragraph or EditTool.Image or EditTool.Signature or EditTool.Link) && typingRun == null;
+        bool nothingToSet = (item == null && _tool is EditTool.Select or EditTool.EditText or EditTool.Paragraph or EditTool.Image or EditTool.Signature or EditTool.Link or EditTool.Blur) && typingRun == null;
         bool highlighting = item is TextMarkupItem { Subtype: Pdfium.AnnotHighlight } || (item == null && _tool == EditTool.Highlight);
-        _colorRow.Visibility = item is ImageItem or PageObjectItem or LinkPick || (run && typingRun == null) || redact || nothingToSet || highlighting ? Visibility.Collapsed : Visibility.Visible;
+        _colorRow.Visibility = item is ImageItem or PageObjectItem or LinkPick or BlurItem || (run && typingRun == null) || redact || nothingToSet || highlighting ? Visibility.Collapsed : Visibility.Visible;
         _highlightRow.Visibility = highlighting ? Visibility.Visible : Visibility.Collapsed;
         if (nothingToSet && !run)
         {
@@ -1064,6 +1069,7 @@ public sealed partial class PdfWindow
         }
         if (redact) { _toolHint.Text = "Drag over what must go. Saving removes it from the file for good (Save replaces the file: use Save as… to keep the original)."; _toolHint.Visibility = Visibility.Visible; }
         if (run && typingRun == null) ((FrameworkElement)_sizeLabel.Parent).Visibility = Visibility.Collapsed;
+        if (item is QrItem) { _toolHint.Text = "A QR code: drag it to move it, the corner to resize it, double-click (or Enter) to change what it says. Test it with your phone camera before sending."; _toolHint.Visibility = Visibility.Visible; }
         if (item is ColumnsItem) { _toolHint.Text = "Double-click (or Enter) to change the words or the number of columns. Drag a side handle to make it wider or narrower; the height follows the words."; _toolHint.Visibility = Visibility.Visible; }
         if (item is StampItem) { _toolHint.Text = "Drag the round handle above the stamp to turn it (Shift: steps of 15°), the square corner to resize, the stamp itself to move."; _toolHint.Visibility = Visibility.Visible; }
         MarkColor();
@@ -1441,6 +1447,7 @@ public sealed partial class PdfWindow
                 if (item is TextItem t && e.ClickCount == 2) { EditText(t, isNew: false); return; }
                 if (item is NoteItem n && e.ClickCount == 2) { OpenNote(n, isNew: false); return; }
                 if (item is ColumnsItem columns && e.ClickCount == 2) { EditColumns(columns); return; }
+                if (item is QrItem qr && e.ClickCount == 2) { EditQr(qr); return; }
                 if (item is TableItem tableHere && e.ClickCount == 2) { EditTable(tableHere); return; }
                 if (item is FieldItem fieldHere && e.ClickCount == 2) { EditFieldOptions(fieldHere); return; }
                 if (item != null) { _drag = DragMode.Move; _dragBox = item.Bounds; }
@@ -1498,7 +1505,7 @@ public sealed partial class PdfWindow
                 OpenNote(note, isNew: true);
                 return;
             default:
-                var kind = _tool switch { EditTool.Highlight => ShapeKind.Highlight, EditTool.WhiteOut => ShapeKind.WhiteOut, EditTool.Redact => ShapeKind.Redact, _ => _shapeKind };
+                var kind = _tool switch { EditTool.Highlight => ShapeKind.Highlight, EditTool.WhiteOut => ShapeKind.WhiteOut, EditTool.Redact => ShapeKind.Redact, EditTool.Blur => ShapeKind.Blur, _ => _shapeKind };
                 _drawing = new ShapeItem { Page = pv.Index, Kind = kind, A = p, B = p, Color = _toolColors[_tool], Width = _lineWidth, Fill = kind is ShapeKind.Rectangle or ShapeKind.Ellipse ? _shapeFill : null };
                 _drag = DragMode.Draw;
                 break;
@@ -1684,7 +1691,12 @@ public sealed partial class PdfWindow
             UpdateEditButtons();
             return;
         }
-        if (drawn is ShapeItem shape && mode == DragMode.Draw)
+        if (drawn is ShapeItem { Kind: ShapeKind.Blur } blurDrag && mode == DragMode.Draw)
+        {
+            var area = new Rect(blurDrag.A, blurDrag.B);
+            if (area.Width >= 4 && area.Height >= 4) { AddBlur(pv, area); return; }
+        }
+        else if (drawn is ShapeItem shape && mode == DragMode.Draw)
         {
             var r = new Rect(shape.A, shape.B);
             bool line = shape.Kind is ShapeKind.Line or ShapeKind.Arrow;
@@ -1890,6 +1902,7 @@ public sealed partial class PdfWindow
             }
             case Key.Enter when _selected is TextItem t: EditText(t, isNew: false); return true;
             case Key.Enter when _selected is ColumnsItem columns: EditColumns(columns); return true;
+            case Key.Enter when _selected is QrItem qr: EditQr(qr); return true;
             case Key.Enter when _selected is TableItem tableSel: EditTable(tableSel); return true;
             case Key.Enter when _selected is FieldItem fieldSel: EditFieldOptions(fieldSel); return true;
             case Key.Enter when _selected is LinkPick linkSel: EditLink(linkSel); return true;
@@ -1948,7 +1961,7 @@ public sealed partial class PdfWindow
             bool replaces = string.Equals(System.IO.Path.GetFullPath(target), System.IO.Path.GetFullPath(_path), StringComparison.OrdinalIgnoreCase);
             int pages = redactions.Select(r => r.Page).Distinct().Count();
             var answer = UMessage.Ask(this,
-                $"{redactions.Count} black box{(redactions.Count == 1 ? "" : "es")} on {pages} page{(pages == 1 ? "" : "s")}.\n\nSaving removes what is under {(redactions.Count == 1 ? "it" : "them")} from the file for good: the words, the parts of pictures, links and comments. It can't be undone in the saved file.\n\nThe document's properties (title, author…) and the pages' preview pictures are cleared too."
+                $"{HiddenAreasText(redactions)} on {pages} page{(pages == 1 ? "" : "s")}.\n\nSaving removes what is under {(redactions.Count == 1 ? "it" : "them")} from the file for good: the words, the parts of pictures, links and comments. It can't be undone in the saved file.\n\nThe document's properties (title, author…) and the pages' preview pictures are cleared too."
                 + (replaces ? "\n\nThis replaces the file. To keep the original, choose Save as… instead." : ""),
                 "Redact", MessageBoxImage.Warning, MessageBoxResult.Cancel, MessageBoxResult.Cancel, ("Redact and save", MessageBoxResult.Yes), ("Cancel", MessageBoxResult.Cancel));
             if (answer != MessageBoxResult.Yes) return false;

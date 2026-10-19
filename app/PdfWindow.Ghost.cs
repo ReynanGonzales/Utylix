@@ -28,7 +28,7 @@ public sealed partial class PdfWindow
             or EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField;
 
     private static bool IsDragTool(EditTool t) =>
-        t is EditTool.Pen or EditTool.Highlight or EditTool.Underline or EditTool.Strike or EditTool.Shapes or EditTool.WhiteOut or EditTool.Redact or EditTool.Link or EditTool.Table;
+        t is EditTool.Pen or EditTool.Highlight or EditTool.Underline or EditTool.Strike or EditTool.Shapes or EditTool.WhiteOut or EditTool.Redact or EditTool.Blur or EditTool.Link or EditTool.Table;
 
     private void HideGhost()
     {
