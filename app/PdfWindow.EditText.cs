@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -23,6 +23,11 @@ public sealed partial class PdfWindow
         public PdfTextRun Run = null!;
         public string NewText = "";
         public Color Cover = Colors.White;
+        /// <summary>The page as it looks without the old words, under where they were (a watermark or a coloured cell stays); null = the solid <see cref="Cover"/> colour is used.</summary>
+        public System.Windows.Media.Imaging.BitmapSource? CoverPicture;
+        /// <summary>Above 0: the line was a justified one (it reached the right edge of its paragraph): a changed text keeps both ends, the words get wider spaces. The width from where the line starts (points).</summary>
+        public double JustifyTo;
+        public Rect CoverArea;
         /// <summary>The colour the person chose for behind the words (null = the page's own, as it is; the old words are still hidden with <see cref="Cover"/> on screen).</summary>
         public Color? BackColor;
         public bool HasBack => BackColor != null;
@@ -78,18 +83,55 @@ public sealed partial class PdfWindow
             }
         }
 
+        private bool JustifyNow => JustifyTo > 0 && !Styled && LineCount == 1 && NewText != Run.Text && NewText.Trim().Length > 0;
+
+        /// <summary>The words of a justified line with their places (x in points as shown), or null when it can not be spread (one word, longer than the room, or far too short).</summary>
+        private List<(string Word, double X)>? JustifiedWords()
+        {
+            if (!JustifyNow) return null;
+            var words = NewText.Split(new[] { (char)32 }, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length < 2) return null;
+            var measure = MeasureFor(Run);
+            double x0 = Run.Baseline.X + Offset.X, natural = measure(string.Join(" ", words)), space = measure(" ");
+            double extra = (JustifyTo - natural) / (words.Length - 1);
+            if (extra < 0.01 || extra > 6 * space) return null;
+            var list = new List<(string, double)>();
+            for (int i = 0; i < words.Length; i++) list.Add((words[i], x0 + (i == 0 ? 0 : measure(string.Join(" ", words.Take(i)) + " ")) + i * extra));
+            return list;
+        }
+
         public override FrameworkElement Build()
         {
             var canvas = new Canvas();
-            var cover = new Rectangle { Width = Run.Box.Width + 1.2, Height = Run.Box.Height + 1.2, Fill = new SolidColorBrush(Cover) };      // (hides the original where it was)
-            Canvas.SetLeft(cover, Run.Box.X - 0.6); Canvas.SetTop(cover, Run.Box.Y - 0.6);
-            canvas.Children.Add(cover);
+            if (CoverPicture != null)
+            {
+                var clean = new Image { Source = CoverPicture, Width = CoverArea.Width, Height = CoverArea.Height, Stretch = Stretch.Fill };      // (hides the original where it was: the page itself without the old words)
+                RenderOptions.SetBitmapScalingMode(clean, BitmapScalingMode.HighQuality);
+                Canvas.SetLeft(clean, CoverArea.X); Canvas.SetTop(clean, CoverArea.Y);
+                canvas.Children.Add(clean);
+            }
+            else
+            {
+                var cover = new Rectangle { Width = Run.Box.Width + 1.2, Height = Run.Box.Height + 1.2, Fill = new SolidColorBrush(Cover) };      // (hides the original where it was)
+                Canvas.SetLeft(cover, Run.Box.X - 0.6); Canvas.SetTop(cover, Run.Box.Y - 0.6);
+                canvas.Children.Add(cover);
+            }
             if (BackColor is Color back)
             {
                 var b = BackBox;
                 var fill = new Rectangle { Width = b.Width, Height = b.Height, Fill = new SolidColorBrush(back) };
                 Canvas.SetLeft(fill, b.X); Canvas.SetTop(fill, b.Y);
                 canvas.Children.Add(fill);
+            }
+            if (JustifiedWords() is { } spread)
+            {
+                foreach (var (word, x) in spread)
+                {
+                    var piece = new TextBlock { Text = word, FontFamily = EffFamily, FontSize = EffSize, Foreground = new SolidColorBrush(EffColor), FontWeight = EffBold ? FontWeights.Bold : FontWeights.Normal, FontStyle = Run.Italic ? FontStyles.Italic : FontStyles.Normal };
+                    Canvas.SetLeft(piece, x); Canvas.SetTop(piece, Top + Offset.Y);
+                    canvas.Children.Add(piece);
+                }
+                return canvas;
             }
             var text = new TextBlock
             {
@@ -110,6 +152,16 @@ public sealed partial class PdfWindow
         {
             if (NewText == Run.Text && Offset.X == 0 && Offset.Y == 0 && !Styled && !HasBack) yield break;
             Color? back = BackColor; Rect? backBox = back != null ? BackBox : null;
+            if (JustifiedWords() is { } spread)
+            {
+                // a justified line: the old pieces go, every word is written again at its own place (the same font, size and colour)
+                var pieces = Run.Parts ?? new List<PdfTextRun> { Run };
+                for (int i = 0; i < pieces.Count; i++)
+                    yield return i == 0 ? new PdfReplaceTextMark(Page, pieces[i].Index, pieces[i].Text, "", Backdrop: back, BackdropBox: backBox) : new PdfReplaceTextMark(Page, pieces[i].Index, pieces[i].Text, "");
+                var donor = pieces[0];
+                foreach (var (word, x) in spread) yield return new PdfPlaceTextMark(Page, donor.Index, donor.Text, word, x, Run.Baseline.Y + Offset.Y);
+                yield break;
+            }
             if (Run.Parts == null) { yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, NewText, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride, back, backBox); yield break; }
             // a line the PDF keeps in bits: unchanged words, every bit moves; changed words (or a changed look), the first bit takes them all and the others go
             bool same = NewText == Run.Text && !Styled;
@@ -158,7 +210,9 @@ public sealed partial class PdfWindow
             Toast(Text(pv.Index)?.Text.Length > 0 ? "Click on a line of text to change it (turned text can't be changed)" : "This page has no text to change: it's probably a scanned picture (use Text and White-out instead)");
             return;
         }
-        EditRun(new RunEditItem { Page = pv.Index, Run = run, NewText = run.Text, Cover = CoverColour(pv, run.Box) }, isNew: true);
+        var fresh = new RunEditItem { Page = pv.Index, Run = run, NewText = run.Text, Cover = CoverColour(pv, run.Box) };
+        AttachRunCovers(pv.Index, new[] { fresh });
+        EditRun(fresh, isNew: true);
     }
 
     /// <summary>The colour of the page just around a box (usually white; a coloured table cell stays coloured).</summary>
@@ -194,7 +248,7 @@ public sealed partial class PdfWindow
         {
             Text = item.NewText, AcceptsReturn = false, Padding = new Thickness(0), BorderThickness = new Thickness(0), MinWidth = run.Box.Width + 4,
             FontFamily = item.EffFamily, FontSize = item.EffSize, FontWeight = item.EffBold ? FontWeights.Bold : FontWeights.Normal, FontStyle = run.Italic && item.FontOverride == null ? FontStyles.Italic : FontStyles.Normal,
-            Foreground = new SolidColorBrush(item.EffColor), Background = new SolidColorBrush(item.BackColor ?? item.Cover),
+            Foreground = new SolidColorBrush(item.EffColor), Background = RunBoxBrush(item),
             CaretBrush = new SolidColorBrush(Colors.Black),
             Template = (ControlTemplate)XamlReader.Parse(
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='TextBox'>" +
@@ -235,7 +289,7 @@ public sealed partial class PdfWindow
         _runBox.FontWeight = item.EffBold ? FontWeights.Bold : FontWeights.Normal;
         _runBox.FontStyle = item.Run.Italic && item.FontOverride == null ? FontStyles.Italic : FontStyles.Normal;
         _runBox.Foreground = new SolidColorBrush(item.EffColor);
-        _runBox.Background = new SolidColorBrush(item.BackColor ?? item.Cover);
+        _runBox.Background = RunBoxBrush(item);
         Canvas.SetTop(_runBox, item.Top + item.Offset.Y);
         _dirty = true; UpdateTitle();
         UpdateProperties();

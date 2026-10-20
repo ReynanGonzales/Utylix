@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -53,7 +53,8 @@ public sealed partial class PdfWindow
         return t.Length is > 0 and <= 12 && (NumberLabel.IsMatch(t) || (t.Length == 1 && "•·▪■□●○◦‣⁃-–—*".IndexOf(t[0]) >= 0));
     }
 
-    private sealed record Paragraph(List<ParaLine> Lines, double Left, double Right, double Advance)
+    /// <param name="Align">how the lines sit between Left and Right: 0 left (ragged), 1 centred, 2 right, 3 justified (every line but the last of a paragraph reaches both edges)</param>
+    private sealed record Paragraph(List<ParaLine> Lines, double Left, double Right, double Advance, int Align = 0)
     {
         public double FirstStart => Lines[0].Body[0].Baseline.X;
         public double FirstBaseline => Lines[0].Baseline;
@@ -175,7 +176,43 @@ public sealed partial class PdfWindow
         while (to < chain.Count - 1 && Flows(to)) to++;
         var lines = chain.GetRange(from, to - from + 1);
         if (lines.Count < 2 || lines.Any(l => l.Body.Count == 0)) return null;
-        return new Paragraph(lines, lines.Count > 1 ? lines.Skip(1).Min(l => l.BodyLeft) : lines[0].BodyLeft, right, gap > 0 ? gap : em * 1.2);
+        double paraLeft = lines.Count > 1 ? lines.Skip(1).Min(l => l.BodyLeft) : lines[0].BodyLeft;
+        return new Paragraph(lines, paraLeft, right, gap > 0 ? gap : em * 1.2, DetectAlign(lines, paraLeft, right));
+    }
+
+    /// <summary>How the lines of a paragraph sit: justified (the lines but the last reach both edges), centred, right-aligned, or left (ragged).</summary>
+    private static int DetectAlign(List<ParaLine> lines, double left, double right)
+    {
+        if (lines.Count < 2) return 0;
+        double width = right - left;
+        if (width < 30) return 0;
+        double tol = Math.Max(1.2, width * 0.006);
+        var full = lines.Take(lines.Count - 1).ToList();
+        bool flushRight = full.All(l => Math.Abs(l.BodyRight - right) <= tol);
+        bool flushLeft = lines.Skip(1).All(l => Math.Abs(l.BodyLeft - left) <= tol);
+        if (flushRight && flushLeft && (full.Count >= 2 || StretchedSpaces(full[0]))) return 3;
+        double leftSpread = lines.Max(l => l.BodyLeft) - lines.Min(l => l.BodyLeft);
+        if (lines.Count >= 3 && leftSpread > 3 * tol)
+        {
+            var centres = lines.Select(l => (l.BodyLeft + l.BodyRight) / 2).ToList();
+            if (centres.All(c => Math.Abs(c - centres[0]) <= tol * 1.5)) return 1;
+            if (lines.All(l => Math.Abs(l.BodyRight - lines[0].BodyRight) <= tol)) return 2;
+        }
+        return 0;
+    }
+
+    /// <summary>Do the spaces of a line look stretched (wider than the font's own space): the sign of a justified line when there is only one full line to go by.</summary>
+    private static bool StretchedSpaces(ParaLine line)
+    {
+        if (line.Body.Count == 0) return false;
+        string text = string.Concat(line.Body.Select(r => r.Text));
+        int spaces = text.Count(c => c == ' ');
+        if (spaces < 3) return false;
+        var look = line.Body[0];
+        var measure = MeasureFor(look);
+        double natural = line.Body.Sum(r => MeasureFor(r)(r.Text));
+        double actual = line.BodyRight - line.BodyLeft;
+        return (actual - natural) / spaces > 0.15 * measure(" ");
     }
 
     /// <summary>The width of a piece of text in the run's own font (points).</summary>
@@ -190,7 +227,8 @@ public sealed partial class PdfWindow
     {
         var sb = new StringBuilder();
         var looks = new List<PdfTextRun>();
-        void Add(string s, PdfTextRun look) { foreach (char c in s) { sb.Append(c); looks.Add(look); } }
+        // (the hyphen at the end of a line may be a soft or non-breaking hyphen: it becomes a plain one, so "non-" + "biodegradable" stays "non-biodegradable")
+        void Add(string s, PdfTextRun look) { foreach (char c in s) { sb.Append((int)c is 0xAD or 0x2010 or 0x2011 ? '-' : c); looks.Add(look); } }
         PdfTextRun? previous = null;
         foreach (var line in lines)
         {
@@ -238,16 +276,30 @@ public sealed partial class PdfWindow
     private sealed record ParaSeg(string Text, PdfTextRun Look, double X, double Baseline);
 
     /// <summary>The words laid out in lines: the first starts at <paramref name="firstStart"/>, the others at <paramref name="left"/>; a new line starts where a word would stick out past <paramref name="right"/>. A line break in the text stays one.</summary>
-    private static List<ParaSeg> Layout(string text, List<PdfTextRun> looks, double firstStart, double left, double right, double baseline, double advance)
+    private static List<ParaSeg> Layout(string text, List<PdfTextRun> looks, double firstStart, double left, double right, double baseline, double advance, int align = 0)
     {
         var segs = new List<ParaSeg>();
         var measures = new Dictionary<PdfTextRun, Func<string, double>>();
         Func<string, double> M(PdfTextRun r) { if (!measures.TryGetValue(r, out var f)) measures[r] = f = MeasureFor(r); return f; }
         double line = 0;
         int pos = 0;
+        int lineStart = 0;                                                       // (where the line being laid out starts in segs, and the x it starts at)
+        double lineX0 = firstStart;
+        // a line is finished: justified (when it is full), or centred / pushed right
+        void Finish(bool full, double endX)
+        {
+            if (segs.Count <= lineStart) return;
+            if (align == 3) { if (full) JustifyLine(segs, lineStart, right, M); }
+            else if (align is 1 or 2)
+            {
+                double dx = align == 1 ? (left + right) / 2 - (lineX0 + endX) / 2 : right - endX;
+                if (Math.Abs(dx) > 0.01) for (int k = lineStart; k < segs.Count; k++) segs[k] = segs[k] with { X = segs[k].X + dx };
+            }
+        }
         foreach (string hard in text.Replace("\r\n", "\n").Split('\n'))
         {
             double x = line == 0 && segs.Count == 0 ? firstStart : left;
+            lineStart = segs.Count; lineX0 = x;
             double y = baseline + line * advance;
             bool any = false;
             int i = 0;
@@ -272,7 +324,9 @@ public sealed partial class PdfWindow
                 double space = any ? M(spaceLook)(" ") : 0;
                 if (any && x + space + width > right - 0.5)
                 {
+                    Finish(true, x);
                     line++; y = baseline + line * advance; x = left; any = false; space = 0;
+                    lineStart = segs.Count; lineX0 = x;
                 }
                 if (any)
                 {
@@ -290,18 +344,58 @@ public sealed partial class PdfWindow
                 }
                 i = j;
             }
+            Finish(false, x);                                                    // (the last line of a paragraph is not justified)
             pos += hard.Length + 1;
             line++;
         }
         return segs;
     }
 
+    /// <summary>
+    /// Justifies one full line (<c>segs[start..]</c>): every word gets its own place, the spaces between the words are made wider by the same amount so the line ends exactly at
+    /// <paramref name="right"/>. Pieces of one word (a bold ending, say) stay together. A line that cannot be justified (one word, or far too short) is left as it is.
+    /// </summary>
+    private static void JustifyLine(List<ParaSeg> segs, int start, double right, Func<PdfTextRun, Func<string, double>> M)
+    {
+        var line = segs.GetRange(start, segs.Count - start);
+        var words = new List<(string Text, PdfTextRun Look, double X, int Gaps)>();
+        int gaps = 0; bool pending = false, first = true;
+        foreach (var s in line)
+        {
+            var measure = M(s.Look);
+            string t = s.Text;
+            int k = 0;
+            while (k < t.Length)
+            {
+                if (t[k] == ' ') { pending = true; k++; continue; }
+                int e = k;
+                while (e < t.Length && t[e] != ' ') e++;
+                if (pending && !first) gaps++;                                   // a space came before: this is another word
+                pending = false; first = false;
+                words.Add((t[k..e], s.Look, s.X + (k == 0 ? 0 : measure(t[..k])), gaps));
+                k = e;
+            }
+            if (t.EndsWith(' ')) pending = true;
+        }
+        if (gaps == 0 || words.Count < 2) return;
+        var lastWord = words[^1];
+        double end = lastWord.X + M(lastWord.Look)(lastWord.Text);
+        double extra = (right - end) / gaps;
+        if (extra < 0.01 || extra > 6 * M(words[0].Look)(" ")) return;           // (already full, or much too short to spread)
+        segs.RemoveRange(start, segs.Count - start);
+        foreach (var w in words) segs.Add(new ParaSeg(w.Text, w.Look, w.X + w.Gaps * extra, line[0].Baseline));
+    }
+
     // ---------- the item ----------
     /// <summary>A paragraph laid out again: the old pieces are hidden (and taken out when saved) and the new lines are shown (and written when saved).</summary>
+    /// <summary>A place where old words were: its solid colour, and the page itself without the old words (cut to the place) when that could be drawn.</summary>
+    private sealed class HideBox { public Rect Box; public Color Cover; public System.Windows.Media.Imaging.BitmapSource? Picture; public Rect Area; }
+
     private sealed class ParagraphItem : EditItem
     {
         public List<PdfTextRun> Sources = new();
-        public List<(Rect Box, Color Cover)> Hide = new();
+        public List<HideBox> Hide = new();
+        public int Align;
         public List<ParaSeg> Segs = new();
         public string OriginalText = "";
         public string Text = "";
@@ -330,10 +424,18 @@ public sealed partial class PdfWindow
         public override FrameworkElement Build()
         {
             var canvas = new Canvas();
-            foreach (var (box, cover) in Hide)
+            foreach (var h in Hide)
             {
-                var rect = new Rectangle { Width = box.Width + 1.2, Height = box.Height + 1.2, Fill = new SolidColorBrush(cover) };
-                Canvas.SetLeft(rect, box.X - 0.6); Canvas.SetTop(rect, box.Y - 0.6);
+                if (h.Picture != null)
+                {
+                    var clean = new Image { Source = h.Picture, Width = h.Area.Width, Height = h.Area.Height, Stretch = Stretch.Fill };
+                    RenderOptions.SetBitmapScalingMode(clean, BitmapScalingMode.HighQuality);
+                    Canvas.SetLeft(clean, h.Area.X); Canvas.SetTop(clean, h.Area.Y);
+                    canvas.Children.Add(clean);
+                    continue;
+                }
+                var rect = new Rectangle { Width = h.Box.Width + 1.2, Height = h.Box.Height + 1.2, Fill = new SolidColorBrush(h.Cover) };
+                Canvas.SetLeft(rect, h.Box.X - 0.6); Canvas.SetTop(rect, h.Box.Y - 0.6);
                 canvas.Children.Add(rect);
             }
             foreach (var s in Segs)
@@ -440,15 +542,17 @@ public sealed partial class PdfWindow
         if (!accepted || newText == null || newText == oldText) return;
         var newLooks = Restyle(oldText, looks, newText);
         double firstStart = para.FirstStart;
-        var segs = Layout(newText, newLooks, firstStart, para.Left, para.Right, para.FirstBaseline, para.Advance);
+        var segs = Layout(newText, newLooks, firstStart, para.Left, para.Right, para.FirstBaseline, para.Advance, para.Align);
 
         Snapshot();
         var item = new ParagraphItem
         {
             Page = pv.Index, Sources = para.Pieces.ToList(), Segs = segs, OriginalText = oldText, Text = newText, Looks = newLooks,
-            FirstStart = firstStart, Left = para.Left, Right = para.Right, FirstBaseline = para.FirstBaseline, Advance = para.Advance,
+            FirstStart = firstStart, Left = para.Left, Right = para.Right, FirstBaseline = para.FirstBaseline, Advance = para.Advance, Align = para.Align,
         };
-        foreach (var src in item.Sources) item.Hide.Add((src.Box, CoverColour(pv, src.Box)));
+        foreach (var src in item.Sources) item.Hide.Add(new HideBox { Box = src.Box, Cover = CoverColour(pv, src.Box), Area = Grow(src.Box, 1.2) });
+        var crops = CleanCrops(pv.Index, item.Sources.SelectMany(ObjectsOf), item.Hide.Select(h => h.Area).ToList());
+        for (int k = 0; k < item.Hide.Count; k++) item.Hide[k].Picture = crops[k];
         _items.Add(item);
         _dirty = true; UpdateTitle(); UpdateEditButtons();
         ClearTextSelection();                                           // (the word that was selected for the right-click menu is gone with the old lines)
@@ -463,7 +567,7 @@ public sealed partial class PdfWindow
         string? newText = AskParagraphText(pv.Index + 1, item.Segs.Select(s => s.Baseline).Distinct().Count(), item.Text, out bool accepted);
         if (!accepted || newText == null || newText == item.Text) return;
         var newLooks = Restyle(item.Text, item.Looks, newText);
-        var segs = Layout(newText, newLooks, item.FirstStart, item.Left, item.Right, item.FirstBaseline, item.Advance);
+        var segs = Layout(newText, newLooks, item.FirstStart, item.Left, item.Right, item.FirstBaseline, item.Advance, item.Align);
         Snapshot();
         int at = _items.IndexOf(item);
         var changed = (ParagraphItem)item.Clone();

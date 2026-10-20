@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -94,6 +94,7 @@ public sealed partial class PdfWindow
             if (rx == null || all == null) return;
             string newWord = with.Text;
             var changed = new List<int>(); int done = 0;
+            var created = new List<RunEditItem>();
             Snapshot();
             for (int p = 0; p < all.Count; p++)
             {
@@ -108,12 +109,13 @@ public sealed partial class PdfWindow
                     {
                         Color cover = p < _pages.Count ? CoverColour(_pages[p], run.Box) : Colors.White;
                         item = new RunEditItem { Page = p, Run = run, NewText = run.Text, Cover = cover };
-                        _items.Add(item);
+                        _items.Add(item); created.Add(item);
                     }
                     item.NewText = result; done++;
                     if (!changed.Contains(p)) changed.Add(p);
                 }
             }
+            foreach (var onPage in created.GroupBy(i => i.Page)) AttachRunCovers(onPage.Key, onPage.ToList());      // (one drawing of the page without the old words for all the lines of that page)
             replaced = done > 0;
             if (!replaced) { if (_undo.Count > 0) { _items.Clear(); _items.AddRange(_undo.Pop()); } return; }
             _dirty = true; UpdateTitle(); UpdateEditButtons();

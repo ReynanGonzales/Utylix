@@ -1565,6 +1565,7 @@ public sealed partial class PdfWindow
                     if (_runDragItem == null && _runDragRun is { } run)
                     {
                         _runDragItem = new RunEditItem { Page = pv.Index, Run = run, NewText = run.Text, Cover = CoverColour(pv, run.Box) };
+                        AttachRunCovers(pv.Index, new[] { _runDragItem });
                         _items.Add(_runDragItem);
                     }
                     _runDragMoved = true;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
@@ -183,6 +184,43 @@ public sealed partial class PdfFile : IDisposable
                 Pdfium.FPDFBitmap_FillRect(bmp, 0, 0, width, height, 0xFFFFFFFF);
                 Pdfium.FPDF_RenderPageBitmap(bmp, page, 0, 0, width, height, rotate & 3, Pdfium.RenderAnnotations | Pdfium.RenderLcdText);
                 DrawForm(page, bmp, width, height, rotate & 3, forScreen);
+                int stride = Pdfium.FPDFBitmap_GetStride(bmp);
+                var picture = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr32, null, Pdfium.FPDFBitmap_GetBuffer(bmp), stride * height, stride);
+                picture.Freeze();
+                return picture;
+            }
+            finally
+            {
+                if (bmp != IntPtr.Zero) Pdfium.FPDFBitmap_Destroy(bmp);
+                Pdfium.FPDF_ClosePage(page);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The page as it looks WITHOUT some of its text objects (their places in the page's list, as <see cref="PdfTextRun.Index"/>): what is behind them (a coloured cell, a watermark, a picture) stays.
+    /// The objects are only taken out of the page being drawn; the document is not changed.
+    /// </summary>
+    public BitmapSource RenderWithout(int index, int width, int height, IReadOnlyCollection<int> objects)
+    {
+        width = Math.Clamp(width, 1, 12000); height = Math.Clamp(height, 1, 12000);
+        lock (Pdfium.Sync)
+        {
+            ThrowIfClosed();
+            IntPtr page = Pdfium.FPDF_LoadPage(_doc, index);
+            if (page == IntPtr.Zero) throw new IOException("Page " + (index + 1) + " can't be read.");
+            IntPtr bmp = Pdfium.FPDFBitmap_CreateEx(width, height, Pdfium.BitmapBgrx, IntPtr.Zero, 0);
+            try
+            {
+                if (bmp == IntPtr.Zero) throw new OutOfMemoryException();
+                foreach (int i in objects.Distinct().OrderByDescending(x => x))            // (the highest first: taking one out moves the ones after it)
+                {
+                    IntPtr obj = Pdfium.FPDFPage_GetObject(page, i);
+                    if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetType(obj) != Pdfium.ObjText) continue;
+                    if (Pdfium.FPDFPage_RemoveObject(page, obj) != 0) Pdfium.FPDFPageObj_Destroy(obj);
+                }
+                Pdfium.FPDFBitmap_FillRect(bmp, 0, 0, width, height, 0xFFFFFFFF);
+                Pdfium.FPDF_RenderPageBitmap(bmp, page, 0, 0, width, height, 0, Pdfium.RenderAnnotations | Pdfium.RenderLcdText);
                 int stride = Pdfium.FPDFBitmap_GetStride(bmp);
                 var picture = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr32, null, Pdfium.FPDFBitmap_GetBuffer(bmp), stride * height, stride);
                 picture.Freeze();
