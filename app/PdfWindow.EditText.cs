@@ -59,6 +59,8 @@ public sealed partial class PdfWindow
         private int LineCount => Math.Max(1, NewText.Replace("\r\n", "\n").Split('\n').Length);
 
         public double Top => Run.Baseline.Y - EffFamily.Baseline * EffSize;
+        /// <summary>How far the line is turned on the page as shown (degrees clockwise): 0, 90 (reads downward), 180 or 270 (reads upward).</summary>
+        public double TurnDegrees => Run.Turn * 90;
         /// <summary>Where the line is now (moved, and taller when it has more lines).</summary>
         private Rect Moved => new(Run.Box.X + Offset.X, Run.Box.Y + Offset.Y, Math.Max(Run.Box.Width, 4), Run.Box.Height + (LineCount - 1) * LineAdvance);
         public override Rect Bounds => Moved;
@@ -145,6 +147,7 @@ public sealed partial class PdfWindow
                 lift = (advance - EffFamily.LineSpacing * EffSize) / 2;
             }
             Canvas.SetLeft(text, Run.Baseline.X + Offset.X); Canvas.SetTop(text, Top + Offset.Y - lift);
+            if (Run.Turn != 0) text.RenderTransform = new RotateTransform(TurnDegrees, 0, EffFamily.Baseline * EffSize + lift);          // (a line that is turned on the page: written along the same direction)
             canvas.Children.Add(text);
             return canvas;
         }
@@ -256,6 +259,7 @@ public sealed partial class PdfWindow
         };
         System.Windows.Automation.AutomationProperties.SetAutomationId(box, "PdfRunBox");
         Canvas.SetLeft(box, run.Baseline.X + item.Offset.X - 2); Canvas.SetTop(box, item.Top + item.Offset.Y);
+        if (run.Turn != 0) box.RenderTransform = new RotateTransform(item.TurnDegrees, 2, item.EffFamily.Baseline * item.EffSize);
         box.TextChanged += (_, _) => { if (_runTyping != null) { _runTyping.NewText = box.Text; _dirty = true; UpdateTitle(); } };
         // Enter finishes; Shift+Enter makes a new line (the box grows taller with it)
         box.PreviewKeyDown += (_, ev) =>
@@ -291,6 +295,7 @@ public sealed partial class PdfWindow
         _runBox.Foreground = new SolidColorBrush(item.EffColor);
         _runBox.Background = RunBoxBrush(item);
         Canvas.SetTop(_runBox, item.Top + item.Offset.Y);
+        if (item.Run.Turn != 0) _runBox.RenderTransform = new RotateTransform(item.TurnDegrees, 2, item.EffFamily.Baseline * item.EffSize);
         _dirty = true; UpdateTitle();
         UpdateProperties();
         var box = _runBox;

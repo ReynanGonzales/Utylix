@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -26,7 +26,7 @@ public readonly record struct PdfSegment(Point C1, Point C2, Point To, bool Curv
 }
 
 /// <summary>Lines and shapes. Stroke / Fill null = none; Multiply = like a highlighter (the text under it stays dark).</summary>
-public sealed record PdfPathMark(int Page, IReadOnlyList<PdfFigure> Figures, Color? Stroke, double Width, Color? Fill, bool Multiply) : PdfMark(Page);
+public sealed record PdfPathMark(int Page, IReadOnlyList<PdfFigure> Figures, Color? Stroke, double Width, Color? Fill, bool Multiply, bool Compound = false) : PdfMark(Page);
 
 /// <summary>A picture in a box: JPEG bytes as they are, or pixels (BGRA, transparency kept).</summary>
 /// <remarks>Angle (degrees, clockwise as seen) turns it around Pivot.</remarks>
@@ -44,9 +44,12 @@ public static class PdfMarkWriter
     /// <summary>The pages that had to be made into a picture by the last <see cref="Apply"/> (redaction could not edit them: see <see cref="PdfRedactor"/>), 0-based.</summary>
     public static List<int> FlattenedPages { get; } = new();
 
+    /// <summary>The words that were under black boxes / blurs in the last <see cref="Apply"/> (read before they were taken out): the save looks for them in bookmarks, comments and form fields too.</summary>
+    public static List<string> RedactedWords { get; } = new();
+
     public static void Apply(PdfFile pdf, IEnumerable<PdfMark> marks)
     {
-        FlattenedPages.Clear();
+        FlattenedPages.Clear(); RedactedWords.Clear();
         var byPage = marks.GroupBy(m => m.Page).OrderBy(g => g.Key).ToList();
         if (byPage.Count > 0) pdf.BakeTextSpacing();                   // (PDFium writes a changed page's text out again without its character / word spacing: see PdfSpacingBake)
         lock (Pdfium.Sync)
@@ -68,6 +71,7 @@ public static class PdfMarkWriter
                         var changes = group.OfType<PdfReplaceTextMark>().ToList();
                         if (changes.Count > 0) PdfTextRuns.Replace(doc, page, map, changes, fonts);     // (then: it works with the page's own numbering of its pieces)
                         var redactions = group.OfType<PdfRedactMark>().Select(r => r.Box).ToList();
+                        if (redactions.Count > 0) RedactedWords.AddRange(PdfRedactor.WordsUnder(page, map, redactions));
                         if (redactions.Count > 0 && PdfRedactor.RemoveUnder(doc, page, map, new Size(size.Width, size.Height), redactions, fonts)) FlattenedPages.Add(group.Key);      // (then what is under the black boxes goes, before anything new is drawn)
                         foreach (var mark in group)
                         {
@@ -175,22 +179,30 @@ public static class PdfMarkWriter
     // ---------- lines and shapes ----------
     private static void WritePath(IntPtr page, PageMapping map, PdfPathMark p)
     {
-        foreach (var fig in p.Figures)
+        // one path object per figure, or (Compound) one for all of them: the way a shape with holes (the letters of a font, the ring of a QR eye) is made
+        var groups = p.Compound ? new List<IReadOnlyList<PdfFigure>> { p.Figures } : p.Figures.Select(f => (IReadOnlyList<PdfFigure>)new[] { f }).ToList();
+        foreach (var group in groups)
         {
-            var s = map.ToPage(fig.Start);
+            if (group.Count == 0) continue;
+            var s = map.ToPage(group[0].Start);
             IntPtr path = Pdfium.FPDFPageObj_CreateNewPath((float)s.X, (float)s.Y);
             if (path == IntPtr.Zero) throw new IOException("A shape couldn't be added.");
-            foreach (var seg in fig.Segments)
+            for (int k = 0; k < group.Count; k++)
             {
-                var to = map.ToPage(seg.To);
-                if (seg.Curve)
+                var fig = group[k];
+                if (k > 0) { var again = map.ToPage(fig.Start); Pdfium.FPDFPath_MoveTo(path, (float)again.X, (float)again.Y); }
+                foreach (var seg in fig.Segments)
                 {
-                    var c1 = map.ToPage(seg.C1); var c2 = map.ToPage(seg.C2);
-                    Pdfium.FPDFPath_BezierTo(path, (float)c1.X, (float)c1.Y, (float)c2.X, (float)c2.Y, (float)to.X, (float)to.Y);
+                    var to = map.ToPage(seg.To);
+                    if (seg.Curve)
+                    {
+                        var c1 = map.ToPage(seg.C1); var c2 = map.ToPage(seg.C2);
+                        Pdfium.FPDFPath_BezierTo(path, (float)c1.X, (float)c1.Y, (float)c2.X, (float)c2.Y, (float)to.X, (float)to.Y);
+                    }
+                    else Pdfium.FPDFPath_LineTo(path, (float)to.X, (float)to.Y);
                 }
-                else Pdfium.FPDFPath_LineTo(path, (float)to.X, (float)to.Y);
+                if (fig.Closed) Pdfium.FPDFPath_Close(path);
             }
-            if (fig.Closed) Pdfium.FPDFPath_Close(path);
             if (p.Stroke is Color sc)
             {
                 var (r, g, b, a) = Rgba(sc);

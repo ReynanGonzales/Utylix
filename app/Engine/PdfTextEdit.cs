@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -14,7 +14,7 @@ namespace IdmClone.Engine;
 /// as shown), its words, size, font and colour. Only upright text is offered for changing. A line that the PDF stores in several pieces
 /// ("Dep" + "artment") is one run with <paramref name="Parts"/> (left to right): its Index, Box and Baseline are the first piece's / all together.
 /// </summary>
-public sealed record PdfTextRun(int Index, Rect Box, string Text, double Size, string Family, bool Bold, bool Italic, Color Color, Point Baseline, IReadOnlyList<PdfTextRun>? Parts = null);
+public sealed record PdfTextRun(int Index, Rect Box, string Text, double Size, string Family, bool Bold, bool Italic, Color Color, Point Baseline, IReadOnlyList<PdfTextRun>? Parts = null, int Turn = 0);
 
 /// <summary>
 /// Change the words of a piece of text already in the page (empty = remove it) and / or move it (Dx, Dy in points as shown). A new text with several
@@ -58,14 +58,18 @@ internal static class PdfTextRuns
                 if (text.Trim().Length == 0) continue;
                 if (Pdfium.FPDFPageObj_GetMatrix(obj, out var m) == 0 || Pdfium.FPDFTextObj_GetFontSize(obj, out float fs) == 0) continue;
                 if (Pdfium.FPDFPageObj_GetBounds(obj, out float l, out float b, out float r, out float t) == 0) continue;
-                // which way it reads on the page as shown: only upright text (left to right, not turned or mirrored)
+                // which way it reads on the page as shown: upright (0), turned a quarter clockwise (1, reads downward), upside down (2) or a quarter the other way (3, reads upward); mirrored text is left alone
                 var origin = map.ToShown(new Point(m.E, m.F));
                 Vector right = map.ToShown(new Point(m.E + m.A, m.F + m.B)) - origin, up = map.ToShown(new Point(m.E + m.C, m.F + m.D)) - origin;
-                if (right.Length < 1e-6 || Math.Abs(right.Y) > right.Length * 0.02 || right.X <= 0 || up.Y >= 0 || Math.Abs(up.X) > up.Length * 0.02) continue;
+                if (right.Length < 1e-6 || up.Length < 1e-6) continue;
+                Vector rv = right / right.Length, uv = up / up.Length;
+                int turn = rv.X > 0.99 ? 0 : rv.Y > 0.99 ? 1 : rv.X < -0.99 ? 2 : rv.Y < -0.99 ? 3 : -1;
+                if (turn < 0 || rv.X * uv.Y - rv.Y * uv.X > -0.97) continue;                          // (not along an edge of the page, or mirrored / squeezed)
+                if (turn == 0 && (Math.Abs(right.Y) > right.Length * 0.02 || Math.Abs(up.X) > up.Length * 0.02)) continue;
                 IntPtr font = Pdfium.FPDFTextObj_GetFont(obj);
                 var (family, bold, italic) = Describe(font);
                 Pdfium.FPDFPageObj_GetFillColor(obj, out uint cr, out uint cg, out uint cb, out uint ca);
-                runs.Add(new PdfTextRun(k, map.ToShown(l, b, r, t), text, fs * up.Length, family, bold, italic, Color.FromArgb((byte)ca, (byte)cr, (byte)cg, (byte)cb), origin));
+                runs.Add(new PdfTextRun(k, map.ToShown(l, b, r, t), text, fs * up.Length, family, bold, italic, Color.FromArgb((byte)ca, (byte)cr, (byte)cg, (byte)cb), origin, null, turn));
             }
         }
         finally
@@ -83,6 +87,8 @@ internal static class PdfTextRuns
     /// </summary>
     public static List<PdfTextRun> Group(List<PdfTextRun> runs)
     {
+        var turned = runs.Where(r => r.Turn != 0).ToList();                      // (a line turned on the page: its pieces are not joined)
+        runs = runs.Where(r => r.Turn == 0).ToList();
         var result = new List<PdfTextRun>();
         var used = new bool[runs.Count];
         for (int i = 0; i < runs.Count; i++)
@@ -122,6 +128,7 @@ internal static class PdfTextRuns
             foreach (var part in parts) box.Union(part.Box);
             result.Add(parts[0] with { Box = box, Text = text.ToString(), Parts = parts });
         }
+        result.AddRange(turned);
         return result;
 
         static bool Near(PdfTextRun left, PdfTextRun right)

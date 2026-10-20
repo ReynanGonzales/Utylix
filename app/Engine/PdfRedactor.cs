@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -294,14 +294,48 @@ public static class PdfRedactor
     /// properties and the pages' preview pictures - then checked. Throws <see cref="IOException"/> when anything of what was under the
     /// areas is still in it.
     /// </summary>
-    public static byte[] Finish(byte[] saved, IReadOnlyList<PdfRedactMark> areas)
+    public static byte[] Finish(byte[] saved, IReadOnlyList<PdfRedactMark> areas, IReadOnlyList<string>? words = null, List<string>? notes = null)
     {
-        byte[] clean = Scrub(saved);
+        byte[] clean = Scrub(saved, words, notes);
         Verify(clean, areas);
         return clean;
     }
 
-    private static byte[] Scrub(byte[] bytes)
+    /// <summary>The words that are under the areas (found before they are taken out of the page): letters and digits, three or more of them (or any number of two digits or more). Used to find the same words in bookmarks, comments and form fields.</summary>
+    internal static List<string> WordsUnder(IntPtr page, PageMapping map, IReadOnlyList<Rect> areas)
+    {
+        var found = new List<string>();
+        IntPtr tp = Pdfium.FPDFText_LoadPage(page);
+        if (tp == IntPtr.Zero) return found;
+        try
+        {
+            var word = new System.Text.StringBuilder();
+            void Flush()
+            {
+                if (word.Length > 0)
+                {
+                    string w = word.ToString().Trim('.', ',', ';', ':', '-', '_');
+                    if (w.Length >= 3 || (w.Length >= 2 && w.Any(char.IsDigit))) found.Add(w);
+                }
+                word.Clear();
+            }
+            int n = Pdfium.FPDFText_CountChars(tp);
+            for (int i = 0; i < n; i++)
+            {
+                uint code = Pdfium.FPDFText_GetUnicode(tp, i);
+                bool letter = code > 0x20 && code < 0x110000 && !char.IsWhiteSpace((char)Math.Min(code, 0xFFFF));
+                if (!letter || Pdfium.FPDFText_GetCharBox(tp, i, out double l, out double r, out double b, out double t) == 0 || !Covered(map.ToShown(l, b, r, t), areas)) { Flush(); continue; }
+                word.Append(char.ConvertFromUtf32((int)code));
+            }
+            Flush();
+        }
+        finally { Pdfium.FPDFText_ClosePage(tp); }
+        return found.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static readonly string[] TextKeys = { "/Title", "/Contents", "/Subj", "/TU", "/V", "/DV", "/RC", "/Alt", "/ActualText" };
+
+    private static byte[] Scrub(byte[] bytes, IReadOnlyList<string>? words, List<string>? notes)
     {
         try
         {
@@ -311,6 +345,25 @@ public static class PdfRedactor
             doc.Internals.Catalog.Elements.Remove("/Metadata");                     // (the same properties again, as XML)
             doc.Internals.Catalog.Elements.Remove("/PieceInfo");
             foreach (var page in doc.Pages) { page.Elements.Remove("/Thumb"); page.Elements.Remove("/PieceInfo"); page.Elements.Remove("/Metadata"); }
+            // the same words anywhere else in the file's text (a bookmark, a comment on another place, a form field's value): blanked
+            if (words is { Count: > 0 })
+            {
+                var counts = new Dictionary<string, int>();
+                foreach (var obj in doc.Internals.GetAllObjects())
+                {
+                    if (obj is not PdfSharp.Pdf.PdfDictionary dict) continue;
+                    foreach (string key in TextKeys)
+                    {
+                        if (!dict.Elements.ContainsKey(key) || dict.Elements[key] is not PdfSharp.Pdf.PdfString text) continue;
+                        string value = text.Value;
+                        if (!words.Any(w => value.Contains(w, StringComparison.OrdinalIgnoreCase))) continue;
+                        dict.Elements.SetString(key, key == "/Title" ? "[removed]" : "");
+                        string kind = key == "/Title" ? (dict.Elements.ContainsKey("/Parent") ? "bookmark" : "title") : key is "/V" or "/DV" ? "form field" : key == "/TU" ? "field hint" : key == "/Subj" ? "comment subject" : "comment";
+                        counts[kind] = counts.GetValueOrDefault(kind) + 1;
+                    }
+                }
+                if (notes != null) foreach (var (kind, n) in counts) notes.Add($"{n} {kind}{(n == 1 ? "" : "s")}");
+            }
             using var output = new MemoryStream();
             doc.Save(output, false);                                                 // (writing leaves out the objects no page reaches)
             return output.ToArray();
@@ -320,7 +373,6 @@ public static class PdfRedactor
             throw new IOException("The redacted file could not be cleaned up (" + e.Message + "), so nothing was saved.");
         }
     }
-
     /// <summary>Opens the finished file again and looks for anything left under the areas.</summary>
     private static void Verify(byte[] bytes, IReadOnlyList<PdfRedactMark> areas)
     {

@@ -98,7 +98,7 @@ public sealed partial class PdfWindow
     private List<ParaLine> PageLines(int page)
     {
         var edited = EditedRunIndices(page);
-        var runs = Runs(page).Where(r => !edited.Contains(r.Index) && r.Text.Trim().Length > 0).OrderBy(r => r.Baseline.Y).ThenBy(r => r.Box.Left).ToList();
+        var runs = Runs(page).Where(r => r.Turn == 0 && !edited.Contains(r.Index) && r.Text.Trim().Length > 0).OrderBy(r => r.Baseline.Y).ThenBy(r => r.Box.Left).ToList();
         var rows = new List<List<PdfTextRun>>();
         foreach (var r in runs)
         {

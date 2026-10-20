@@ -75,7 +75,7 @@ public sealed partial class PdfWindow
     private static Brush RunBoxBrush(RunEditItem item)
     {
         if (item.BackColor is Color back) return new SolidColorBrush(back);
-        if (item.CoverPicture != null) return new ImageBrush(item.CoverPicture) { Stretch = Stretch.Fill };
+        if (item.CoverPicture != null && item.Run.Turn == 0) return new ImageBrush(item.CoverPicture) { Stretch = Stretch.Fill };      // (a turned line: its box is turned too, so a flat colour)
         return new SolidColorBrush(item.Cover);
     }
 }

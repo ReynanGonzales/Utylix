@@ -70,8 +70,9 @@ public sealed partial class PdfWindow
         public double BoxWidth;                        // 0 = the box fits the longest line; otherwise the text wraps at this width (points)
         public Color? Fill;                            // background of the box (null = none)
         public double BorderWidth;                     // frame of the box in the text's colour (0 = none)
+        public int Dir;                                // 0 normal, 1 letters stacked one under the other, 2 mirrored (flipped left to right), 3 backwards (the letters in reverse order)
 
-        public const double Pad = 3;                   // room between the frame and the words
+        public const double Pad = 3;                  // room between the frame and the words
         public bool HasBox => Fill != null || BorderWidth > 0;
         public double Inset => HasBox ? Pad : 0;
 
@@ -97,6 +98,15 @@ public sealed partial class PdfWindow
         public List<Row> Rows()
         {
             var raw = (Text.Length == 0 ? " " : Text).Replace("\r\n", "\n").Split('\n');
+            if (Dir == 3) raw = raw.Select(Backwards).ToArray();
+            if (Dir == 1)                                                                          // (stacked: one letter to a line, a space is an empty line)
+            {
+                var stacked = new List<Row>();
+                foreach (string paragraph in raw)
+                    for (var e = StringInfo.GetTextElementEnumerator(paragraph); e.MoveNext();) stacked.Add(new Row(e.GetTextElement() == " " ? "" : e.GetTextElement(), null));
+                if (stacked.Count == 0) stacked.Add(new Row(" ", null));
+                return stacked;
+            }
             var rows = new List<Row>();
             double room = BoxWidth > 0 ? Math.Max(10, BoxWidth - 2 * Inset - Indent) : double.MaxValue;
             int number = 0;
@@ -140,7 +150,16 @@ public sealed partial class PdfWindow
         }
 
         /// <summary>Where a line starts (x, relative to the box's left edge).</summary>
-        double LineX(string line, double boxWidth) => ListKind != 0 ? Inset + Indent : Inset + Align switch { 1 => (boxWidth - 2 * Inset - Measure(line)) / 2, 2 => boxWidth - 2 * Inset - Measure(line), _ => 0 };
+        static string Backwards(string s)
+        {
+            var parts = new List<string>();
+            for (var e = StringInfo.GetTextElementEnumerator(s); e.MoveNext();) parts.Add(e.GetTextElement());
+            parts.Reverse();
+            return string.Concat(parts);
+        }
+
+        int EffAlign => Dir == 1 ? 1 : Align;                  // (stacked letters sit in the middle)
+        double LineX(string line, double boxWidth) => ListKind != 0 ? Inset + Indent : Inset + EffAlign switch { 1 => (boxWidth - 2 * Inset - Measure(line)) / 2, 2 => boxWidth - 2 * Inset - Measure(line), _ => 0 };
 
         public override EditItem Clone() => (TextItem)MemberwiseClone();
         public override FrameworkElement Build()
@@ -168,8 +187,85 @@ public sealed partial class PdfWindow
                 }
             }
             Canvas.SetLeft(canvas, b.X); Canvas.SetTop(canvas, b.Y);
-            if (AngleDeg != 0) canvas.RenderTransform = new RotateTransform(AngleDeg, b.Width / 2, b.Height / 2);
+            var turns = new TransformGroup();
+            if (Dir == 2) turns.Children.Add(new ScaleTransform(-1, 1, b.Width / 2, b.Height / 2));
+            if (AngleDeg != 0) turns.Children.Add(new RotateTransform(AngleDeg, b.Width / 2, b.Height / 2));
+            if (turns.Children.Count > 0) canvas.RenderTransform = turns;
             return canvas;
+        }
+
+        /// <summary>Scripts that need their letters joined or reordered (Arabic, Hebrew, Indic, Thai ...): the PDF fonts can't do that, so they are written as shapes.</summary>
+        static bool NeedsShaping(int cp) => cp is (>= 0x0590 and <= 0x08FF) or (>= 0x0900 and <= 0x0EFF) or (>= 0x1000 and <= 0x109F) or (>= 0x1780 and <= 0x17FF) or (>= 0xFB1D and <= 0xFDFF) or (>= 0xFE70 and <= 0xFEFF);
+
+        /// <summary>Can the PDF text (the standard fonts, or the embedded Windows font of this look) hold this character?</summary>
+        bool Writable(int cp, GlyphTypeface? glyphs)
+        {
+            if (NeedsShaping(cp)) return false;
+            if (cp is >= 0x20 and <= 0x7E or >= 0xA0 and <= 0xFF) return true;
+            return glyphs != null && glyphs.CharacterToGlyphMap.ContainsKey(cp);
+        }
+
+        /// <summary>A line as pieces: what the PDF font can write stays real text, the rest (Chinese, emoji, Arabic ...) is drawn as shapes so it always shows.</summary>
+        List<(string Text, bool Plain)> Pieces(string line)
+        {
+            var list = new List<(string, bool)>();
+            Face.TryGetGlyphTypeface(out var glyphs);
+            var sb = new System.Text.StringBuilder(); bool? mode = null;
+            foreach (var rune in line.EnumerateRunes())
+            {
+                bool plain = Writable(rune.Value, glyphs) || (rune.Value is 0x200D or 0xFE0F);
+                if (mode != null && mode != plain) { list.Add((sb.ToString(), mode.Value)); sb.Clear(); }
+                mode = plain; sb.Append(rune.ToString());
+            }
+            if (sb.Length > 0) list.Add((sb.ToString(), mode ?? true));
+            return list;
+        }
+
+        /// <summary>The outline of some words as figures (points of the page as shown), moved to <paramref name="origin"/> (the top-left of the words) and through <paramref name="map"/>.</summary>
+        (List<PdfFigure> Figures, double Width) Outline(string text, Point origin, Func<Point, Point> map)
+        {
+            bool rtl = text.EnumerateRunes().Any(r => NeedsShaping(r.Value) && r.Value is (>= 0x0590 and <= 0x08FF) or (>= 0xFB1D and <= 0xFDFF) or (>= 0xFE70 and <= 0xFEFF));
+            var ft = new FormattedText(text, CultureInfo.CurrentCulture, rtl ? FlowDirection.RightToLeft : FlowDirection.LeftToRight, Face, FontSize, Brushes.Black, 1.0);
+            var flat = ft.BuildGeometry(new Point(0, 0)).GetFlattenedPathGeometry(0.02, ToleranceType.Absolute);
+            var figures = new List<PdfFigure>();
+            double lift = flat.Bounds.IsEmpty ? 0 : (flat.Bounds.Left < -0.5 * Math.Max(1, ft.WidthIncludingTrailingWhitespace) ? ft.WidthIncludingTrailingWhitespace : 0);         // (right-to-left words are drawn to the left of the point they are given: moved back so they start there)
+            Point At(Point p) => map(new Point(origin.X + p.X + lift, origin.Y + p.Y));
+            foreach (var pf in flat.Figures)
+            {
+                var segments = new List<PdfSegment>();
+                foreach (var seg in pf.Segments)
+                {
+                    if (seg is PolyLineSegment poly) foreach (var pt in poly.Points) segments.Add(PdfSegment.Line(At(pt)));
+                    else if (seg is LineSegment line) segments.Add(PdfSegment.Line(At(line.Point)));
+                }
+                if (segments.Count > 0) figures.Add(new PdfFigure(At(pf.StartPoint), segments, pf.IsClosed));
+            }
+            return (figures, ft.WidthIncludingTrailingWhitespace);
+        }
+
+        /// <summary>One line written: real text where the font can, shapes where it can not; flipped when the text is mirrored.</summary>
+        IEnumerable<PdfMark> LineMarks(string line, Point start, double mid, Func<Point, Point> turn)
+        {
+            var f = Family(Font, FontName);
+            bool flip = Dir == 2;
+            Point Flip(Point p) => flip ? new Point(2 * mid - p.X, p.Y) : p;
+            var pivot = AngleDeg != 0 ? (Point?)Centre : null;
+            double x = start.X;
+            foreach (var (piece, plain) in Pieces(line))
+            {
+                if (plain)
+                {
+                    if (piece.Trim().Length > 0)
+                        yield return new PdfTextMark(Page, Flip(new Point(x, start.Y)), piece, Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName, AngleDeg, pivot, Stretch: flip ? -1 : 1, Italic: Italic);
+                    x += Measure(piece);
+                }
+                else
+                {
+                    var (figures, width) = Outline(piece, new Point(x, start.Y), p => turn(Flip(p)));
+                    if (figures.Count > 0) yield return new PdfPathMark(Page, figures, null, 0, Color, false, Compound: true);
+                    x += width;
+                }
+            }
         }
 
         public override IEnumerable<PdfMark> Marks()
@@ -185,17 +281,20 @@ public sealed partial class PdfWindow
                 yield return new PdfPathMark(Page, new[] { fig }, BorderWidth > 0 ? Color : null, BorderWidth, Fill, false);
             }
             var rows = Rows(); var lines = rows.Select(r => r.Text).ToList(); double lineH = LineHeight;
+            double mid = b.X + b.Width / 2;
+            bool flip = Dir == 2;
+            Point Flip(Point p) => flip ? new Point(2 * mid - p.X, p.Y) : p;
             for (int i = 0; i < lines.Count; i++)
             {
                 if (rows[i].Marker is string mark)
-                    yield return new PdfTextMark(Page, new Point(b.X + Inset, b.Y + Inset + i * lineH), mark, Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName, AngleDeg, pivot, Italic: Italic);
+                    foreach (var m in LineMarks(mark, new Point(b.X + Inset, b.Y + Inset + i * lineH), mid, Turn)) yield return m;
                 if (lines[i].Trim().Length == 0) continue;
                 double x = b.X + LineX(lines[i], b.Width), y = b.Y + Inset + i * lineH;
-                yield return new PdfTextMark(Page, new Point(x, y), lines[i], Font, Bold, FontSize, Color, f.LineSpacing, f.Baseline, FontName, AngleDeg, pivot, Italic: Italic);
+                foreach (var m in LineMarks(lines[i], new Point(x, y), mid, Turn)) yield return m;
                 if (Underline)
                 {
                     double ly = y + (f.Baseline + 0.1) * FontSize, w = Measure(lines[i]);
-                    var line = new PdfFigure(Turn(new Point(x, ly)), new[] { PdfSegment.Line(Turn(new Point(x + w, ly))) }, false);
+                    var line = new PdfFigure(Turn(Flip(new Point(x, ly))), new[] { PdfSegment.Line(Turn(Flip(new Point(x + w, ly)))) }, false);
                     yield return new PdfPathMark(Page, new[] { line }, Color, Math.Max(0.5, FontSize / 15), null, false);
                 }
             }
@@ -776,7 +875,7 @@ public sealed partial class PdfWindow
         _fontRow.Children.Add(_boldButton);
         AddListButtons();
         _fontRow.Children.Add(FontPickerButton());
-        _fontRow.Children.Add(StyleButton());
+        _fontRow.Children.Insert(0, StyleButton());                      // (first: the font chips can be cut off in a narrow window, and Style holds the direction, box and alignment)
         _fontRow.Children.Add(RunBackButton());
         _fontButtons[PdfFontKind.Sans].IsChecked = true;
 
@@ -1949,6 +2048,8 @@ public sealed partial class PdfWindow
     private bool SaveEdits(string target)
     {
         if (_pdf == null || _path == null) return false;
+        if (!ConfirmSafeToWrite(ref target)) return false;                  // (the file changed behind our back, or it is signed: ask first)
+        if (!ConfirmTextCoverage()) return false;                           // (letters a changed line's font does not have)
         var pdf = _pdf;
         string? password = pdf.Password;
         var marks = _items.SelectMany(i => i.Marks()).ToList();
@@ -1956,6 +2057,7 @@ public sealed partial class PdfWindow
         var newFields = marks.OfType<PdfFieldMark>().ToList();
         if (newFields.Count > 0 && pdf.IsProtected) { UMessage.Show(this, "A password-protected PDF can't get new form fields here (the file would lose its protection). Open a copy without the password protection.", "Form fields", MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
         var flattened = new List<int>();
+        var cleanedElsewhere = new List<string>();                          // (the same words found in bookmarks, comments, form fields and blanked)
         if (redactions.Count > 0)
         {
             if (pdf.IsProtected) { UMessage.Show(this, "A password-protected PDF can't be redacted here (the file would lose its protection). Open a copy without the password protection.", "Redact", MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
@@ -1986,7 +2088,7 @@ public sealed partial class PdfWindow
             PdfMarkWriter.Apply(pdf, marks);
             flattened = PdfMarkWriter.FlattenedPages.Select(p => p + 1).OrderBy(p => p).ToList();
             byte[] bytes = pdf.SaveToBytes();
-            if (redactions.Count > 0) bytes = PdfRedactor.Finish(bytes, redactions);       // (cleaned and checked: if anything is left under a box, nothing is saved)
+            if (redactions.Count > 0) bytes = PdfRedactor.Finish(bytes, redactions, PdfMarkWriter.RedactedWords, cleanedElsewhere);       // (cleaned and checked: if anything is left under a box, nothing is saved)
             if (newFields.Count > 0 || _fieldsLifted) bytes = PdfFormFields.Add(pdf, bytes, newFields);     // (PDFium can't make form fields: they are written into the saved bytes; also tidies the form after a saved field was picked up)
             // written next to it first, so a failure can't leave half a file
             string temp = target + ".utylix-tmp";
@@ -2009,6 +2111,7 @@ public sealed partial class PdfWindow
         _ = LoadAsync(target, password, keepEditing: true);
         string saved = other ? "Saved as " + System.IO.Path.GetFileName(target) : "Saved";
         if (redactions.Count > 0) saved += flattened.Count == 0 ? ": what was under the black boxes is gone from the file" : $": what was under the black boxes is gone. Page{(flattened.Count == 1 ? "" : "s")} {string.Join(", ", flattened)} had to become a picture (its text can't be selected any more)";
+        if (cleanedElsewhere.Count > 0) saved += ". The same words were also blanked in " + string.Join(", ", cleanedElsewhere) + " (a bookmark, comment or form field had them)";
         Toast(saved);
         return true;
     }
