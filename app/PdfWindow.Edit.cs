@@ -1554,7 +1554,7 @@ public sealed partial class PdfWindow
             case EditTool.Text:
                 if (ItemAt(pv.Index, p) is TextItem existing) { EditText(existing, isNew: false); return; }
                 if (wasTyping) return;                                                 // (a click outside just finishes the text)
-                var text = new TextItem { Page = pv.Index, TopLeft = new Point(p.X - 1, p.Y - _textSize * 0.6), Font = _font, FontName = _fontName, Bold = _bold, Italic = _italic, Underline = _underline, Align = _align, ListKind = _listKind, FontSize = _textSize, Color = _toolColors[EditTool.Text] };
+                var text = new TextItem { Page = pv.Index, TopLeft = new Point(p.X - 1, p.Y - _textSize * 0.6), Font = _font, FontName = _fontName, Bold = _bold, Italic = _italic, Underline = _underline, Align = _align, Dir = _dir, AngleDeg = _angle, ListKind = _listKind, FontSize = _textSize, Color = _toolColors[EditTool.Text] };
                 EditText(text, isNew: true);
                 return;
             case EditTool.Check or EditTool.Cross:

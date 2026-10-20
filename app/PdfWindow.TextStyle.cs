@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -17,6 +17,8 @@ public sealed partial class PdfWindow
 {
     private bool _italic, _underline;
     private int _align;
+    private int _dir;                                // the direction the next text starts with (0 normal, 1 stacked, 2 mirrored, 3 backwards)
+    private double _angle;                            // and how far it is turned (degrees)
     private Button? _styleButton;
 
     private UIElement StyleButton()
@@ -49,15 +51,15 @@ public sealed partial class PdfWindow
         Item("Align right", align == 2, () => ChangeTextStyle(t => t.Align = 2, () => _align = 2), "PdfStyleRight");
         menu.Items.Add(new Separator());
         // direction: turned, stacked one letter under the other, flipped, or written backwards
-        double angle = target?.AngleDeg ?? 0; int dir = target?.Dir ?? 0;
+        double angle = target?.AngleDeg ?? _angle; int dir = target?.Dir ?? _dir;           // (nothing chosen yet: what the next text will start with)
         menu.Items.Add(new MenuItem { Header = new TextBlock { Text = "DIRECTION", FontSize = 11, FontWeight = FontWeights.SemiBold, Opacity = 0.65, Margin = new Thickness(2, 4, 0, 2) }, IsHitTestVisible = false, Focusable = false });
-        Item("Normal", dir == 0 && angle == 0, () => ChangeTextStyle(t => { t.Dir = 0; t.AngleDeg = 0; }, () => { }), "PdfDirNormal");
-        Item("Turned right (reads downward)", Math.Abs(angle - 90) < 0.5, () => ChangeTextStyle(t => t.AngleDeg = 90, () => { }), "PdfDirRight");
-        Item("Turned left (reads upward)", Math.Abs(angle - 270) < 0.5, () => ChangeTextStyle(t => t.AngleDeg = 270, () => { }), "PdfDirLeft");
-        Item("Upside down", Math.Abs(angle - 180) < 0.5, () => ChangeTextStyle(t => t.AngleDeg = 180, () => { }), "PdfDirDown");
-        Item("Letters stacked (vertical)", dir == 1, () => ChangeTextStyle(t => t.Dir = 1, () => { }), "PdfDirStacked");
-        Item("Mirrored (flipped left to right)", dir == 2, () => ChangeTextStyle(t => t.Dir = 2, () => { }), "PdfDirMirror");
-        Item("Backwards (the letters in reverse order)", dir == 3, () => ChangeTextStyle(t => t.Dir = 3, () => { }), "PdfDirBackwards");
+        Item("Normal", dir == 0 && angle == 0, () => ChangeTextStyle(t => { t.Dir = 0; t.AngleDeg = 0; }, () => { _dir = 0; _angle = 0; }), "PdfDirNormal");
+        Item("Turned right (reads downward)", Math.Abs(angle - 90) < 0.5, () => ChangeTextStyle(t => t.AngleDeg = 90, () => _angle = 90), "PdfDirRight");
+        Item("Turned left (reads upward)", Math.Abs(angle - 270) < 0.5, () => ChangeTextStyle(t => t.AngleDeg = 270, () => _angle = 270), "PdfDirLeft");
+        Item("Upside down", Math.Abs(angle - 180) < 0.5, () => ChangeTextStyle(t => t.AngleDeg = 180, () => _angle = 180), "PdfDirDown");
+        Item("Letters stacked (vertical)", dir == 1, () => ChangeTextStyle(t => t.Dir = 1, () => _dir = 1), "PdfDirStacked");
+        Item("Mirrored (flipped left to right)", dir == 2, () => ChangeTextStyle(t => t.Dir = 2, () => _dir = 2), "PdfDirMirror");
+        Item("Backwards (the letters in reverse order)", dir == 3, () => ChangeTextStyle(t => t.Dir = 3, () => _dir = 3), "PdfDirBackwards");
         menu.Items.Add(new Separator());
         var box = new MenuItem { Header = "Box, width and background…", IsEnabled = target != null };
         System.Windows.Automation.AutomationProperties.SetAutomationId(box, "PdfStyleBox");
