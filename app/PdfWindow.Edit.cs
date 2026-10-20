@@ -1840,7 +1840,7 @@ public sealed partial class PdfWindow
         {
             // focus moved to the tool bar (colour, size, font): keep typing; anywhere else: finished
             if (ev.NewFocus is DependencyObject nf && IsInside(nf, _editBar)) return;
-            Dispatcher.BeginInvoke(() => { if (_textBox == box && !box.IsKeyboardFocusWithin) CloseTextBox(commit: true); });
+            Dispatcher.BeginInvoke(() => { if (_textBox == box && !box.IsKeyboardFocusWithin && !_styleMenuOpen) CloseTextBox(commit: true); });
         };
         _textBox = box;
         RenderItems(item.Page);
@@ -1864,7 +1864,10 @@ public sealed partial class PdfWindow
         Canvas.SetLeft(box, item.TopLeft.X + item.Inset - 2); Canvas.SetTop(box, item.TopLeft.Y + item.Inset);
         box.Padding = new Thickness(item.Indent, 0, 0, 0);                  // (room for the markers of a list)
         box.RenderTransformOrigin = new Point(0.5, 0.5);
-        box.RenderTransform = item.AngleDeg != 0 ? new RotateTransform(item.AngleDeg) : Transform.Identity;
+        var turns = new TransformGroup();                                  // (while typing: turned and mirrored show at once; stacked and backwards show when the text is finished)
+        if (item.Dir == 2) turns.Children.Add(new ScaleTransform(-1, 1, 0, 0));
+        if (item.AngleDeg != 0) turns.Children.Add(new RotateTransform(item.AngleDeg));
+        box.RenderTransform = turns.Children.Count > 0 ? turns : Transform.Identity;
         RefreshTypingMarkers();
     }
 

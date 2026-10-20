@@ -64,8 +64,18 @@ public sealed partial class PdfWindow
         box.Click += (_, _) => { if (target != null) EditTextBox(target); };
         menu.Items.Add(box);
         Themed(menu);
+        // (the menu takes the keyboard: the text being typed stays open until it is closed again, and gets the keyboard back)
+        _styleMenuOpen = true;
+        var typingBox = _textBox;
+        menu.Closed += (_, _) =>
+        {
+            _styleMenuOpen = false;
+            if (typingBox != null) Dispatcher.BeginInvoke(() => { if (_textBox == typingBox) typingBox.Focus(); }, System.Windows.Threading.DispatcherPriority.Input);
+        };
         menu.PlacementTarget = anchor; menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; menu.IsOpen = true;
     }
+
+    private bool _styleMenuOpen;
 
     /// <summary>Changes the text being typed or chosen (one undo step) and what the next text starts with.</summary>
     private void ChangeTextStyle(Action<TextItem> apply, Action defaults)
