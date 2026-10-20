@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -400,12 +400,23 @@ public sealed partial class MusicWindow : Window
         PreviewKeyDown += OnKey;
         Drop += (_, e) => DropFiles(e);
         DragOver += (_, e) => { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
-        Loaded += (_, _) => { if (_saved.Floating) Dispatcher.BeginInvoke(new Action(EnterFloating), DispatcherPriority.ApplicationIdle); _thread = new Thread(PlayerThread) { IsBackground = true, Name = "Utylix music" }; _thread.SetApartmentState(ApartmentState.MTA); _thread.Start(); _ui.Start(); RegisterMediaKeys(); };
+        Loaded += (_, _) => { ProcessAudio.Silence(false); if (_saved.Floating) Dispatcher.BeginInvoke(new Action(EnterFloating), DispatcherPriority.ApplicationIdle); _thread = new Thread(PlayerThread) { IsBackground = true, Name = "Utylix music" }; _thread.SetApartmentState(ApartmentState.MTA); _thread.Start(); _ui.Start(); RegisterMediaKeys(); };
         _ui.Tick += (_, _) => UpdateUi();
-        Closing += (_, _) => { if (_floating != null) { _saved.FloatLeft = _floating.Left; _saved.FloatTop = _floating.Top; _saved.FloatOnTop = _floating.Topmost; } Save(); _ui.Stop(); UnregisterMediaKeys(); _threadStop = true; _floating?.CloseForReal(); };
+        Closing += (_, _) => { if (_floating != null) { _saved.FloatLeft = _floating.Left; _saved.FloatTop = _floating.Top; _saved.FloatOnTop = _floating.Topmost; } StopSoundNow(); Save(); _ui.Stop(); UnregisterMediaKeys(); _floating?.CloseForReal(); };
         Closed += (_, _) => { _main = null; AnyClosed?.Invoke(); };
         RefreshModes();
         emptyHint.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>The sound stops now: the player thread is asked to stop (waited for up to 2 seconds); when the engine does not answer, this program is muted in Windows' volume mixer.</summary>
+    private void StopSoundNow()
+    {
+        using var stopped = new ManualResetEventSlim();
+        _commands.Add(() => { try { _mp!.Stop(); } catch (Exception) { } finally { stopped.Set(); } });
+        if (_thread == null || !stopped.Wait(2000)) ProcessAudio.Silence(true);
+        _threadStop = true;                                                          // the player thread then disposes the player by itself
+        var thread = _thread;
+        if (thread != null) _ = Task.Run(() => { if (!thread.Join(8000)) ProcessAudio.Silence(true); });
     }
 
     // ---------- sound: equalizer, speed, sleep timer ----------

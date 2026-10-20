@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -242,6 +242,7 @@ public partial class PlayerWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        ProcessAudio.Silence(false);                                                 // (a stuck earlier player was silenced the hard way: sound is allowed again)
         StartThread();
         _ui.Start();
         UpdateUi();
@@ -249,15 +250,34 @@ public partial class PlayerWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        SaveProgress();
-        if (_fullscreen) ExitFullscreen();
-        if (WindowState == WindowState.Normal) { _state.Width = ActualWidth; _state.Height = ActualHeight; }
-        _state.Volume = (int)VolumeSlider.Value;
-        _state.Save();
+        try { SaveProgress(); }
+        catch (Exception) { /* a place that can't be remembered must not keep the sound going */ }
+        StopSoundNow();                                                              // (first thing that is certain: the sound ends before the window goes)
+        try
+        {
+            if (_fullscreen) ExitFullscreen();
+            if (WindowState == WindowState.Normal) { _state.Width = ActualWidth; _state.Height = ActualHeight; }
+            _state.Volume = (int)VolumeSlider.Value;
+            _state.Save();
+        }
+        catch (Exception) { /* the window still closes */ }
         _ui.Stop(); _hide.Stop();
         SetThreadExecutionState(0x80000000);
-        _threadStop = true;                                                          // the player thread stops and disposes the player by itself
         _bar?.Close();
+    }
+
+    /// <summary>
+    /// The sound stops now, not "soon": the player thread is asked to stop (and waited for, up to 2 seconds, so the picture's window is still there while the engine lets go of it);
+    /// when the engine does not answer (it is stuck on a slow file or stream), this program's entry in Windows' volume mixer is muted so nothing is heard.
+    /// </summary>
+    private void StopSoundNow()
+    {
+        using var stopped = new ManualResetEventSlim();
+        _commands.Add(() => { try { _mp!.Stop(); } catch (Exception) { } finally { stopped.Set(); } });
+        if (_thread == null || !stopped.Wait(2000)) ProcessAudio.Silence(true);
+        _threadStop = true;                                                          // the player thread then disposes the player by itself
+        var thread = _thread;
+        if (thread != null) _ = System.Threading.Tasks.Task.Run(() => { if (!thread.Join(8000)) ProcessAudio.Silence(true); });        // (still not finished 8 seconds later: silence it the hard way)
     }
 
     // ---------- opening ----------
