@@ -121,6 +121,7 @@ public sealed partial class PdfWindow : Window
     private static void Browse(Window? owner)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Open a PDF", Filter = "PDF|*.pdf|All files|*.*", Multiselect = true };
+        AddFavouritePlaces(dlg);
         if (owner != null ? dlg.ShowDialog(owner) == true : dlg.ShowDialog() == true) Open(dlg.FileNames);
     }
 
@@ -227,6 +228,8 @@ public sealed partial class PdfWindow : Window
             return b;
         }
         Tool("", "Open a PDF (Ctrl+O)", () => Browse(this), "PdfOpen", needsDoc: false);
+        Button? recentButton = null;
+        recentButton = Tool("", "Recent PDFs and favourite folders", () => RecentMenu(recentButton!), "PdfRecent", needsDoc: false);
         Tool("", "Save a copy (Ctrl+S)", SaveCopy, "PdfSaveCopy");
         Tool("", "Print (Ctrl+P)", Print, "PdfPrint");
         Tool("", "Pages at the side (F4)", ToggleStrip, "PdfStrip");
@@ -462,7 +465,7 @@ public sealed partial class PdfWindow : Window
         _pdf?.Dispose();
         _pdf = pdf; _path = path; _sizes = sizes; _rotation = 0; _current = keepEditing ? keepPage : 0;
         _diskStamp = StampOf(path); _signedCount = -1;
-        if (!keepEditing) { MeasureCancel(); _ptPerUnit = 0; _paperScale = 0; }                  // (another drawing: its scale is not this one's)
+        if (!keepEditing) { PdfRecent.Add(path); MeasureCancel(); _ptPerUnit = 0; _paperScale = 0; }                  // (another drawing: its scale is not this one's)
         ResetEdits(keepEditing);
         if (keepEditing && _historyAfterSave != null) { _pageUndo.AddRange(_historyAfterSave); TrimPageUndo(); UpdateEditButtons(); }       // Undo still works after saving, one change at a time
         _historyAfterSave = null;
