@@ -31,6 +31,7 @@ public sealed partial class PdfWindow
         Heading("PAGES");
         Item("Crop pages…", CropPages, "PdfMenuCrop");
         Item("Clean up a scan (straighten, darker text, no dark edges)…", CleanScan, "PdfMenuCleanScan");
+        Item("Show this PDF next to another one (scrolls together)…", SideBySide, "PdfMenuSideBySide");
         Item("Take the chosen page(s) out as a new PDF…", ExtractSelectedPages, "PdfMenuExtract");
         Item("Split into several PDFs…", () => OpenPagesDialog(split: true), "PdfMenuSplit");
         Item("Save pages as pictures (PNG / JPG)…", () => OpenPagesDialog(split: false), "PdfMenuPictures");
