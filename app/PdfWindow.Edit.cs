@@ -22,7 +22,7 @@ namespace IdmClone;
 /// </summary>
 public sealed partial class PdfWindow
 {
-    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField, DropField, Link, Paragraph, Blur, Measure, Area }
+    private enum EditTool { Select, EditText, Text, Signature, Image, Check, Cross, Stamp, Date, Highlight, Underline, Strike, Note, Pen, Shapes, WhiteOut, Redact, TextField, CheckField, Table, RadioField, SignField, DropField, Link, Paragraph, Blur, Measure, Area, TableToExcel }
 
     // ---------- what can be on a page ----------
     private abstract class EditItem
@@ -582,7 +582,7 @@ public sealed partial class PdfWindow
         [EditTool.TextField] = Colors.Black, [EditTool.CheckField] = Colors.Black, [EditTool.Table] = Colors.Black, [EditTool.RadioField] = Colors.Black, [EditTool.SignField] = Colors.Black, [EditTool.DropField] = Colors.Black,
         [EditTool.Text] = Colors.Black, [EditTool.Stamp] = Color.FromRgb(0x2E, 0x7D, 0x32), [EditTool.Date] = Colors.Black, [EditTool.Signature] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Check] = Colors.Black, [EditTool.Cross] = Colors.Black,
         [EditTool.Highlight] = Color.FromRgb(0xFF, 0xE0, 0x30), [EditTool.Underline] = Color.FromRgb(0x1E, 0x63, 0xE9), [EditTool.Strike] = Color.FromRgb(0xD3, 0x2F, 0x2F),
-        [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White, [EditTool.Redact] = Colors.Black, [EditTool.Blur] = Colors.Black, [EditTool.Measure] = Color.FromRgb(0x0B, 0x7A, 0x5A), [EditTool.Area] = Color.FromRgb(0x0B, 0x7A, 0x5A),
+        [EditTool.Note] = Color.FromRgb(0xFF, 0xD5, 0x4F), [EditTool.Pen] = Color.FromRgb(0x10, 0x2A, 0x8C), [EditTool.Shapes] = Color.FromRgb(0xD3, 0x2F, 0x2F), [EditTool.WhiteOut] = Colors.White, [EditTool.Redact] = Colors.Black, [EditTool.Blur] = Colors.Black, [EditTool.Measure] = Color.FromRgb(0x0B, 0x7A, 0x5A), [EditTool.Area] = Color.FromRgb(0x0B, 0x7A, 0x5A), [EditTool.TableToExcel] = Colors.Black,
     };
     private ShapeKind _shapeKind = ShapeKind.Rectangle;                   // (what the Shapes tool draws)
     private double _textSize = 12, _lineWidth = 2;
@@ -705,6 +705,7 @@ public sealed partial class PdfWindow
     {
         EditTool.Text or EditTool.EditText or EditTool.Paragraph or EditTool.Date or EditTool.Image or EditTool.Signature or EditTool.Stamp or EditTool.Link => "Add",
         EditTool.Highlight or EditTool.Underline or EditTool.Strike or EditTool.Note or EditTool.Pen or EditTool.Shapes or EditTool.Table or EditTool.Check or EditTool.Cross or EditTool.Blur or EditTool.Measure or EditTool.Area => "Mark up",
+        EditTool.TableToExcel => "Convert",
         EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField => "Forms",
         EditTool.WhiteOut or EditTool.Redact => "Page",
         _ => null,                                                          // (Select is on every tab)
@@ -808,6 +809,7 @@ public sealed partial class PdfWindow
 
         // The tools are sorted into tabs, so the bar never gets longer than the window: Select is always there, then the tabs, then the tools of the chosen tab.
         // Add (put something on the page) / Mark up (comment and draw) / Forms (fields to fill in) / Page (hide things, frames, numbers) / Convert (into other files).
+        ToolButton(EditTool.TableToExcel, "", "Table to Excel", "Drag a box round a table (or any part of a page) and save the words inside it as an Excel sheet. A scan is read with Windows' text reader first", icon: ConvertIcon("▦", Color.FromRgb(0x1D, 0x6F, 0x42), "Segoe UI Symbol"));
         tools.Children.Clear();
         UIElement Sep() => new Border { Width = 1, Height = 30, Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)), Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
         void Tab(string name, string tip, params UIElement[][] groups)
@@ -831,7 +833,7 @@ public sealed partial class PdfWindow
         Tab("Mark up", "Comment and draw: highlight, underline, notes, pen, shapes, tables, check marks", T(EditTool.Highlight, EditTool.Underline, EditTool.Strike, EditTool.Note), T(EditTool.Pen, EditTool.Shapes, EditTool.Table, EditTool.Check, EditTool.Cross, EditTool.Blur), T(EditTool.Measure, EditTool.Area).Concat(A("PdfActionScale")).ToArray());
         Tab("Forms", "Fields people can fill in: text box, check box, option buttons, signature box", T(EditTool.TextField, EditTool.CheckField, EditTool.RadioField, EditTool.DropField, EditTool.SignField));
         Tab("Page", "Hide or remove things, a frame, a watermark, page numbers", T(EditTool.WhiteOut, EditTool.Redact), A("PdfActionBorder", "PdfActionWatermark", "PdfActionPageNumbers"));
-        Tab("Convert", "Make a Word or Excel file or pictures from this PDF", A("PdfActionToWord", "PdfActionToExcel", "PdfActionToPictures"));
+        Tab("Convert", "Make a Word or Excel file or pictures from this PDF", A("PdfActionToWord", "PdfActionToExcel", "PdfActionToPictures").Concat(T(EditTool.TableToExcel)).ToArray());
         tools.Children.Add(_toolButtons[EditTool.Select]);
         tools.Children.Add(Sep());
         var chipRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -1066,6 +1068,7 @@ public sealed partial class PdfWindow
         foreach (var p in _pages) p.Overlay.Cursor = CursorFor(tool);
         UpdateProperties();
         if (tool is EditTool.Measure or EditTool.Area && !_calibrating) MeasureToolChosen(tool);
+        if (tool == EditTool.TableToExcel) Toast("Drag a box round the table you want in Excel");
     }
 
     private static Cursor CursorFor(EditTool t) => t switch { EditTool.Select => Cursors.Arrow, EditTool.Text or EditTool.Underline or EditTool.Strike => Cursors.IBeam, EditTool.Note => Cursors.Hand, _ => Cursors.Cross };
@@ -1592,6 +1595,10 @@ public sealed partial class PdfWindow
                 _dragPage = null;
                 PlaceDate(pv, p);
                 return;
+            case EditTool.TableToExcel:
+                _drawing = new LinkDraft { Page = pv.Index, Box = new Rect(p, p) };
+                _drag = DragMode.Draw;
+                break;
             case EditTool.Measure or EditTool.Area:
                 _dragPage = null;
                 MeasureClick(pv, p, e.ClickCount >= 2);
@@ -1789,6 +1796,7 @@ public sealed partial class PdfWindow
         if (mode == DragMode.GroupMove) { UpdateEditButtons(); return; }
         if (drawn is FieldItem newField && mode == DragMode.Draw) { FinishField(newField, _dragStart); return; }
         if (drawn is TableItem newTable && mode == DragMode.Draw) { FinishTable(newTable); return; }
+        if (drawn is LinkDraft grab && mode == DragMode.Draw && _tool == EditTool.TableToExcel) { RenderItems(pv.Index); TableToExcel(pv, grab.Box); return; }
         if (drawn is LinkDraft newLink && mode == DragMode.Draw) { FinishLink(newLink); return; }
         if (mode == DragMode.Marquee)
         {
