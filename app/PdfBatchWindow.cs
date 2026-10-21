@@ -53,6 +53,20 @@ internal sealed class PdfBatchWindow : Window
         w.Show();
     }
 
+    private static readonly List<PdfBatchWindow> Open = new();
+    public static int Count => Open.Count;
+    public static event Action? AnyClosed;
+
+    /// <summary>The window with these PDFs already in its list (from the right-click menu of several selected PDFs in Explorer).</summary>
+    public static void ShowFiles(IEnumerable<string> files)
+    {
+        var w = new PdfBatchWindow(null) { WindowStartupLocation = WindowStartupLocation.CenterScreen };
+        w.AddPaths(files);
+        w.UpdateStart();
+        w.Show();
+        w.Activate();
+    }
+
     private PdfBatchWindow(string? firstFile)
     {
         Title = "Many PDFs at once - Utylix Editor";
@@ -216,6 +230,8 @@ internal sealed class PdfBatchWindow : Window
         _go.Click += async (_, _) => { if (_cts != null) _cts.Cancel(); else await RunAsync(); };
         _close.Click += (_, _) => Close();
         Closing += (_, _) => _cts?.Cancel();
+        Open.Add(this);
+        Closed += (_, _) => { Open.Remove(this); AnyClosed?.Invoke(); };
     }
 
     private PdfBatchKind CurrentKind => _kinds.First(k => k.Chip.IsChecked == true).Kind;

@@ -321,6 +321,7 @@ public static class ShellMenu
                 Add(menu, "3small5", "Small copy for email (under 5 MB)", $"\"{exe}\" --pdf-small5 \"%1\"");
                 Add(menu, "4small2", "Small copy for chat (under 2 MB)", $"\"{exe}\" --pdf-small2 \"%1\"");
                 Add(menu, "5small1", "Very small copy (under 1 MB)", $"\"{exe}\" --pdf-small1 \"%1\"");
+                Add(menu, "6batch", "Do one job to many PDFs (watermark, page numbers, password ...)…", $"\"{exe}\" --pdf-batch \"%1\"");
             }
             foreach (string ext in PdfCombiner.PictureExtensions)
             {
