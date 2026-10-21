@@ -30,6 +30,7 @@ public sealed partial class PdfWindow
         }
         Heading("PAGES");
         Item("Crop pages…", CropPages, "PdfMenuCrop");
+        Item("Clean up a scan (straighten, darker text, no dark edges)…", CleanScan, "PdfMenuCleanScan");
         Item("Take the chosen page(s) out as a new PDF…", ExtractSelectedPages, "PdfMenuExtract");
         Item("Split into several PDFs…", () => OpenPagesDialog(split: true), "PdfMenuSplit");
         Item("Save pages as pictures (PNG / JPG)…", () => OpenPagesDialog(split: false), "PdfMenuPictures");
@@ -54,8 +55,7 @@ public sealed partial class PdfWindow
         Item("Find personal details to black out…", FindPersonalDetails, "PdfMenuPersonal");
         Heading("CLEAN UP");
         Item("Remove a watermark…", RemoveWatermark, "PdfMenuWatermark");
-        Item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");
-        Heading("COMPARE AND CONVERT");
+        Item("Make scanned pages searchable (OCR)…", OcrPages, "PdfMenuOcr");        Heading("COMPARE AND CONVERT");
         Item("Compare with another PDF…", ComparePdf, "PdfMenuCompare");
         Item("Save as Word or Excel…", () => ExportToOffice(), "PdfMenuExport");
         Heading("MANY FILES");
