@@ -94,7 +94,10 @@ public sealed partial class PdfWindow : Window
 
     public static void Open(IEnumerable<string> files)
     {
-        var list = files.Where(f => !string.IsNullOrWhiteSpace(f) && File.Exists(f) && IsPdf(f)).Select(System.IO.Path.GetFullPath).ToList();
+        var asked = files.Where(f => !string.IsNullOrWhiteSpace(f)).ToList();
+        var list = asked.Where(f => File.Exists(f) && IsPdf(f)).Select(System.IO.Path.GetFullPath).ToList();
+        var skipped = asked.Where(f => !(File.Exists(f) && IsPdf(f))).ToList();
+        if (skipped.Count > 0) SayNotOpened(skipped);
         if (list.Count == 0) { AnyClosed?.Invoke(); return; }
         foreach (string file in list)
         {
@@ -433,8 +436,9 @@ public sealed partial class PdfWindow : Window
                 if (ask.ShowDialog() != true) { if (_pdf == null) ShowEmpty(); else _message.Visibility = Visibility.Collapsed; return; }
                 password = ask.Password; wrong = true;
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or OutOfMemoryException or DllNotFoundException or BadImageFormatException)
+            catch (Exception e) when (e is not PdfPasswordException)
             {
+                Log(path, e.GetType().Name + ": " + e.Message);
                 if (generation != _generation) return;
                 if (_pdf == null) { ShowEmpty(); _message.Text = "Couldn't open \"" + System.IO.Path.GetFileName(path) + "\".\n" + e.Message; }
                 else { _message.Visibility = Visibility.Collapsed; Toast("Couldn't open it: " + e.Message); }
