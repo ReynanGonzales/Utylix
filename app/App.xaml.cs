@@ -31,6 +31,9 @@ public partial class App : Application
     {
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        // Windows' own scroll bar menu (Scroll Here / Top / Bottom ...) shows light and grey on the dark theme: right-clicking a scroll bar shows nothing instead
+        EventManager.RegisterClassHandler(typeof(System.Windows.Controls.Primitives.ScrollBar), System.Windows.Controls.ContextMenuService.ContextMenuOpeningEvent,
+                                          new System.Windows.Controls.ContextMenuEventHandler((_, args) => args.Handled = true), true);
         if (e.Args.Contains("--selftest")) { Shutdown(SelfTest.Run()); return; }         // (the build checks that the program folder starts)
         if (WantsVidEditor(e.Args)) { StartVidEditor(e.Args); return; }                   // UtylixVid.exe: the video editor (App.Vid.cs)
 
