@@ -375,9 +375,11 @@ public sealed partial class PdfWindow : Window
         {
             if (e.Data.GetData(DataFormats.FileDrop) is not string[] dropped) return;
             var pdfs = dropped.Where(IsPdf).ToList();
-            if (pdfs.Count == 0) { Toast("Only PDF files open here"); return; }
-            if (_path == null) { _ = LoadAsync(pdfs[0]); pdfs.RemoveAt(0); }
+            var pictures = dropped.Where(IsPicture).ToList();
+            if (pdfs.Count == 0 && pictures.Count == 0) { Toast("Only PDFs and pictures can be dropped here"); return; }
+            if (_path == null && pdfs.Count > 0) { _ = LoadAsync(pdfs[0]); pdfs.RemoveAt(0); }
             if (pdfs.Count > 0) Open(pdfs);
+            if (pictures.Count > 0) DropPictures(pictures, e);
         };
         _toastTimer.Tick += (_, _) => { _toastTimer.Stop(); _toastBox.Visibility = Visibility.Collapsed; };
         Closing += (_, e) => { if (!ConfirmLeaveEdits()) e.Cancel = true; else RememberWindowState(); };

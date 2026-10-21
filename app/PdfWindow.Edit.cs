@@ -1929,11 +1929,20 @@ public sealed partial class PdfWindow
         if (_pages.Count == 0) return;
         var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Add a picture", Filter = "Pictures|*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp|All files|*.*" };
         if (dlg.ShowDialog(this) != true) return;
+        AddPictureFile(dlg.FileName, null, null);
+    }
+
+    public static readonly string[] PictureExtensions = { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp" };
+    private static bool IsPicture(string path) => PictureExtensions.Contains(System.IO.Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Puts a picture file on a page (at <paramref name="at"/> of <paramref name="page"/>, else in the middle of what is visible). Also what dropping a picture on the window does.</summary>
+    private void AddPictureFile(string file, PageView? page, Point? at)
+    {
         BitmapSource picture; byte[]? jpeg = null;
         try
         {
             // big photos are made a sensible size for a page (they'd make the PDF huge); phone photos are turned the right way up
-            var loaded = PdfCombiner.LoadPicture(File.ReadAllBytes(dlg.FileName), 2400);
+            var loaded = PdfCombiner.LoadPicture(File.ReadAllBytes(file), 2400);
             jpeg = loaded.Jpeg;
             picture = new FormatConvertedBitmap(loaded.Pixels, PixelFormats.Bgra32, null, 0);
             picture.Freeze();
@@ -1943,10 +1952,11 @@ public sealed partial class PdfWindow
             Toast("Couldn't read that picture: " + e.Message);
             return;
         }
-        var (pv, at) = VisibleSpot();
+        var (pv, spot) = page != null && at != null ? (page, at.Value) : VisibleSpot();
         double w = Math.Min(picture.PixelWidth * 0.75, pv.Overlay.Width * 0.5), h = w * picture.PixelHeight / picture.PixelWidth;
         if (h > pv.Overlay.Height * 0.6) { h = pv.Overlay.Height * 0.6; w = h * picture.PixelWidth / picture.PixelHeight; }
-        Add(new ImageItem { Page = pv.Index, Box = new Rect(at.X - w / 2, at.Y - h / 2, w, h), Pixels = picture, Jpeg = jpeg }, select: true);
+        double x = Math.Clamp(spot.X - w / 2, 0, Math.Max(0, pv.Overlay.Width - w)), y = Math.Clamp(spot.Y - h / 2, 0, Math.Max(0, pv.Overlay.Height - h));
+        Add(new ImageItem { Page = pv.Index, Box = new Rect(x, y, w, h), Pixels = picture, Jpeg = jpeg }, select: true);
         Toast("Drag it into place; pull its corner to resize");
     }
 
