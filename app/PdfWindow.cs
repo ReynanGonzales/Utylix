@@ -462,6 +462,7 @@ public sealed partial class PdfWindow : Window
         _pdf?.Dispose();
         _pdf = pdf; _path = path; _sizes = sizes; _rotation = 0; _current = keepEditing ? keepPage : 0;
         _diskStamp = StampOf(path); _signedCount = -1;
+        if (!keepEditing) { MeasureCancel(); _ptPerUnit = 0; _paperScale = 0; }                  // (another drawing: its scale is not this one's)
         ResetEdits(keepEditing);
         if (keepEditing && _historyAfterSave != null) { _pageUndo.AddRange(_historyAfterSave); TrimPageUndo(); UpdateEditButtons(); }       // Undo still works after saving, one change at a time
         _historyAfterSave = null;
