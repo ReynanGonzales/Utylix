@@ -338,7 +338,9 @@ public partial class App : Application
     {
         if (args.Length == 0 || args.Any(a => a.StartsWith("--", StringComparison.Ordinal))) return null;
         if (args.All(TorrentSource.IsMagnet)) return new[] { "--torrent" }.Concat(args).ToArray();
-        var files = args.Where(a => a.Length > 0 && File.Exists(a)).ToArray();
+        // a shortcut (.lnk, e.g. from Recent) is followed to the file; a .pdf is passed on even when File.Exists says no (a server that answers late):
+        // the PDF window then shows the real reason instead of Utylix just opening its own window
+        var files = args.Where(a => a.Length > 0).Select(Engine.OpenPath.Resolve).Where(a => PdfWindow.IsPdf(a) || File.Exists(a)).ToArray();
         if (files.Length == 0) return null;
         string f = files[0], ext = Path.GetExtension(f).TrimStart('.');
         string? flag = PdfWindow.IsPdf(f) ? "--pdf"
@@ -358,7 +360,8 @@ public partial class App : Application
         if (args.Contains("--memory-limits")) return ("memory-limits", new List<string>()); // opens the Memory limits window
         int i = Array.FindIndex(args, a => a is "--remove-bg" or "--play" or "--torrent" or "--view" or "--pdf" or "--pdf-small5" or "--pdf-small2" or "--pdf-small1" or "--pdf-reduce" or "--pdf-combine" or "--pdf-batch" or "--to-pdf" or "--office-pdf");
         if (i < 0) return null;
-        var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).ToList();
+        // (a shortcut from Explorer's Recent list is followed to the file it points at before the running copy is asked to open it)
+        var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).Select(OpenPath.Resolve).ToList();
         // "Convert to PDF" on pictures and "Combine into one PDF" on PDFs end up in the same window
         return files.Count == 0 ? null : (args[i] == "--to-pdf" ? "pdf-combine" : args[i].TrimStart('-'), files);
     }
@@ -454,7 +457,8 @@ public partial class App : Application
         int i = Array.FindIndex(args, a => a is "--archive-open" or "--archive-add" or "--extract-here" or "--extract-to" or "--extract-files" or "--zip-add");
         if (i < 0) return null;
         string op = args[i] switch { "--archive-open" => "open", "--archive-add" => "add", "--extract-here" => "extract-here", "--extract-to" => "extract-to", "--extract-files" => "extract-ask", _ => "zip-add" };
-        var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).ToList();
+        // (only "open" follows a shortcut from Explorer's Recent list: "Add to archive" packs the shortcut itself)
+        var files = args.Skip(i + 1).Where(a => !a.StartsWith("--", StringComparison.Ordinal) && a.Length > 0).Select(a => op == "open" ? OpenPath.Resolve(a) : a).ToList();
         return files.Count == 0 ? null : (op, files);
     }
 

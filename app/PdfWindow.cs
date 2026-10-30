@@ -94,9 +94,13 @@ public sealed partial class PdfWindow : Window
 
     public static void Open(IEnumerable<string> files)
     {
-        var asked = files.Where(f => !string.IsNullOrWhiteSpace(f)).ToList();
-        var list = asked.Where(f => File.Exists(f) && IsPdf(f)).Select(System.IO.Path.GetFullPath).ToList();
-        var skipped = asked.Where(f => !(File.Exists(f) && IsPdf(f))).ToList();
+        // (a shortcut from Explorer's Recent list is followed to its file)
+        var asked = files.Where(f => !string.IsNullOrWhiteSpace(f)).Select(OpenPath.Resolve).ToList();
+        // A file on a server (or a drive that is reconnecting) can answer "no" the first time and File.Exists can wait a long time on the UI thread:
+        // those always get their window, which retries the read and says why when it really can't be opened. Only a local file that is not there is turned away here.
+        bool Openable(string f) => IsPdf(f) && (OpenPath.IsNetwork(f) || File.Exists(f));
+        var list = asked.Where(Openable).Select(FullPathOrSame).ToList();
+        var skipped = asked.Where(f => !Openable(f)).ToList();
         if (skipped.Count > 0) SayNotOpened(skipped);
         if (list.Count == 0) { AnyClosed?.Invoke(); return; }
         foreach (string file in list)
@@ -113,6 +117,12 @@ public sealed partial class PdfWindow : Window
             WindowTheme.BringToFront(w);
             if (!string.Equals(w._path, file, StringComparison.OrdinalIgnoreCase)) _ = w.LoadAsync(file);
         }
+    }
+
+    private static string FullPathOrSame(string path)
+    {
+        try { return System.IO.Path.GetFullPath(path); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return path; }
     }
 
     /// <summary>Asks for PDFs (from the Dashboard / tray) and opens them.</summary>

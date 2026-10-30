@@ -268,6 +268,7 @@ public sealed class ApiServer
         if (op is "brightness" or "update" or "snip" or "extension" or "memory-limits") { _tool(op, new List<string>()); Send(ctx, 200, new { accepted = 0 }, null); return; }     // opens the brightness panel / the update window
         if (!root.TryGetProperty("files", out var arr) || arr.ValueKind != JsonValueKind.Array) throw new ArgumentException("expected {\"files\": [...]}");
         var files = new List<string>();
+        bool fromProgram = IsFromProgram(ctx.Request);
         foreach (var e in arr.EnumerateArray().Take(500))
         {
             string? p = e.ValueKind == JsonValueKind.String ? e.GetString() : null;
@@ -279,14 +280,35 @@ public sealed class ApiServer
                          File.Exists(p) && new FileInfo(p).Length < 20 * 1024 * 1024) files.Add(Path.GetFullPath(p));
                 continue;
             }
-            // only real, absolute paths of local files of the right kind: nothing else is ever read
-            if (p == null || p.Length >= 32768 || !Path.IsPathFullyQualified(p) || p.StartsWith(@"\\", StringComparison.Ordinal) || !File.Exists(p)) continue;
+            // only real, absolute paths of files of the right kind: nothing else is ever read
+            if (!UsablePath(p, fromProgram, mustExist: op != "pdf")) continue;
             if (op == "remove-bg" ? !BackgroundRemover.IsPicture(p) : op == "view" ? !ViewerWindow.IsViewable(p) : op is "pdf" or "pdf-reduce" ? !PdfWindow.IsPdf(p)
                 : op == "pdf-combine" ? !(PdfCombiner.IsPdf(p) || PdfCombiner.IsPicture(p)) : op == "office-pdf" ? !OfficeToPdf.IsOffice(p) : !PlayerMedia.IsPlayable(p)) continue;
             files.Add(Path.GetFullPath(p));
         }
         if (files.Count > 0) _tool(op, files);
         Send(ctx, 200, new { accepted = files.Count }, null);
+    }
+
+    /// <summary>A program on this PC (the second copy of Utylix started by Explorer) and not a web page or an extension: those always send an Origin header with a POST.</summary>
+    private static bool IsFromProgram(HttpListenerRequest req) => string.IsNullOrEmpty(req.Headers["Origin"]);
+
+    /// <summary>
+    /// A full path of a file on this PC. A file on a server (\\server\share\...) only when a program on this PC asks (<paramref name="fromProgram"/>): a web page
+    /// must never be able to make Utylix reach out to another computer. A server file is looked for a few times (a drive that is reconnecting answers late);
+    /// with <paramref name="mustExist"/> false it is accepted anyway and the window that opens it says why it can't be read.
+    /// </summary>
+    private static bool UsablePath(string? p, bool fromProgram, bool mustExist = true)
+    {
+        if (p == null || p.Length >= 32768 || !Path.IsPathFullyQualified(p)) return false;
+        if (!p.StartsWith(@"\\", StringComparison.Ordinal)) return File.Exists(p);
+        if (!fromProgram || p.StartsWith(@"\\?\", StringComparison.Ordinal) || p.StartsWith(@"\\.\", StringComparison.Ordinal)) return false;
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            if (File.Exists(p)) return true;
+            Thread.Sleep(400);
+        }
+        return !mustExist;
     }
 
     /// <summary>
@@ -307,7 +329,8 @@ public sealed class ApiServer
         foreach (var e in arr.EnumerateArray().Take(500))
         {
             string? p = e.ValueKind == JsonValueKind.String ? e.GetString() : null;
-            if (p == null || p.Length >= 32768 || !Path.IsPathFullyQualified(p) || p.StartsWith(@"\\", StringComparison.Ordinal)) continue;
+            if (p == null || p.Length >= 32768 || !Path.IsPathFullyQualified(p)) continue;
+            if (p.StartsWith(@"\\", StringComparison.Ordinal) && !(IsFromProgram(ctx.Request) && !p.StartsWith(@"\\?\", StringComparison.Ordinal) && !p.StartsWith(@"\\.\", StringComparison.Ordinal))) continue;
             bool ok = needsArchive ? File.Exists(p) && ArchiveService.IsArchiveName(p) : File.Exists(p) || Directory.Exists(p);
             if (ok) files.Add(Path.GetFullPath(p));
         }
