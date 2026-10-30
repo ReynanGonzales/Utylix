@@ -94,7 +94,7 @@ public sealed partial class PdfWindow : Window
 
     public static void Open(IEnumerable<string> files)
     {
-        var asked = files.Where(f => !string.IsNullOrWhiteSpace(f)).Select(OpenPath.Fix).ToList();
+        var asked = files.Where(f => !string.IsNullOrWhiteSpace(f)).ToList();
         var list = asked.Where(f => File.Exists(f) && IsPdf(f)).Select(System.IO.Path.GetFullPath).ToList();
         var skipped = asked.Where(f => !(File.Exists(f) && IsPdf(f))).ToList();
         if (skipped.Count > 0) SayNotOpened(skipped);
@@ -377,7 +377,6 @@ public sealed partial class PdfWindow : Window
         Drop += (_, e) =>
         {
             if (e.Data.GetData(DataFormats.FileDrop) is not string[] dropped) return;
-            dropped = dropped.Select(OpenPath.Fix).ToArray();
             var pdfs = dropped.Where(IsPdf).ToList();
             var pictures = dropped.Where(IsPicture).ToList();
             if (pdfs.Count == 0 && pictures.Count == 0) { Toast("Only PDFs and pictures can be dropped here"); return; }

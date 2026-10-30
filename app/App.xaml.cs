@@ -338,7 +338,7 @@ public partial class App : Application
     {
         if (args.Length == 0 || args.Any(a => a.StartsWith("--", StringComparison.Ordinal))) return null;
         if (args.All(TorrentSource.IsMagnet)) return new[] { "--torrent" }.Concat(args).ToArray();
-        var files = args.Select(OpenPath.Fix).Where(a => a.Length > 0 && File.Exists(a)).ToArray();
+        var files = args.Where(a => a.Length > 0 && File.Exists(a)).ToArray();
         if (files.Length == 0) return null;
         string f = files[0], ext = Path.GetExtension(f).TrimStart('.');
         string? flag = PdfWindow.IsPdf(f) ? "--pdf"
