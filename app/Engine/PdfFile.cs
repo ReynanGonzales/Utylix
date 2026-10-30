@@ -86,6 +86,9 @@ public sealed partial class PdfFile : IDisposable
     /// <summary>The file's bytes. Read so that a file somebody else has open (a server file in use, the same file open in another program) can still be read; a network hiccup gets two more tries.</summary>
     private static byte[] ReadShared(string path)
     {
+        // a file on a server or a network drive that is still reconnecting (Recent list, a shortcut after the PC woke up) often answers only on the 2nd or 3rd try
+        bool network = OpenPath.IsNetwork(path);
+        int tries = network ? 5 : 2;
         for (int attempt = 0; ; attempt++)
         {
             try
@@ -97,7 +100,11 @@ public sealed partial class PdfFile : IDisposable
                 if (got < bytes.Length) Array.Resize(ref bytes, got);
                 return bytes;
             }
-            catch (IOException) when (attempt < 2) { System.Threading.Thread.Sleep(400); }
+            catch (IOException) when (attempt < tries) { System.Threading.Thread.Sleep(network ? 600 * (attempt + 1) : 400); }
+            catch (Exception e) when (network && e is IOException or UnauthorizedAccessException)
+            {
+                throw new IOException("Utylix can't reach this file on the network (" + e.Message.TrimEnd('.') + "). Check that the server or drive is connected, then try again.", e);
+            }
         }
     }
 
