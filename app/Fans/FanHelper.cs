@@ -89,8 +89,8 @@ internal static class FanHelper
         while (pipe.IsConnected && !_quit)
         {
             string? line;
-            try { line = reader.ReadLine(); } catch (IOException) { return; }
-            if (line == null) return;
+            try { line = reader.ReadLine(); } catch (IOException e) { Log("connection ended: " + e.Message); return; }
+            if (line == null) { Log("Utylix closed the connection"); return; }
             _lastContact = Environment.TickCount64;
             FanReply reply;
             try
@@ -109,7 +109,14 @@ internal static class FanHelper
         switch (request.Cmd)
         {
             case "snapshot":
-                lock (Gate) return new FanReply { Ok = true, Sensors = Read(), Emergency = _emergency };
+            {
+                long started = Environment.TickCount64;
+                FanReply answer;
+                lock (Gate) answer = new FanReply { Ok = true, Sensors = Read(), Emergency = _emergency };
+                long took = Environment.TickCount64 - started;
+                if (took > 2500) Log($"slow reading: the sensors took {took} ms to answer");        // (Utylix waits 20 s; a slow graphics card or board shows up here)
+                return answer;
+            }
             case "config":
                 lock (Gate)
                 {

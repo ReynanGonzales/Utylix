@@ -168,16 +168,53 @@ public partial class FansPage : UserControl
         SetOff();
     }
 
+    // ---------- losing and finding the helper again ----------
+    private DateTime? _lostAt;
+    private bool _resuming;
+
+    /// <summary>
+    /// The helper stopped answering (a slow reading, the PC waking from sleep, a hiccup): ask for the connection again for up to 45 seconds and send the settings again, so
+    /// fan control carries on by itself. The helper has already handed every fan back to the PC meanwhile, so waiting is safe. Only after that is fan control shown as off.
+    /// </summary>
+    private async Task ResumeOrGiveUpAsync()
+    {
+        _resuming = true;
+        try
+        {
+            var now = DateTime.UtcNow;
+            if (_lostAt == null) { _lostAt = now; FanClient.Note("lost contact with the fan helper: " + FanSettings.Client.LastError); }
+            if ((now - _lostAt.Value).TotalSeconds > 45)
+            {
+                _lostAt = null;
+                FanClient.Note("gave up after 45 s");
+                SetOff("Lost contact with the fan helper. Every fan is back under the PC's own control. (The reason is in fan-client.log in Utylix's data folder.)");
+                return;
+            }
+            StatusText.Text = "Lost contact for a moment: reconnecting to the fan helper… (the PC controls its fans meanwhile)";
+            if (!await FanSettings.Client.ConnectAsync(2500)) return;                 // (the next tick asks again)
+            if (_cards.Count == 0) { _lostAt = null; await FanSettings.Client.StopAsync(); return; }       // (Stop was pressed meanwhile: it stays stopped)
+            FanClient.Note("reconnected after " + (int)(DateTime.UtcNow - _lostAt.Value).TotalSeconds + " s");
+            _lostAt = null;
+            await PushAsync();
+        }
+        finally { _resuming = false; }
+    }
+
     // ---------- reading ----------
     private async Task TickAsync()
     {
         UpdateMemory();
-        if (_busy || !FanSettings.Client.Connected) { if (!FanSettings.Client.Connected && _cards.Count > 0) SetOff("Lost contact with the fan helper. Every fan is back under the PC's own control."); return; }
+        if (_busy || !FanSettings.Client.Connected)
+        {
+            if (!FanSettings.Client.Connected && _cards.Count > 0 && !_busy && !_resuming) await ResumeOrGiveUpAsync();
+            return;
+        }
         _busy = true;
         try
         {
-            var reply = await FanSettings.Client.AskAsync(new FanRequest { Cmd = "snapshot" });
-            if (reply?.Ok != true || reply.Sensors == null) { SetOff("Lost contact with the fan helper. Every fan is back under the PC's own control."); return; }
+            var reply = await FanSettings.Client.AskAsync(new FanRequest { Cmd = "snapshot" }, 20);        // (a slow reading is waited for: giving up on it would hand every fan back)
+            if (reply?.Ok != true || reply.Sensors == null) { if (!_resuming) await ResumeOrGiveUpAsync(); return; }
+            if (_lostAt != null) { _lostAt = null; FanClient.Note("fan control is back"); }
             _sensors = reply.Sensors;
             StartBtn.Visibility = Visibility.Collapsed; StopBtn.Visibility = Visibility.Visible;
             bool readable = _sensors.Any(s => s.Kind is "cpu" or "board");

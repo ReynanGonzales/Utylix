@@ -81,10 +81,22 @@ internal sealed class FanClient : IDisposable
         }
         catch (Exception e) when (e is IOException or TimeoutException or JsonException or ObjectDisposedException or InvalidOperationException)
         {
+            LastError = $"{request.Cmd}: {e.GetType().Name}: {e.Message}";
+            Note("the helper did not answer (" + LastError + ")");
             Close();
             return null;
         }
         finally { _one.Release(); }
+    }
+
+    /// <summary>Why the last request failed (for the log and the page).</summary>
+    public string LastError { get; private set; } = "";
+
+    /// <summary>A line in fan-client.log (data folder): when the connection to the helper dropped and came back, so a PC that keeps losing it can be looked at.</summary>
+    public static void Note(string text)
+    {
+        try { File.AppendAllText(Path.Combine(App.DataDir, "fan-client.log"), $"{DateTime.Now:s} {text}{Environment.NewLine}"); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>Tells the helper to hand every fan back and end.</summary>
