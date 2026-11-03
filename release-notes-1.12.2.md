@@ -1,0 +1,4 @@
+Fan control no longer switches off at the first hiccup
+
+- **Fan control reconnects by itself.** Before, one slow or failed status check from the fan helper (a sensor that answered late, the PC waking from sleep, a short stall) switched fan control off at once, handed every fan back to the PC, and waited until you pressed Start again. Now Utylix waits up to 20 seconds for a slow reading, and if the connection really is lost it keeps trying for up to 45 seconds and carries on with your settings when the helper answers. The PC controls its fans meanwhile, so this is safe. Only after 45 seconds is fan control shown as off.
+- **Reasons are written down.** When the connection drops, `fan-client.log` in Utylix's data folder says when and why, and `fan-helper.log` notes slow sensor readings. If fan control still drops on a PC, those two files show the cause.
