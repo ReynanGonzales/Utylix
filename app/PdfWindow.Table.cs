@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using IdmClone.Engine;
 
 namespace IdmClone;
@@ -28,6 +29,8 @@ public sealed partial class PdfWindow
         public int ColSpan = 1, RowSpan = 1;           // of the cell at the top-left of a merged block
         public bool Covered;                           // part of a merged block, not its top-left cell
         public int AnchorRow, AnchorCol;               // the top-left cell of the block this cell belongs to (itself when not merged)
+        public BitmapSource? Pic;                      // a picture in the cell (fits the cell, in the middle, keeps its shape)
+        public byte[]? PicJpeg;                        // the same picture as a ready JPEG (kept small in the PDF), when there is one
         public TableCell Copy() => (TableCell)MemberwiseClone();
     }
 
@@ -157,7 +160,31 @@ public sealed partial class PdfWindow
         public void SetSel(int r, int c) { SelR1 = SelR2 = r; SelC1 = SelC2 = c; }
         public void ExtendSel(int r, int c) { if (SelR1 < 0) { SetSel(r, c); return; } SelR2 = r; SelC2 = c; }
         public void ClearSel() { SelR1 = SelR2 = SelC1 = SelC2 = -1; }
-        public (int R1, int C1, int R2, int C2) SelRange() => (Math.Min(SelR1, SelR2), Math.Min(SelC1, SelC2), Math.Max(SelR1, SelR2), Math.Max(SelC1, SelC2));
+        /// <summary>The chosen block, grown until it holds every merged cell it touches completely (so a merged cell is chosen whole, and a drag never cuts one in two).</summary>
+        public (int R1, int C1, int R2, int C2) SelRange()
+        {
+            int r1 = Math.Min(SelR1, SelR2), c1 = Math.Min(SelC1, SelC2), r2 = Math.Max(SelR1, SelR2), c2 = Math.Max(SelC1, SelC2);
+            if (Rows == 0 || Cols == 0 || r1 < 0) return (r1, c1, r2, c2);
+            r1 = Math.Clamp(r1, 0, Rows - 1); r2 = Math.Clamp(r2, 0, Rows - 1); c1 = Math.Clamp(c1, 0, Cols - 1); c2 = Math.Clamp(c2, 0, Cols - 1);
+            bool grew = true;
+            while (grew)
+            {
+                grew = false;
+                for (int r = r1; r <= r2; r++)
+                    for (int c = c1; c <= c2; c++)
+                    {
+                        var cell = Cells[r][c];
+                        int ar = cell.AnchorRow, ac = cell.AnchorCol;
+                        var a = Cells[ar][ac];
+                        int er = Math.Min(Rows - 1, ar + Math.Max(1, a.RowSpan) - 1), ec = Math.Min(Cols - 1, ac + Math.Max(1, a.ColSpan) - 1);
+                        if (ar < r1) { r1 = ar; grew = true; }
+                        if (ac < c1) { c1 = ac; grew = true; }
+                        if (er > r2) { r2 = er; grew = true; }
+                        if (ec > c2) { c2 = ec; grew = true; }
+                    }
+            }
+            return (r1, c1, r2, c2);
+        }
         public IEnumerable<(int R, int C)> SelAnchors()
         {
             if (SelR1 < 0) yield break;
@@ -261,6 +288,18 @@ public sealed partial class PdfWindow
             return item;
         }
 
+        /// <summary>Where the picture of a cell sits: as big as fits inside the cell, with its own shape, in the middle (null = no picture).</summary>
+        public Rect? PicBox(int r, int c)
+        {
+            var cell = Cells[r][c];
+            if (cell.Covered || cell.Pic == null || cell.Pic.PixelWidth < 1 || cell.Pic.PixelHeight < 1) return null;
+            var rect = CellRect(r, c);
+            double aw = Math.Max(4, rect.Width - 2 * Pad), ah = Math.Max(4, rect.Height - 2 * Pad);
+            double k = Math.Min(aw / cell.Pic.PixelWidth, ah / cell.Pic.PixelHeight);
+            double w = cell.Pic.PixelWidth * k, h = cell.Pic.PixelHeight * k;
+            return new Rect(rect.X + (rect.Width - w) / 2, rect.Y + (rect.Height - h) / 2, w, h);
+        }
+
         private (int, int) Anchor(int r, int c) => (Cells[r][c].AnchorRow, Cells[r][c].AnchorCol);
 
         public List<PdfFigure> LineFigures()
@@ -318,6 +357,15 @@ public sealed partial class PdfWindow
                 Canvas.SetLeft(mark, xs[c1]); Canvas.SetTop(mark, ys[r1]);
                 canvas.Children.Add(mark);
             }
+            for (int r = 0; r < Rows; r++)
+                for (int c = 0; c < Cols; c++)
+                    if (PicBox(r, c) is { } pb)
+                    {
+                        var img = new Image { Source = Cells[r][c].Pic, Width = pb.Width, Height = pb.Height, Stretch = Stretch.Fill, IsHitTestVisible = false };
+                        RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+                        Canvas.SetLeft(img, pb.X); Canvas.SetTop(img, pb.Y);
+                        canvas.Children.Add(img);
+                    }
             var lines = LineFigures();
             if (lines.Count > 0)
                 canvas.Children.Add(new System.Windows.Shapes.Path { Data = Geometry(lines), Stroke = new SolidColorBrush(Color), StrokeThickness = Width, StrokeLineJoin = PenLineJoin.Miter, SnapsToDevicePixels = true });
@@ -338,6 +386,9 @@ public sealed partial class PdfWindow
         {
             foreach (var (box, fill) in Fills())
                 yield return new PdfPathMark(Page, new[] { new PdfFigure(box.TopLeft, new[] { PdfSegment.Line(box.TopRight), PdfSegment.Line(box.BottomRight), PdfSegment.Line(box.BottomLeft) }, true) }, null, 0, fill, false);
+            for (int r = 0; r < Rows; r++)
+                for (int c = 0; c < Cols; c++)
+                    if (PicBox(r, c) is { } pb) yield return new PdfImageMark(Page, pb, Cells[r][c].PicJpeg, Cells[r][c].PicJpeg == null ? Cells[r][c].Pic : null);
             var lines = LineFigures();
             if (lines.Count > 0) yield return new PdfPathMark(Page, lines, Color, Width, null, false);
             for (int r = 0; r < Rows; r++)

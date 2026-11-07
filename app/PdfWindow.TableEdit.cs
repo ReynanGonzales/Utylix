@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows;
@@ -7,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using IdmClone.Engine;
 
@@ -217,6 +219,7 @@ public sealed partial class PdfWindow
                 return true;
             }
             case Key.V when ctrl && !shift && ClipboardHasText(): PasteIntoTable(t); return true;
+            case Key.V when ctrl && !shift && ClipboardHasPicture(): PastePictureIntoCell(t); return true;
         }
         return false;
     }
@@ -403,6 +406,8 @@ public sealed partial class PdfWindow
         Entry(menu, "Merge the chosen cells", () => Change(() =>
         {
             var anchor = t.Cells[r1][c1];
+            var firstPic = chosen.Select(x => t.Cells[x.R][x.C]).FirstOrDefault(x => x.Pic != null);
+            if (anchor.Pic == null && firstPic != null) { anchor.Pic = firstPic.Pic; anchor.PicJpeg = firstPic.PicJpeg; }
             var words = chosen.Select(x => t.Cells[x.R][x.C].Text).Where(s => s.Length > 0).ToList();
             foreach (var (r, c) in chosen) { var x = t.Cells[r][c]; x.ColSpan = x.RowSpan = 1; if (!(r == r1 && c == c1)) x.Text = ""; }
             anchor.Text = string.Join(" ", words);
@@ -424,5 +429,58 @@ public sealed partial class PdfWindow
         Entry(rows, "Make all rows the same height", () => Change(t.EqualRows), true, null, "PdfTableEqualRows");
         Entry(rows, "Number of rows and columns…", () => EditTable(t), true, null, "PdfTableSize");
         Entry(menu, "Paste cells from the clipboard (Excel, Word)", () => PasteIntoTable(t), ClipboardHasText(), null, "PdfTablePaste");
+        menu.Items.Add(new Separator());
+        Entry(menu, "Picture in the chosen cell…", () => PictureIntoCell(t), chosen.Count > 0, null, "PdfTablePicture");
+        Entry(menu, "Paste the picture from the clipboard", () => PastePictureIntoCell(t), chosen.Count > 0 && ClipboardHasPicture(), null, "PdfTablePastePicture");
+        Entry(menu, "Take the picture out of the chosen cells", () => Change(() => { foreach (var (r, c) in chosen) { t.Cells[r][c].Pic = null; t.Cells[r][c].PicJpeg = null; } }), chosen.Any(x => t.Cells[x.R][x.C].Pic != null), null, "PdfTablePictureOut");
+    }
+
+    private static bool ClipboardHasPicture()
+    {
+        try { return Clipboard.ContainsImage(); } catch (System.Runtime.InteropServices.COMException) { return false; }
+    }
+
+    /// <summary>A picture file goes into the chosen cell (or into each chosen cell): it fits the cell, in the middle, with its own shape.</summary>
+    private void PictureIntoCell(TableItem t)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "The picture for the cell", Filter = "Pictures|" + string.Join(";", PdfCombiner.PictureExtensions.Select(e => "*." + e)) + "|All files|*.*", CheckFileExists = true };
+        if (dlg.ShowDialog(this) != true) return;
+        BitmapSource picture; byte[]? jpeg;
+        try
+        {
+            var loaded = PdfCombiner.LoadPicture(File.ReadAllBytes(dlg.FileName), 1600);
+            jpeg = loaded.Jpeg;
+            picture = new FormatConvertedBitmap(loaded.Pixels, PixelFormats.Bgra32, null, 0);
+            picture.Freeze();
+        }
+        catch (Exception e) when (e is IOException or NotSupportedException or FileFormatException or InvalidOperationException or UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.COMException)
+        {
+            Toast("Couldn't read that picture: " + e.Message);
+            return;
+        }
+        PutPictureInCells(t, picture, jpeg);
+    }
+
+    private void PastePictureIntoCell(TableItem t)
+    {
+        BitmapSource? picture;
+        try { picture = Clipboard.GetImage(); } catch (System.Runtime.InteropServices.COMException) { return; }
+        if (picture == null) return;
+        var converted = new FormatConvertedBitmap(picture, PixelFormats.Bgra32, null, 0);
+        converted.Freeze();
+        PutPictureInCells(t, converted, null);
+    }
+
+    private void PutPictureInCells(TableItem t, BitmapSource picture, byte[]? jpeg)
+    {
+        CloseCellEditor(commit: true);
+        if (t.SelR1 < 0 && t.Rows > 0) t.SetSel(0, 0);
+        var cells = t.SelAnchors().ToList();
+        if (cells.Count == 0) return;
+        Snapshot();
+        foreach (var (r, c) in cells) { t.Cells[r][c].Pic = picture; t.Cells[r][c].PicJpeg = jpeg; }
+        RenderItems(t.Page);
+        UpdateEditButtons();
+        Toast("Picture put in the cell. Make the cell bigger by dragging its lines; Undo takes it out");
     }
 }
