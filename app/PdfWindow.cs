@@ -384,6 +384,7 @@ public sealed partial class PdfWindow : Window
             ZoomBy(e.Delta > 0 ? 1.1 : 1 / 1.1);
         };
         PreviewKeyDown += OnKey;
+        PreviewTextInput += TableTextInput;
         Drop += (_, e) =>
         {
             if (e.Data.GetData(DataFormats.FileDrop) is not string[] dropped) return;

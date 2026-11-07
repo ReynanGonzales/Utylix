@@ -595,7 +595,7 @@ public sealed partial class PdfWindow
     private bool _bold;
 
     // dragging
-    private enum DragMode { None, Move, Resize, Draw, Ink, Rotate, RunMove, Marquee, GroupMove }
+    private enum DragMode { None, Move, Resize, Draw, Ink, Rotate, RunMove, Marquee, GroupMove, TableCol, TableRow, TableSel }
     private readonly List<EditItem> _group = new();                     // several items chosen with a box (Select tool): they move / delete together
     private Rect? _marquee;                                             // the box being dragged to choose them
     private int _marqueePage;
@@ -913,7 +913,7 @@ public sealed partial class PdfWindow
         _fontRow.Margin = new Thickness(14, 0, 0, 0);
         _toolHint.Margin = new Thickness(14, 0, 0, 0);
         sizeRow.Margin = new Thickness(14, 0, 0, 0);
-        foreach (UIElement part in new UIElement[] { _colorRow, _highlightRow, sizeRow, _thickRow, _fontRow, PictureBackgroundRow(), BlurButton() }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
+        foreach (UIElement part in new UIElement[] { _colorRow, _highlightRow, sizeRow, _thickRow, _fontRow, PictureBackgroundRow(), BlurButton(), TableButton(), TableAlignButton() }) { DockPanel.SetDock(part, Dock.Left); look.Children.Add(part); }
         look.Children.Add(_toolHint);                                   // (last: it takes what is left, and is cut with "..." when it is long)
 
         var row2 = new DockPanel { Height = 36, Margin = new Thickness(6, 2, 0, 0), LastChildFill = true };
@@ -1115,6 +1115,8 @@ public sealed partial class PdfWindow
         _fontRow.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
         if (_styleButton != null) _styleButton.Visibility = item is TextItem || _typing != null || (item == null && _tool is EditTool.Text) ? Visibility.Visible : Visibility.Collapsed;
         if (_pictureRow != null) _pictureRow.Visibility = PictureChosen ? Visibility.Visible : Visibility.Collapsed;
+        if (_tableButton != null) _tableButton.Visibility = item is TableItem ? Visibility.Visible : Visibility.Collapsed;
+        if (_tableAlignButton != null) _tableAlignButton.Visibility = item is TableItem ? Visibility.Visible : Visibility.Collapsed;
         if (_blurButton != null) _blurButton.Visibility = item is BlurItem || (item == null && _tool == EditTool.Blur) ? Visibility.Visible : Visibility.Collapsed;
         if (_runBackButton != null) _runBackButton.Visibility = typingRun != null ? Visibility.Visible : Visibility.Collapsed;
         foreach (var chip in _fontButtons.Values) chip.Visibility = typingRun != null ? Visibility.Collapsed : Visibility.Visible;      // (a line of the PDF: its own font is kept; the list picks another - this makes room for "Background")
@@ -1124,7 +1126,7 @@ public sealed partial class PdfWindow
         _thickRow.Visibility = mark || underlining ? Visibility.Visible : Visibility.Collapsed;
         double thick = item switch { ShapeItem { Kind: ShapeKind.Check or ShapeKind.Cross } mk => mk.StampWidth, TextMarkupItem tmk => tmk.Thickness > 0 ? tmk.Thickness : 1, _ => _tool is EditTool.Check or EditTool.Cross ? (_markWidth > 0 ? _markWidth : Math.Max(1.2, _markSize * 0.13)) : _markupWidth };
         _thickText.Text = thick.ToString(thick < 10 ? "0.#" : "0", CultureInfo.InvariantCulture);
-        double size = typingRun != null ? typingRun.EffSize : item switch { ShapeItem { Kind: ShapeKind.Check or ShapeKind.Cross } mk2 => mk2.MarkSize, TextItem t => t.FontSize, FieldItem f => f.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, TableItem tb => tb.Width, _ => mark ? _markSize : text ? _textSize : _lineWidth };
+        double size = typingRun != null ? typingRun.EffSize : item switch { ShapeItem { Kind: ShapeKind.Check or ShapeKind.Cross } mk2 => mk2.MarkSize, TextItem t => t.FontSize, FieldItem f => f.FontSize, ShapeItem s => s.Width, InkItem i => i.Width, TableItem tb => tb.Width, _ => mark ? _markSize : text ? _textSize : _tool == EditTool.Table ? _tableLineWidth : _lineWidth };
         if (_fontPickerButton != null) _fontPickerButton.Visibility = textField ? Visibility.Collapsed : Visibility.Visible;
         _sizeText.Text = size.ToString(size < 10 ? "0.#" : "0", CultureInfo.InvariantCulture);
         _syncingFont = true;                                       // (showing the font must not change it)
@@ -1214,10 +1216,11 @@ public sealed partial class PdfWindow
             case ShapeItem { Kind: ShapeKind.Check or ShapeKind.Cross } mk: Snapshot(); mk.SetMarkSize(Next(MarkSizes, mk.MarkSize, step)); _markSize = mk.MarkSize; RenderItems(mk.Page); break;
             case ShapeItem s: Snapshot(); s.Width = Next(LineWidths, s.Width, step); _lineWidth = s.Width; RenderItems(s.Page); break;
             case InkItem i: Snapshot(); i.Width = Next(LineWidths, i.Width, step); _lineWidth = i.Width; RenderItems(i.Page); break;
-            case TableItem tb: Snapshot(); tb.Width = Next(LineWidths, tb.Width, step); _lineWidth = tb.Width; RenderItems(tb.Page); break;
+            case TableItem tb: Snapshot(); tb.Width = Next(LineWidths, tb.Width, step); _tableLineWidth = tb.Width; RenderItems(tb.Page); break;
             default:
                 if (_tool is EditTool.Text or EditTool.Date or EditTool.TextField or EditTool.DropField) _textSize = Next(TextSizes, _textSize, step);
                 else if (_tool is EditTool.Check or EditTool.Cross) _markSize = Next(MarkSizes, _markSize, step);
+                else if (_tool == EditTool.Table) _tableLineWidth = Next(LineWidths, _tableLineWidth, step);
                 else _lineWidth = Next(LineWidths, _lineWidth, step);
                 break;
         }
@@ -1367,6 +1370,7 @@ public sealed partial class PdfWindow
     {
         ClearGroup();
         var old = _selected;
+        if (old is TableItem leftTable && !ReferenceEquals(old, item)) { CloseCellEditor(commit: true); leftTable.ClearSel(); }       // (the chosen cells go when another thing is chosen)
         _selected = item;
         if (old != null) RenderItems(old.Page);
         if (item != null && item.Page != old?.Page) RenderItems(item.Page);
@@ -1381,6 +1385,7 @@ public sealed partial class PdfWindow
     {
         if (page < 0 || page >= _pages.Count) return;
         var overlay = _pages[page].Overlay;
+        if (_cellBox != null && _cellTable?.Page == page) _cellMoving = true;            // (the cell box comes off the page with the rest and is put back below: it keeps the keyboard)
         overlay.Children.Clear();
         foreach (var item in _items.Where(i => i.Page == page))
         {
@@ -1391,6 +1396,7 @@ public sealed partial class PdfWindow
         }
         if (_drawing != null && _drawing.Page == page) { var e = _drawing.Build(); e.IsHitTestVisible = false; overlay.Children.Add(e); }
         if (_textBox != null && _typing?.Page == page) { overlay.Children.Add(_textBox); AttachTypingMarkers(overlay); }
+        PutCellBoxBack(page, overlay);
         RenderRunExtras(page, overlay);
         DrawLinkOutlines(page, overlay);
         DrawGuides(page, overlay);
@@ -1528,12 +1534,13 @@ public sealed partial class PdfWindow
             }
             case EditTool.Select:
                 if (e.ClickCount == 2 && _selected is PageObjectItem chosenComment && chosenComment.Page == pv.Index && chosenComment.Box.Contains(p) && TryChosenFreeText(out _)) { _dragPage = null; EditFreeTextComment(); return; }      // (double-click on a callout of the PDF: change its words)
-                if ((Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Control)) != 0 && ExtendChoice(pv, p)) { _dragPage = null; return; }       // (Shift / Ctrl + click: add to what is chosen)
+                if ((Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Control)) != 0 && !(_selected is TableItem shiftTable && shiftTable.Page == pv.Index && shiftTable.Hit(p)) && ExtendChoice(pv, p)) { _dragPage = null; return; }       // (Shift / Ctrl + click: add to what is chosen; on the chosen table Shift + click chooses more cells)
                 if (_group.Count > 0 && (_group.Any(g => g.Page == pv.Index && g.Hit(p)) || (ItemAt(pv.Index, p) == null && InGroupFrame(pv.Index, p)))) { _drag = DragMode.GroupMove; _groupLast = p; break; }      // (several chosen: they all follow the mouse, also when the pointer is between them)
                 if (OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
                 if (_selected is PageObjectItem chosenSaved && ItemAt(pv.Index, p) == null && SavedChoiceUnder(pv.Index, p, chosenSaved)) { _drag = DragMode.Move; _dragBox = chosenSaved.Bounds; break; }      // (things already in the PDF chosen: a drag on any of them, or between them, moves them all)
                 var item = ItemAt(pv.Index, p);
                 if (item != null && item.GroupId != 0 && e.ClickCount < 2) { ChooseItem(item); _drag = DragMode.GroupMove; _groupLast = p; break; }      // (a grouped thing: the whole group is chosen and follows the mouse)
+                if (item is TableItem clickedTable && TableDown(pv, clickedTable, p, e.ClickCount)) return;                                       // (a table: a cell, a line or the table itself)
                 Select(item);
                 if (item == null)
                 {
@@ -1556,7 +1563,6 @@ public sealed partial class PdfWindow
                 if (item is NoteItem n && e.ClickCount == 2) { OpenNote(n, isNew: false); return; }
                 if (item is ColumnsItem columns && e.ClickCount == 2) { EditColumns(columns); return; }
                 if (item is QrItem qr && e.ClickCount == 2) { EditQr(qr); return; }
-                if (item is TableItem tableHere && e.ClickCount == 2) { EditTable(tableHere); return; }
                 if (item is FieldItem fieldHere && e.ClickCount == 2) { EditFieldOptions(fieldHere); return; }
                 if (item != null) { _drag = DragMode.Move; _dragBox = item.Bounds; }
                 break;
@@ -1578,8 +1584,8 @@ public sealed partial class PdfWindow
                 _drag = DragMode.Draw;
                 break;
             case EditTool.Table:
-                if (ItemAt(pv.Index, p) is TableItem existingTable) { Select(existingTable); _drag = DragMode.Move; _dragBox = existingTable.Bounds; break; }
-                _drawing = new TableItem { Page = pv.Index, Box = new Rect(p, p), Rows = _tableRows, Cols = _tableCols, Color = _toolColors[EditTool.Table], Width = _lineWidth };
+                if (ItemAt(pv.Index, p) is TableItem existingTable && TableDown(pv, existingTable, p, e.ClickCount)) return;
+                { var draft = TableItem.Create(pv.Index, _tableRows, _tableCols, _toolColors[EditTool.Table], _tableLineWidth); draft.Box = new Rect(p, p); _drawing = draft; }
                 _drag = DragMode.Draw;
                 break;
             case EditTool.TextField or EditTool.CheckField or EditTool.RadioField or EditTool.SignField or EditTool.DropField:
@@ -1632,6 +1638,7 @@ public sealed partial class PdfWindow
     private void OverlayMove(PageView pv, MouseEventArgs e)
     {
         if (_measure != null && _editing) { MeasureMove(pv, e.GetPosition(pv.Overlay)); return; }
+        if (_drag == DragMode.None && _editing && _selected is TableItem hoveredTable && hoveredTable.Page == pv.Index) TableHover(pv, hoveredTable, e.GetPosition(pv.Overlay));
         if (_drag == DragMode.None && _editing) UpdateGhost(pv, e.GetPosition(pv.Overlay));               // (the placing guide)
         if (_drag == DragMode.None && _editing && _tool == EditTool.EditText) { HoverRun(pv, e.GetPosition(pv.Overlay)); return; }
         if (_drag == DragMode.None && _editing && _tool == EditTool.Paragraph) { HoverParagraph(pv, e.GetPosition(pv.Overlay)); return; }
@@ -1708,6 +1715,9 @@ public sealed partial class PdfWindow
                 RenderItems(pv.Index);
                 break;
             }
+            case DragMode.TableSel or DragMode.TableCol or DragMode.TableRow:
+                TableDrag(pv, p);
+                break;
             case DragMode.Marquee when _marquee != null:
                 _marquee = new Rect(_dragStart, p);
                 RenderItems(pv.Index);
@@ -1892,6 +1902,7 @@ public sealed partial class PdfWindow
 
     private void CloseTextBox(bool commit)
     {
+        CloseCellEditor(commit);
         CloseRunBox();
         if (_textBox == null || _typing == null) { _textBox = null; _typing = null; return; }
         var item = _typing;
@@ -1996,6 +2007,8 @@ public sealed partial class PdfWindow
             if (e.Key == Key.Escape) { CloseTextBox(commit: true); return true; }
             return false;                                                      // (the text box gets every other key)
         }
+        if (_cellBox != null && _cellBox.IsKeyboardFocusWithin) return false;      // (a table cell is being typed in: its own box handles Tab, Enter and Escape)
+        if (_selected is TableItem chosenTable && TableKey(chosenTable, e)) return true;
         if (e.Key == Key.Delete && _strip.IsKeyboardFocusWithin) { DeleteSelectedPages(); return true; }          // (pages chosen at the side)
         bool alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
         if (alt && !ctrl && !shift && Keyboard.FocusedElement is not TextBox)
@@ -2036,7 +2049,6 @@ public sealed partial class PdfWindow
             case Key.Enter when _selected is TextItem t: EditText(t, isNew: false); return true;
             case Key.Enter when _selected is ColumnsItem columns: EditColumns(columns); return true;
             case Key.Enter when _selected is QrItem qr: EditQr(qr); return true;
-            case Key.Enter when _selected is TableItem tableSel: EditTable(tableSel); return true;
             case Key.Enter when _selected is FieldItem fieldSel: EditFieldOptions(fieldSel); return true;
             case Key.Enter when _selected is LinkPick linkSel: EditLink(linkSel); return true;
             case Key.Enter when TryChosenFreeText(out _): EditFreeTextComment(); return true;

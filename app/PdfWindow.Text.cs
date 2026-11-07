@@ -401,6 +401,12 @@ public sealed partial class PdfWindow
             m.Click += (_, _) => action();
             menu.Items.Add(m);
         }
+        if (_editing && _selected is TableItem tableHere && tableHere.Page == pv.Index && tableHere.Hit(p))
+        {
+            if (tableHere.CellAt(p) is { } cellHere && !tableHere.SelAnchors().Contains((cellHere.Row, cellHere.Col))) { tableHere.SetSel(cellHere.Row, cellHere.Col); RenderItems(pv.Index); }
+            AddTableMenu(menu, tableHere);
+            menu.Items.Add(new Separator());
+        }
         bool sel = HasSelection;
         bool itemChosen = _editing && (ChosenItems().Any(Copyable) || _selected is PageObjectItem);
         if (!sel && itemChosen)
