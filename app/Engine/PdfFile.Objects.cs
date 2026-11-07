@@ -173,6 +173,7 @@ public sealed partial class PdfFile
         if (annots.Count > 0) ChangeAnnotations(pageIndex, annots, b => new Rect(b.X + shownDelta.X, b.Y + shownDelta.Y, b.Width, b.Height));
         var objects = ObjectsOf(indices);
         if (objects.Count == 0) return;
+        if (EditPageContent(pageIndex, objects, map => { var delta = map.ToPage(new Point(shownDelta.X, shownDelta.Y)) - map.ToPage(new Point(0, 0)); return new[] { 1, 0, 0, 1, delta.X, delta.Y }; })) return;      // (the page's own instructions changed in place: nothing else is written again)
         ChangeObjects(pageIndex, objects, (map, obj) =>
         {
             var d = map.ToPage(new Point(shownDelta.X, shownDelta.Y)) - map.ToPage(new Point(0, 0));
@@ -192,6 +193,18 @@ public sealed partial class PdfFile
         }
         var objects = ObjectsOf(indices);
         if (objects.Count == 0) return;
+        double[] ScaleMatrix(PageMapping map)
+        {
+            double sx = from.Width < 0.01 ? 1 : to.Width / from.Width, sy = from.Height < 0.01 ? 1 : to.Height / from.Height;
+            Point Image(Point page)
+            {
+                var s = map.ToShown(page);
+                return map.ToPage(new Point(to.X + (s.X - from.X) * sx, to.Y + (s.Y - from.Y) * sy));
+            }
+            Point r0 = Image(new Point(0, 0)), r1 = Image(new Point(1, 0)), r2 = Image(new Point(0, 1));
+            return new[] { r1.X - r0.X, r1.Y - r0.Y, r2.X - r0.X, r2.Y - r0.Y, r0.X, r0.Y };
+        }
+        if (EditPageContent(pageIndex, objects, ScaleMatrix)) return;
         ChangeObjects(pageIndex, objects, (map, obj) =>
         {
             double sx = from.Width < 0.01 ? 1 : to.Width / from.Width, sy = from.Height < 0.01 ? 1 : to.Height / from.Height;
@@ -209,6 +222,7 @@ public sealed partial class PdfFile
     /// <summary>Takes things off the page for good (they are not in the saved file). Comments of the PDF are taken out of its list of comments.</summary>
     public void RemovePageObjects(int pageIndex, IReadOnlyList<int> indices)
     {
+        if (indices.Count > 0 && indices.All(i => !IsAnnotation(i)) && EditPageContent(pageIndex, indices, null)) return;        // (taken out of the page's own instructions: nothing else is written again)
         if (indices.Any(i => !IsAnnotation(i))) BakeTextSpacing();
         lock (Pdfium.Sync)
         {

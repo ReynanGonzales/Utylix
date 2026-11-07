@@ -15,9 +15,9 @@ namespace IdmClone.Engine;
 /// </summary>
 public static class PdfSpacingBake
 {
-    private enum K { Number, Name, String, Array, Operator, Other }
+    internal enum K { Number, Name, String, Array, Operator, Other }
 
-    private sealed class Tok
+    internal sealed class Tok
     {
         public K Kind;
         public int Start, End;
@@ -141,7 +141,7 @@ public static class PdfSpacingBake
     }
 
     // ---------- reading the content ----------
-    private static bool Tokenize(byte[] s, ref int i, List<Tok> toks, bool inArray)
+    internal static bool Tokenize(byte[] s, ref int i, List<Tok> toks, bool inArray)
     {
         int n = s.Length;
         while (i < n)
