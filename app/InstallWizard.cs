@@ -221,9 +221,9 @@ internal static partial class Installer
 
         // ---- page 4: extra downloads ----
         string have = "  -  already on this PC (tick to download it again)";
-        var dYt = Check("Video sites: yt-dlp" + (Tools.HasYtDlp ? have : ""), "SetupYtDlp", !Tools.HasYtDlp, "Downloads videos from YouTube and hundreds of other sites. About 20 MB.");
-        var dFf = Check("Convert, record and merge: ffmpeg" + (Tools.HasFfmpeg ? have : ""), "SetupFfmpeg", !Tools.HasFfmpeg, "Needed for video and music conversion, the screen recorder and best-quality video downloads. About 100 MB.");
-        var dVlc = Check("Video player engine" + (VlcEngine.Find() != null ? have : ""), "SetupVlc", VlcEngine.Find() == null, "The engine that lets the Utylix player play almost any file (the same one VLC is made of). About 80 MB.");
+        var dYt = Check("Video sites: yt-dlp" + (Tools.HasYtDlp ? have : ""), "SetupYtDlp", false, "Downloads videos from YouTube and hundreds of other sites. About 20 MB.");
+        var dFf = Check("Convert, record and merge: ffmpeg" + (Tools.HasFfmpeg ? have : ""), "SetupFfmpeg", false, "Needed for video and music conversion, the screen recorder and best-quality video downloads. About 100 MB.");
+        var dVlc = Check("Video player engine" + (VlcEngine.Find() != null ? have : ""), "SetupVlc", false, "The engine that lets the Utylix player play almost any file (the same one VLC is made of). About 80 MB.");
         var dAi = Check("Background remover: AI model" + (BackgroundRemover.HasModel ? have : ""), "SetupModel", false, "Runs on your PC; nothing is uploaded. About 170 MB, so it is off unless you want it now.");
         var dPawn = Check("Fan control and RAM lighting: the PawnIO driver" + (PawnIoSetup.Installed ? "  -  already on this PC" : ""), "SetupPawnIo", false,
                           PawnIoSetup.Installed ? "Nothing to do: it is installed." : "A free, signed driver (pawnio.eu) that lets Utylix read the temperatures and set the fans and the RAM lights. Installed through Windows' winget; Windows asks for permission. About 2 MB, so it is off unless you want it now.",

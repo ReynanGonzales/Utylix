@@ -28,11 +28,11 @@ public sealed class Config
     [JsonPropertyName("sub_langs")] public string SubLangs { get; set; } = "en";
     [JsonPropertyName("sub_auto")] public bool SubAuto { get; set; } = true;
     /// <summary>Check for a newer yt-dlp now and then and ask before installing it.</summary>
-    [JsonPropertyName("auto_update_ytdlp")] public bool AutoUpdateYtDlp { get; set; } = true;
+    [JsonPropertyName("auto_update_ytdlp")] public bool AutoUpdateYtDlp { get; set; } = false;
     [JsonPropertyName("last_ytdlp_check")] public long LastYtDlpCheck { get; set; }        // unix seconds
     [JsonPropertyName("last_ytdlp_offer")] public string LastYtDlpOffer { get; set; } = ""; // version we already asked about
     /// <summary>Look on GitHub now and then for a newer Utylix and ask before installing it.</summary>
-    [JsonPropertyName("auto_update_app")] public bool AutoUpdateApp { get; set; } = true;
+    [JsonPropertyName("auto_update_app")] public bool AutoUpdateApp { get; set; } = false;
     [JsonPropertyName("last_app_check")] public long LastAppCheck { get; set; }            // unix seconds
     [JsonPropertyName("last_app_offer")] public string LastAppOffer { get; set; } = "";    // version we already asked about
     /// <summary>GitHub access token for a private repository (kept encrypted for this Windows user; "" = none).</summary>
