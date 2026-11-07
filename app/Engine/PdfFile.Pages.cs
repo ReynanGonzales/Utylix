@@ -19,6 +19,12 @@ public sealed partial class PdfFile
         lock (Pdfium.Sync) { ThrowIfClosed(); return PdfTextRuns.Read(_doc, index, includeHidden: true); }
     }
 
+    /// <summary>How many pieces of text of a page can be seen (the hidden words of a scan made searchable are not counted).</summary>
+    public int CountVisibleTextRuns(int index)
+    {
+        lock (Pdfium.Sync) { ThrowIfClosed(); return PdfTextRuns.Read(_doc, index, includeHidden: false).Count; }
+    }
+
     /// <summary>Where the pictures of a page are (as shown, points), without the ones that cover most of the page (a scan or a background).</summary>
     public List<Rect> GetPictureBoxes(int index, double maxShareOfPage = 0.55)
     {

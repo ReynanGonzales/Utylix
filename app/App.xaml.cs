@@ -35,6 +35,40 @@ public partial class App : Application
         EventManager.RegisterClassHandler(typeof(System.Windows.Controls.Primitives.ScrollBar), System.Windows.Controls.ContextMenuService.ContextMenuOpeningEvent,
                                           new System.Windows.Controls.ContextMenuEventHandler((_, args) => args.Handled = true), true);
         if (e.Args.Contains("--selftest")) { Shutdown(SelfTest.Run()); return; }         // (the build checks that the program folder starts)
+        int exportAt = Array.IndexOf(e.Args, "--export-docx");                             // (for checking the Word export from a script: --export-docx in.pdf out.docx)
+        if (exportAt >= 0 && exportAt + 2 < e.Args.Length)
+        {
+            try
+            {
+                using var pdf = PdfFile.Open(e.Args[exportAt + 1], null);
+                var pages = new List<ExportPage>();
+                for (int p = 0; p < pdf.PageCount; p++) pages.Add(PdfExport.Read(pdf, p, null, (0, 0), keepLayout: !e.Args.Contains("--flow")));
+                if (e.Args.Contains("--dump")) File.WriteAllLines(e.Args[exportAt + 2] + ".txt", pages.SelectMany(pg => pg.Runs).Select(r => string.Join(" ", r.Text.Select(ch => ch < 0x80 && ch >= 0x20 ? ch.ToString() : $"<{(int)ch:X}>"))));
+                File.WriteAllBytes(e.Args[exportAt + 2], PdfExport.ToDocx(pages));
+                Shutdown(0);
+            }
+            catch (Exception ex) { File.WriteAllText(e.Args[exportAt + 2] + ".err", ex.ToString()); Shutdown(1); }
+            return;
+        }
+        int renderAt = Array.IndexOf(e.Args, "--render-pdf");                              // (for checking: --render-pdf in.pdf out-prefix  writes out-prefix-1.png ...)
+        if (renderAt >= 0 && renderAt + 2 < e.Args.Length)
+        {
+            try
+            {
+                using var pdf = PdfFile.Open(e.Args[renderAt + 1], null);
+                for (int p = 0; p < pdf.PageCount; p++)
+                {
+                    var size = pdf.PageSize(p);
+                    var bmp = pdf.Render(p, (int)(size.Width * 1.3), (int)(size.Height * 1.3), 0, forScreen: false);
+                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+                    using var fs = File.Create($"{e.Args[renderAt + 2]}-{p + 1}.png"); enc.Save(fs);
+                }
+                Shutdown(0);
+            }
+            catch (Exception ex) { File.WriteAllText(e.Args[renderAt + 2] + ".err", ex.ToString()); Shutdown(1); }
+            return;
+        }
         if (WantsVidEditor(e.Args)) { StartVidEditor(e.Args); return; }                   // UtylixVid.exe: the video editor (App.Vid.cs)
 
         // an unexpected error must never close Utylix (it may be doing your downloads): show a notice and keep a log

@@ -13,7 +13,8 @@ using System.Windows.Media.Imaging;
 namespace IdmClone.Engine;
 
 /// <summary>One page ready to be saved as Word or Excel: its size, its pieces of text, and its pictures (cut out of the page).</summary>
-public sealed record ExportPage(int Index, Size Size, List<PdfTextRun> Runs, List<(Rect Box, byte[] Png)> Pictures);
+/// <param name="Background">Page-layout mode: the page drawn WITHOUT its text (lines, fills, pictures, drawings stay), as a picture to put behind the text; null = text flows.</param>
+public sealed record ExportPage(int Index, Size Size, List<PdfTextRun> Runs, List<(Rect Box, byte[] Png)> Pictures, byte[]? Background = null, string BackgroundExt = "png");
 
 /// <summary>
 /// PDF to Word (.docx) and Excel (.xlsx), written by hand as plain Office files (a zip of XML) on this PC. The text of a page is grouped into
@@ -24,11 +25,30 @@ public static class PdfExport
 {
     // ---------- reading a page ----------
     /// <summary>The text pieces and pictures of one page. <paramref name="ocr"/> = the words read from a picture of the page (for a scan without text).</summary>
-    public static ExportPage Read(PdfFile pdf, int page, IReadOnlyList<OcrWord>? ocr, (int Width, int Height) pixels)
+    /// <param name="keepLayout">Word only: keep the page looking the same (everything but the text goes behind it as a picture, the text stays text where it was).
+    /// A page without visible text of its own (a scan) is still done the other way.</param>
+    public static ExportPage Read(PdfFile pdf, int page, IReadOnlyList<OcrWord>? ocr, (int Width, int Height) pixels, bool keepLayout = false)
     {
         var size = pdf.PageSize(page);
         var runs = pdf.GetAllTextRuns(page);
+        
+        runs = runs.Select(r => r.Text.Any(ch => ch < 0x20 && ch != '\t') ? r with { Text = FixLigatures(r.Text) } : r).ToList();
         if (runs.Count == 0 && ocr is { Count: > 0 }) runs = RunsFromOcr(ocr, size, pixels);
+        else if (keepLayout && pdf.CountVisibleTextRuns(page) == runs.Count)
+        {
+            double dpi = size.Width * size.Height > 1_200_000 ? 110 : 150, k = dpi / 72;
+            var sheet = pdf.RenderWithout(page, Math.Max(1, (int)(size.Width * k)), Math.Max(1, (int)(size.Height * k)), runs.Where(r => r.Turn == 0).Select(r => r.Index).ToList());
+            var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(sheet));
+            using var ms = new MemoryStream(); png.Save(ms);
+            byte[] data = ms.ToArray(); string ext = "png";
+            if (data.Length > 1_200_000)                                  // (a photo: a picture file is much smaller than a PNG)
+            {
+                var jpg = new JpegBitmapEncoder { QualityLevel = 88 }; jpg.Frames.Add(BitmapFrame.Create(sheet));
+                using var js = new MemoryStream(); jpg.Save(js);
+                data = js.ToArray(); ext = "jpeg";
+            }
+            return new ExportPage(page, size, runs.Where(r => r.Turn == 0).ToList(), new(), data, ext);
+        }
         var pictures = new List<(Rect, byte[])>();
         var boxes = pdf.GetPictureBoxes(page);
         if (boxes.Count > 0)
@@ -47,6 +67,22 @@ public static class PdfExport
             }
         }
         return new ExportPage(page, size, runs, pictures);
+    }
+
+    /// <summary>
+    /// Some PDFs write a ligature ("fi") as a character the font has no Unicode for: it comes out as a control character in the middle of a word. Between two letters
+    /// it is "fi" (by far the most common); anywhere else such a character is left out.
+    /// </summary>
+    private static string FixLigatures(string text)
+    {
+        var sb = new StringBuilder(text.Length + 4);
+        for (int i = 0; i < text.Length; i++)
+        {
+            char ch = text[i];
+            if (ch >= 0x20 || ch == '\t') { sb.Append(ch); continue; }
+            if (i > 0 && i + 1 < text.Length && char.IsLetter(text[i - 1]) && char.IsLetter(text[i + 1])) sb.Append("fi");
+        }
+        return sb.ToString();
     }
 
     /// <summary>The words of an OCR read as text pieces: the size is worked out from how tall the words are on the page.</summary>
@@ -382,11 +418,19 @@ public static class PdfExport
     public static byte[] ToDocx(IReadOnlyList<ExportPage> pages)
     {
         var body = new StringBuilder();
-        var media = new List<byte[]>();
+        var media = new List<(byte[] Data, string Ext)>();
         int docPr = 1;
         for (int p = 0; p < pages.Count; p++)
         {
             var page = pages[p];
+            if (page.Background != null)
+            {
+                // the page keeps its look: its picture (without the text) behind, the text in frames where it was
+                media.Add((page.Background, page.BackgroundExt));
+                int bgId = media.Count, bgNum = docPr++;
+                body.Append(LayoutPageXml(page, bgId, bgNum, last: p == pages.Count - 1));
+                continue;
+            }
             var lines = Lines(page.Runs);
             // the margins and the text block are worked out from ALL the lines (the tables included); the tables are then taken out of the running text
             var allLines = lines.ToList();
@@ -417,7 +461,7 @@ public static class PdfExport
             }
             foreach (var (box, png) in page.Pictures)
             {
-                media.Add(png);
+                media.Add((png, "png"));
                 int id = media.Count, num = docPr++;
                 var b = box;
                 items.Add((box.Top, () => PictureXml(id, num, b, left)));
@@ -437,14 +481,14 @@ public static class PdfExport
             "<w:body>" + body + "</w:body></w:document>";
         var rels = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
         rels.Append("<Relationship Id=\"rIdStyles\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>");
-        for (int i = 0; i < media.Count; i++) rels.Append($"<Relationship Id=\"rIdImg{i + 1}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/image{i + 1}.png\"/>");
+        for (int i = 0; i < media.Count; i++) rels.Append($"<Relationship Id=\"rIdImg{i + 1}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/image{i + 1}.{media[i].Ext}\"/>");
         rels.Append("</Relationships>");
 
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
         {
             Add(zip, "[Content_Types].xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
-                "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Default Extension=\"png\" ContentType=\"image/png\"/>" +
+                "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Default Extension=\"png\" ContentType=\"image/png\"/><Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>" +
                 "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>" +
                 "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/></Types>");
             Add(zip, "_rels/.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
@@ -457,11 +501,129 @@ public static class PdfExport
                 "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style></w:styles>");
             for (int i = 0; i < media.Count; i++)
             {
-                var entry = zip.CreateEntry($"word/media/image{i + 1}.png", CompressionLevel.NoCompression);
-                using var s = entry.Open(); s.Write(media[i], 0, media[i].Length);
+                var entry = zip.CreateEntry($"word/media/image{i + 1}.{media[i].Ext}", CompressionLevel.NoCompression);
+                using var s = entry.Open(); s.Write(media[i].Data, 0, media[i].Data.Length);
             }
         }
         return ms.ToArray();
+    }
+
+    // ---------- Word, the page keeps its look ----------
+    /// <summary>A paragraph of the page: lines that stand under each other with the same left edge (or middle, or right edge). It becomes one frame placed on the page.</summary>
+    private sealed class Block
+    {
+        public List<List<Piece>> Lines = new();
+        public List<double> Baselines = new(), Lefts = new(), Rights = new();
+        public double Size;
+        public bool LeftOk = true, CenterOk = true, RightOk = true;
+        public double LastBaseline => Baselines[^1];
+        public double Left => Lefts.Min();
+        public double Right => Rights.Max();
+    }
+
+    private static List<Block> BlocksOf(List<Line> lines)
+    {
+        var blocks = new List<Block>();
+        foreach (var line in lines)
+        {
+            foreach (var cell in CellsOf(line))
+            {
+                double left = cell.Left, right = cell.Right, size = cell.Pieces.Max(p => p.Size), mid = (left + right) / 2;
+                Block? home = null;
+                for (int b = blocks.Count - 1; b >= 0 && home == null; b--)
+                {
+                    var o = blocks[b];
+                    double gap = line.Baseline - o.LastBaseline;
+                    if (gap < 1 || gap > Math.Max(size, o.Size) * 1.7 || Math.Abs(size - o.Size) > Math.Max(size, o.Size) * 0.15) continue;
+                    if (o.Lines.Count >= 2 && Math.Abs(gap - (o.LastBaseline - o.Baselines[0]) / (o.Lines.Count - 1)) > Math.Max(size, o.Size) * 0.4) continue;      // (not the same spacing as the lines above)
+                    bool l = o.LeftOk && Math.Abs(left - o.Lefts[^1]) <= 2, c = o.CenterOk && Math.Abs(mid - (o.Lefts[^1] + o.Rights[^1]) / 2) <= 2 && o.Lines.Count > 0, r = o.RightOk && Math.Abs(right - o.Rights[^1]) <= 2;
+                    if (!(l || c || r)) continue;
+                    o.LeftOk = l; o.CenterOk = c; o.RightOk = r;
+                    home = o;
+                }
+                if (home == null) { home = new Block { Size = size }; blocks.Add(home); }
+                home.Lines.Add(cell.Pieces); home.Baselines.Add(line.Baseline); home.Lefts.Add(left); home.Rights.Add(right); home.Size = Math.Max(home.Size, size);
+            }
+        }
+        return blocks;
+    }
+
+    /// <summary>The text of one line of a block as runs, with a space where the page has a gap between pieces.</summary>
+    private static string LineRuns(List<Piece> pieces, double size)
+    {
+        var sb = new StringBuilder(); Piece? prev = null;
+        foreach (var piece in pieces)
+        {
+            string text = piece.Text;
+            if (prev != null && piece.Left - prev.Right > size * 0.18 && !prev.Text.EndsWith(' ') && !text.StartsWith(' ')) text = " " + text;
+            sb.Append(RunXml(text, piece, false));
+            prev = piece;
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// One page with its look kept: the page without its text is a picture behind everything, anchored to the page; each paragraph of text is a frame placed
+    /// where it stood on the page (frames hold their place however the text round them changes, and the text can still be edited).
+    /// </summary>
+    private static string LayoutPageXml(ExportPage page, int mediaId, int number, bool last)
+    {
+        double pw = page.Size.Width, ph = page.Size.Height;
+        var sb = new StringBuilder();
+        var lines = Lines(page.Runs);
+        // forms often pad a piece of text with spaces to put it in place: the spaces are not text of its own, so its edges are the edges of the letters
+        foreach (var line in lines)
+        {
+            foreach (var piece in line.Pieces)
+            {
+                string t = piece.Text, trimmed = t.Trim();
+                if (trimmed.Length == t.Length || trimmed.Length == 0) continue;
+                piece.Left += (t.Length - t.TrimStart().Length) * piece.Size * 0.27;
+                piece.Right -= (t.Length - t.TrimEnd().Length) * piece.Size * 0.27;
+                piece.Text = trimmed;
+            }
+            line.Pieces.RemoveAll(p => p.Text.Trim().Length == 0);
+        }
+        lines.RemoveAll(l => l.Pieces.Count == 0);
+        foreach (var block in BlocksOf(lines).OrderBy(b => b.Baselines[0]).ThenBy(b => b.Left))
+        {
+            int n = block.Lines.Count;
+            double pitch = n > 1 ? (block.LastBaseline - block.Baselines[0]) / (n - 1) : block.Size * 1.2;
+            double exact = Math.Max(pitch, block.Size * 1.05);
+            string align = n == 1 || block.LeftOk ? "left" : block.CenterOk ? "center" : "right";
+            double left = block.Left, right = block.Right, text = right - left;
+            // (a little wider than the text on the page: another font may be a little wider, and a line must not wrap)
+            double width = text * 1.3 + 12, x;
+            if (align == "left") { x = left; width = Math.Max(text + 2, width); }
+            else if (align == "center") { double mid = (left + right) / 2; width = Math.Min(width, 2 * Math.Min(mid, pw - mid)); x = mid - width / 2; }
+            else { width = Math.Min(width, right); x = right - width; }
+            x = Math.Max(0, x);
+            // Word puts the baseline of a line of an exact height about a fifth of the text size above the bottom of the line
+            double y = block.Baselines[0] - exact + block.Size * 0.23;
+            y = Math.Clamp(y, 0, Math.Max(0, ph - exact * n - 1));
+            sb.Append($"<w:p><w:pPr><w:framePr w:w=\"{Tw(width)}\" w:hSpace=\"0\" w:vSpace=\"0\" w:wrap=\"around\" w:vAnchor=\"page\" w:hAnchor=\"page\" w:x=\"{Tw(x)}\" w:y=\"{Tw(y)}\"/>");
+            sb.Append($"<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"{Tw(exact)}\" w:lineRule=\"exact\"/>");
+            if (align != "left") sb.Append($"<w:jc w:val=\"{align}\"/>");
+            sb.Append("</w:pPr>");
+            for (int i = 0; i < n; i++)
+            {
+                if (i > 0) sb.Append("<w:r><w:br/></w:r>");
+                sb.Append(LineRuns(block.Lines[i], block.Size));
+            }
+            sb.Append("</w:p>");
+        }
+
+        // the paragraph that carries the picture behind the page (and ends the page's section)
+        long cx = (long)(pw * 12700), cy = (long)(ph * 12700);
+        string sect = $"<w:sectPr><w:type w:val=\"nextPage\"/><w:pgSz w:w=\"{Tw(pw)}\" w:h=\"{Tw(ph)}\"/><w:pgMar w:top=\"0\" w:right=\"0\" w:bottom=\"0\" w:left=\"0\" w:header=\"0\" w:footer=\"0\" w:gutter=\"0\"/></w:sectPr>";
+        sb.Append("<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"20\" w:lineRule=\"exact\"/>" + (last ? "" : sect) + "</w:pPr>");
+        sb.Append($"<w:r><w:drawing><wp:anchor distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\" simplePos=\"0\" relativeHeight=\"0\" behindDoc=\"1\" locked=\"1\" layoutInCell=\"1\" allowOverlap=\"1\">" +
+                  $"<wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"page\"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom=\"page\"><wp:posOffset>0</wp:posOffset></wp:positionV>" +
+                  $"<wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/><wp:wrapNone/><wp:docPr id=\"{number}\" name=\"Page {page.Index + 1}\"/><wp:cNvGraphicFramePr/>" +
+                  $"<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic><pic:nvPicPr><pic:cNvPr id=\"{number}\" name=\"page{mediaId}\"/><pic:cNvPicPr/></pic:nvPicPr>" +
+                  $"<pic:blipFill><a:blip r:embed=\"rIdImg{mediaId}\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>");
+        if (last) sb.Append(sect);
+        return sb.ToString();
     }
 
     private static long Tw(double points) => (long)Math.Round(points * 20);
@@ -504,10 +666,42 @@ public static class PdfExport
         return sb.ToString();
     }
 
+    private static HashSet<string>? _installed;
+    private static readonly Dictionary<string, string> Substitutes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The font to write for a PDF's font: its own when this PC has it; otherwise Word would pick some wide font of its own and the lines would grow past the page,
+    /// so a common one of the same kind is named instead (serif, monospaced, or sans).
+    /// </summary>
+    private static string FontFor(string family)
+    {
+        if (family.Length == 0) return "Calibri";
+        lock (Substitutes)
+        {
+            if (Substitutes.TryGetValue(family, out var done)) return done;
+            if (_installed == null)
+            {
+                _installed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                try { foreach (var f in Fonts.SystemFontFamilies) foreach (var n in f.FamilyNames.Values) _installed.Add(n); }
+                catch (Exception e) when (e is InvalidOperationException or IOException or ArgumentException) { }
+            }
+            string result = family;
+            if (_installed.Count > 0 && !_installed.Contains(family))
+            {
+                string l = family.ToLowerInvariant();
+                bool Has(params string[] words) => words.Any(l.Contains);
+                result = Has("courier", "mono", "consolas", "typewriter", "lucida console") ? "Courier New"
+                       : !Has("sans", "gothic", "grotesk") && Has("times", "serif", "georgia", "garamond", "minion", "palatino", "book", "cambria", "century", "caslon", "baskerville", "bodoni", "didot", "roman", "antiqua") ? "Times New Roman"
+                       : "Calibri";
+            }
+            return Substitutes[family] = result;
+        }
+    }
+
     private static string RunXml(string text, Piece look, bool tabBefore)
     {
         var sb = new StringBuilder("<w:r><w:rPr>");
-        string font = Escape(look.Family);
+        string font = Escape(FontFor(look.Family));
         sb.Append($"<w:rFonts w:ascii=\"{font}\" w:hAnsi=\"{font}\" w:cs=\"{font}\"/>");
         if (look.Bold) sb.Append("<w:b/>");
         if (look.Italic) sb.Append("<w:i/>");

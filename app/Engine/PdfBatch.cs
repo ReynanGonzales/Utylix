@@ -93,7 +93,7 @@ public static class PdfBatch
                 using var pdf = PdfFile.Open(path, null);
                 if (pdf.IsProtected && !pdf.CanEdit) return new PdfBatchResult(null, ".docx", "its owner doesn't allow copying text out");
                 var pages = new List<ExportPage>();
-                for (int p = 0; p < pdf.PageCount; p++) { cancel.ThrowIfCancellationRequested(); pages.Add(PdfExport.Read(pdf, p, null, (0, 0))); }
+                for (int p = 0; p < pdf.PageCount; p++) { cancel.ThrowIfCancellationRequested(); pages.Add(PdfExport.Read(pdf, p, null, (0, 0), keepLayout: true)); }
                 int empty = pages.Count(c => c.Runs.Count == 0);
                 return new PdfBatchResult(PdfExport.ToDocx(pages), ".docx", empty > 0 ? $"{empty} page{(empty == 1 ? " has" : "s have")} no text (scans)" : "");
             }

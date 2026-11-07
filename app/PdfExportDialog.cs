@@ -21,7 +21,8 @@ public sealed class PdfExportDialog : Window
     private readonly PdfFile _pdf;
     private readonly string _path;
     private readonly IReadOnlyList<int> _selected;
-    private readonly RadioButton _word, _excel, _all, _chosen, _perPage, _oneSheet;
+    private readonly RadioButton _word, _excel, _all, _chosen, _perPage, _oneSheet, _same, _flows;
+    private readonly StackPanel _wordOptions = new() { Margin = new Thickness(0, 12, 0, 0) };
     private readonly CheckBox _ocr = new() { IsChecked = true, Margin = new Thickness(0, 12, 0, 0) };
     private readonly StackPanel _excelOptions = new() { Margin = new Thickness(0, 12, 0, 0), Visibility = Visibility.Collapsed };
     private readonly ProgressBar _bar = new() { Height = 6, Minimum = 0, Maximum = 1, Margin = new Thickness(0, 14, 0, 0), Visibility = Visibility.Collapsed };
@@ -58,7 +59,19 @@ public sealed class PdfExportDialog : Window
         System.Windows.Automation.AutomationProperties.SetAutomationId(_excel, "PdfExportExcel");
         kinds.Children.Add(_word); kinds.Children.Add(_excel);
         root.Children.Add(kinds);
-        root.Children.Add(new TextBlock { Text = "Word keeps paragraphs, fonts, sizes, bold, italic, colours and pictures. Excel puts each line in a row and lines the pieces up in columns, with numbers as numbers.", Opacity = 0.6, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+        root.Children.Add(new TextBlock { Text = "Excel puts each line in a row and lines the pieces up in columns, with numbers as numbers.", Opacity = 0.6, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+
+        // Word: the page keeps its look (drawings, colours, lines, pictures behind; text in place) or the text flows like a normal document
+        _same = new RadioButton { Content = "Looks the same as the PDF", Style = chip, GroupName = "layout", IsChecked = true };
+        _flows = new RadioButton { Content = "Text flows (easier to edit)", Style = chip, GroupName = "layout" };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(_same, "PdfExportSame");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(_flows, "PdfExportFlows");
+        var looks = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        looks.Children.Add(_same); looks.Children.Add(_flows);
+        _wordOptions.Children.Add(new TextBlock { Text = "In Word", FontWeight = FontWeights.SemiBold });
+        _wordOptions.Children.Add(looks);
+        _wordOptions.Children.Add(new TextBlock { Text = "\"Looks the same\" keeps every page as it is (colours, lines, drawings and pictures sit behind the text, and each paragraph of text stays where it was, still editable). \"Text flows\" makes paragraphs, tables and pictures of a normal Word document: simpler, but drawings and backgrounds are left out.", Opacity = 0.6, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+        root.Children.Add(_wordOptions);
 
         root.Children.Add(new TextBlock { Text = "Pages", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
         var which = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
@@ -78,9 +91,9 @@ public sealed class PdfExportDialog : Window
         _excelOptions.Children.Add(new TextBlock { Text = "Sheets", FontWeight = FontWeights.SemiBold });
         _excelOptions.Children.Add(sheets);
         root.Children.Add(_excelOptions);
-        if (excel) _excelOptions.Visibility = Visibility.Visible;
-        _excel.Checked += (_, _) => _excelOptions.Visibility = Visibility.Visible;
-        _word.Checked += (_, _) => _excelOptions.Visibility = Visibility.Collapsed;
+        if (excel) { _excelOptions.Visibility = Visibility.Visible; _wordOptions.Visibility = Visibility.Collapsed; }
+        _excel.Checked += (_, _) => { _excelOptions.Visibility = Visibility.Visible; _wordOptions.Visibility = Visibility.Collapsed; };
+        _word.Checked += (_, _) => { _excelOptions.Visibility = Visibility.Collapsed; _wordOptions.Visibility = Visibility.Visible; };
 
         // pages without text
         _noText = 0;
@@ -92,7 +105,7 @@ public sealed class PdfExportDialog : Window
             System.Windows.Automation.AutomationProperties.SetAutomationId(_ocr, "PdfExportOcr");
             root.Children.Add(_ocr);
         }
-        root.Children.Add(new TextBlock { Text = "Fonts, columns and pictures come out close, not exactly: a complicated page (text in columns, text round a picture) will be simpler than the PDF. Your PDF is not changed.", Opacity = 0.6, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0) });
+        root.Children.Add(new TextBlock { Text = "Fonts this PC doesn't have are swapped for a similar one, so lines may come out a little wider or narrower. Your PDF is not changed.", Opacity = 0.6, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0) });
         root.Children.Add(_bar);
         root.Children.Add(_status);
         System.Windows.Automation.AutomationProperties.SetAutomationId(_status, "PdfExportStatus");
@@ -125,7 +138,7 @@ public sealed class PdfExportDialog : Window
         if (dlg.ShowDialog(this) != true) return;
         string target = dlg.FileName;
         var pages = _chosen.IsChecked == true ? _selected.OrderBy(i => i).ToList() : Enumerable.Range(0, _pdf.PageCount).ToList();
-        bool oneSheet = _oneSheet.IsChecked == true, useOcr = _noText > 0 && _ocr.IsChecked == true;
+        bool oneSheet = _oneSheet.IsChecked == true, useOcr = _noText > 0 && _ocr.IsChecked == true, keepLayout = word && _same.IsChecked == true;
         var pdf = _pdf;
 
         Windows.Media.Ocr.OcrEngine? engine = null;
@@ -155,7 +168,7 @@ public sealed class PdfExportDialog : Window
                     words = await PdfOcr.ReadAsync(engine, picture); pixels = px;
                 }
                 var ocrWords = words; var pix = pixels;
-                content.Add(await Task.Run(() => PdfExport.Read(pdf, page, ocrWords, pix)));
+                content.Add(await Task.Run(() => PdfExport.Read(pdf, page, ocrWords, pix, keepLayout)));
             }
             _status.Text = "Writing the file…";
             byte[] bytes = await Task.Run(() => word ? PdfExport.ToDocx(content) : PdfExport.ToXlsx(content, oneSheet));
