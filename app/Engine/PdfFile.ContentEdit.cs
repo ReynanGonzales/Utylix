@@ -52,7 +52,12 @@ public sealed partial class PdfFile
             }
             if (content.Length == 0) return false;
             byte[]? edited = PdfContentEditor.Apply(content.ToArray(), count, objectIndices, matrix);
-            if (edited == null) return false;
+            if (edited == null)
+            {
+                try { File.AppendAllText(System.IO.Path.Combine(App.DataDir, "pdf-open.log"), $"{DateTime.Now:s}  in-place edit declined on page {pageIndex + 1}: {PdfContentEditor.LastReason}{Environment.NewLine}"); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                return false;
+            }
 
             var stream = new PdfDictionary(doc);
             stream.CreateStream(edited);

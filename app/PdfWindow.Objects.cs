@@ -73,7 +73,35 @@ public sealed partial class PdfWindow
     private PageObjectItem? PickPageObject(int page, Point p)
     {
         var hit = PageObjects(page).LastOrDefault(o => !IsBackdrop(o, page) && o.Box.Width + o.Box.Height > 1 && HitsObject(o, p));
-        return hit == null ? null : new PageObjectItem { Page = page, Indices = { hit.Index }, Box = hit.Box, Original = hit.Box };
+        if (hit == null) return null;
+        if (hit.Kind == Pdfium.ObjText && !PdfFile.IsAnnotation(hit.Index)) return PickTextLine(page, hit);
+        return new PageObjectItem { Page = page, Indices = { hit.Index }, Box = hit.Box, Original = hit.Box };
+    }
+
+    /// <summary>
+    /// A click on a word picks the whole line it is in (as Nitro and Acrobat do), not just the letter or piece of text drawn there: some PDFs draw every letter on its own.
+    /// The line is the text pieces at the same height that follow each other without a gap wider than a space.
+    /// </summary>
+    private PageObjectItem PickTextLine(int page, PdfPageObject hit)
+    {
+        var texts = PageObjects(page).Where(o => o.Kind == Pdfium.ObjText && !PdfFile.IsAnnotation(o.Index) && o.Box.Width + o.Box.Height > 1 && !IsBackdrop(o, page)).ToList();
+        var line = new List<PdfPageObject> { hit };
+        var box = hit.Box;
+        bool grew = true;
+        while (grew)
+        {
+            grew = false;
+            foreach (var o in texts)
+            {
+                if (line.Contains(o)) continue;
+                double mid = o.Box.Top + o.Box.Height / 2;                              // (a hyphen is much lower than the letters: its middle must lie within the line's height)
+                if (mid < box.Top + 0.15 * box.Height || mid > box.Bottom - 0.15 * box.Height || o.Box.Height > 1.6 * hit.Box.Height) continue;
+                double gap = Math.Max(o.Box.Left - box.Right, box.Left - o.Box.Right);
+                if (gap > 0.6 * hit.Box.Height) continue;
+                line.Add(o); box.Union(o.Box); grew = true;
+            }
+        }
+        return new PageObjectItem { Page = page, Indices = line.Select(o => o.Index).OrderBy(i => i).ToList(), Box = box, Original = box };
     }
 
     /// <summary>The chosen thing when it is exactly one callout (free text comment) of the PDF: its place in the page's comments.</summary>
