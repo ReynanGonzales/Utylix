@@ -47,10 +47,110 @@ public static class PdfMarkWriter
     /// <summary>The words that were under black boxes / blurs in the last <see cref="Apply"/> (read before they were taken out): the save looks for them in bookmarks, comments and form fields too.</summary>
     public static List<string> RedactedWords { get; } = new();
 
+    /// <summary>Why the last <see cref="Apply"/> could not add to the pages in place (for the log); empty when it could.</summary>
+    public static string LastAppendReason { get; private set; } = "";
+
+    /// <summary>
+    /// The way that leaves the page's own instructions alone: what is new is drawn on a page of its own, and that is laid over the real page afterwards (see <see cref="PdfContentMerge"/>);
+    /// changed text is taken out of the page's instructions in place. False (nothing changed) when this page can't be done that way: the caller writes the pages again, as before.
+    /// </summary>
+    private static bool TryAppend(PdfFile pdf, List<PdfMark> all)
+    {
+        LastAppendReason = "";
+        if (all.OfType<PdfRedactMark>().Any()) { LastAppendReason = "redaction"; return false; }
+        if (pdf.IsProtected) { LastAppendReason = "protected"; return false; }
+        var drawing = all.Where(m => m is not PdfAnnotMark).GroupBy(m => m.Page).OrderBy(g => g.Key).ToList();
+        var annots = all.OfType<PdfAnnotMark>().ToList();
+        var jobs = new List<PdfContentMerge.Job>();
+        byte[] bytes;
+        lock (Pdfium.Sync)
+        {
+            IntPtr doc = pdf.Handle;
+            int baseCount = pdf.PageCount;
+            var fonts = new Dictionary<string, IntPtr>();
+            bool ok = false;
+            try
+            {
+                foreach (var group in drawing)
+                {
+                    IntPtr page = Pdfium.FPDF_LoadPage(doc, group.Key);
+                    if (page == IntPtr.Zero) return false;
+                    IntPtr scratch = IntPtr.Zero;
+                    try
+                    {
+                        Pdfium.FPDF_GetPageSizeByIndexF(doc, group.Key, out var size);
+                        var map = new PageMapping(page, size.Width, size.Height);
+                        int count = Pdfium.FPDFPage_CountObjects(page);
+                        scratch = Pdfium.FPDFPage_New(doc, baseCount + jobs.Count, size.Width, size.Height);
+                        if (scratch == IntPtr.Zero) { LastAppendReason = "no scratch page"; return false; }
+                        var deletes = new List<int>(); var moves = new List<(int, double, double)>();
+                        var placed = group.OfType<PdfPlaceTextMark>().ToList();
+                        if (placed.Count > 0) PdfTextRuns.Place(doc, page, map, placed, fonts, scratch);
+                        var changes = group.OfType<PdfReplaceTextMark>().ToList();
+                        if (changes.Count > 0 && !PdfTextRuns.ReplaceOverlay(doc, page, scratch, map, changes, fonts, out deletes, out moves)) { LastAppendReason = "a change that needs the page written again"; return false; }
+                        foreach (var mark in group)
+                        {
+                            switch (mark)
+                            {
+                                case PdfTextMark t: WriteText(doc, scratch, map, t, fonts); break;
+                                case PdfPathMark p: WritePath(scratch, map, p); break;
+                                case PdfImageMark i: WriteImage(doc, scratch, map, i); break;
+                            }
+                        }
+                        if (Pdfium.FPDFPage_GenerateContent(scratch) == 0) { LastAppendReason = "the new drawing couldn't be written"; return false; }
+                        jobs.Add(new PdfContentMerge.Job(group.Key, baseCount + jobs.Count, count, deletes, moves));
+                    }
+                    finally { if (scratch != IntPtr.Zero) Pdfium.FPDF_ClosePage(scratch); Pdfium.FPDF_ClosePage(page); }
+                }
+                bytes = pdf.SaveToBytes();                                // (the pages at the end hold the new drawing)
+                ok = true;
+            }
+            catch (IOException e) { LastAppendReason = e.Message; return false; }
+            finally
+            {
+                foreach (var f in fonts.Values) Pdfium.FPDFFont_Close(f);
+                for (int i = jobs.Count - 1; i >= 0; i--) Pdfium.FPDFPage_Delete(doc, jobs[i].ScratchIndex);      // (the open document is as it was; a better one comes from the merge)
+                if (!ok) { }
+            }
+        }
+        if (jobs.Count > 0)
+        {
+            var merged = PdfContentMerge.Run(bytes, jobs);
+            if (merged == null) { LastAppendReason = PdfContentMerge.LastReason; return false; }
+            pdf.Restore(merged);
+        }
+        if (annots.Count > 0)
+        {
+            lock (Pdfium.Sync)
+            {
+                IntPtr doc = pdf.Handle;
+                foreach (var group in annots.GroupBy(a => a.Page).OrderBy(g => g.Key))
+                {
+                    IntPtr page = Pdfium.FPDF_LoadPage(doc, group.Key);
+                    if (page == IntPtr.Zero) throw new IOException("Page " + (group.Key + 1) + " can't be changed.");
+                    try
+                    {
+                        Pdfium.FPDF_GetPageSizeByIndexF(doc, group.Key, out var size);
+                        var map = new PageMapping(page, size.Width, size.Height);
+                        foreach (var a in group) WriteAnnot(page, map, a);
+                    }
+                    finally { Pdfium.FPDF_ClosePage(page); }
+                }
+            }
+        }
+        pdf.ForgetText();
+        return true;
+    }
+
     public static void Apply(PdfFile pdf, IEnumerable<PdfMark> marks)
     {
         FlattenedPages.Clear(); RedactedWords.Clear();
-        var byPage = marks.GroupBy(m => m.Page).OrderBy(g => g.Key).ToList();
+        var list = marks.ToList();
+        if (list.Count == 0) { pdf.ForgetText(); return; }
+        if (TryAppend(pdf, list)) return;
+        try { File.AppendAllText(System.IO.Path.Combine(App.DataDir, "pdf-open.log"), $"{DateTime.Now:s}  saved the pages the old way (written again): {LastAppendReason}{Environment.NewLine}"); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        var byPage = list.GroupBy(m => m.Page).OrderBy(g => g.Key).ToList();
         if (byPage.Count > 0) pdf.BakeTextSpacing();                   // (PDFium writes a changed page's text out again without its character / word spacing: see PdfSpacingBake)
         lock (Pdfium.Sync)
         {

@@ -35,7 +35,63 @@ public partial class App : Application
         EventManager.RegisterClassHandler(typeof(System.Windows.Controls.Primitives.ScrollBar), System.Windows.Controls.ContextMenuService.ContextMenuOpeningEvent,
                                           new System.Windows.Controls.ContextMenuEventHandler((_, args) => args.Handled = true), true);
         if (e.Args.Contains("--selftest")) { Shutdown(SelfTest.Run()); return; }         // (the build checks that the program folder starts)
-        int exportAt = Array.IndexOf(e.Args, "--export-docx");                             // (for checking the Word export from a script: --export-docx in.pdf out.docx)
+        int editAt = Array.IndexOf(e.Args, "--edit-test");                                 // (for checking text editing: --edit-test in.pdf out-prefix page "old words" "new words")
+        if (editAt >= 0 && editAt + 5 < e.Args.Length)
+        {
+            try
+            {
+                string input = e.Args[editAt + 1], prefix = e.Args[editAt + 2], oldWords = e.Args[editAt + 4], newWords = e.Args[editAt + 5];
+                int pageNo = int.Parse(e.Args[editAt + 3]) - 1;
+                using var pdf = PdfFile.Open(input, null);
+                var size = pdf.PageSize(pageNo);
+                int w = (int)(size.Width * 1.5), h = (int)(size.Height * 1.5);
+                var before = pdf.Render(pageNo, w, h, 0, forScreen: false);
+                var run = pdf.GetTextRuns(pageNo).FirstOrDefault(r => r.Text.Contains(oldWords));
+                if (run == null) { File.WriteAllText(prefix + ".err", "text not found: " + string.Join(" | ", pdf.GetTextRuns(pageNo).Take(40).Select(r => r.Text))); Shutdown(2); return; }
+                string newText = run.Text.Replace(oldWords, newWords);
+                var marks = new List<PdfMark>();
+                if (e.Args.Contains("--move")) marks.Add(new PdfReplaceTextMark(pageNo, run.Index, run.Text, run.Text, 40, 25));       // (only moved)
+                else if (run.Parts == null) marks.Add(new PdfReplaceTextMark(pageNo, run.Index, run.Text, newText));
+                else
+                {
+                    for (int i = 0; i < run.Parts.Count; i++)
+                        marks.Add(i == 0 ? new PdfReplaceTextMark(pageNo, run.Parts[i].Index, run.Parts[i].Text, newText) : new PdfReplaceTextMark(pageNo, run.Parts[i].Index, run.Parts[i].Text, ""));
+                }
+                if (e.Args.Contains("--extras"))                                                  // (also a new text, a see-through highlight and a note, like the editor's tools)
+                {
+                    marks.Add(new PdfTextMark(pageNo, new System.Windows.Point(60, 20), "New text Ñandú ₱", PdfFontKind.Sans, true, 14, System.Windows.Media.Colors.Crimson, 1.2, 0.8));
+                    var rect = new PdfFigure(new System.Windows.Point(60, 60), new[] { PdfSegment.Line(new System.Windows.Point(260, 60)), PdfSegment.Line(new System.Windows.Point(260, 90)), PdfSegment.Line(new System.Windows.Point(60, 90)) }, true);
+                    marks.Add(new PdfPathMark(pageNo, new[] { rect }, null, 1, System.Windows.Media.Color.FromArgb(120, 255, 230, 0), true));
+                    marks.Add(new PdfAnnotMark(pageNo, Pdfium.AnnotText, new[] { new System.Windows.Rect(300, 30, 20, 20) }, System.Windows.Media.Colors.Orange, "a note"));
+                }
+                PdfMarkWriter.Apply(pdf, marks);
+                byte[] saved = pdf.SaveToBytes();
+                File.WriteAllBytes(prefix + ".pdf", saved);
+                using var after = PdfFile.Open(prefix + ".pdf", null);
+                var shot = after.Render(pageNo, w, h, 0, forScreen: false);
+                foreach (var (name, bmp) in new[] { ("before", before), ("after", shot) })
+                {
+                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+                    using var fs = File.Create($"{prefix}-{name}.png"); enc.Save(fs);
+                }
+                // how many pixels changed away from the edited line
+                int stride = w * 4; var a = new byte[stride * h]; var b = new byte[stride * h];
+                before.CopyPixels(a, stride, 0); shot.CopyPixels(b, stride, 0);
+                var box = run.Box; double k = 1.5; int changed = 0, minX = w, minY = h, maxX = 0, maxY = 0;
+                for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                {
+                    if (x >= (box.Left - 20) * k && x <= (box.Right + 60) * k && y >= (box.Top - 6) * k && y <= (box.Bottom + 6) * k) continue;
+                    int o = y * stride + x * 4;
+                    if (Math.Abs(a[o] - b[o]) + Math.Abs(a[o + 1] - b[o + 1]) + Math.Abs(a[o + 2] - b[o + 2]) > 90) { changed++; minX = Math.Min(minX, x); maxX = Math.Max(maxX, x); minY = Math.Min(minY, y); maxY = Math.Max(maxY, y); }
+                }
+                File.WriteAllText(prefix + ".txt", $"edited '{run.Text}' -> '{newText}' ; pixels changed outside the line: {changed} in ({minX},{minY})-({maxX},{maxY}) of {w}x{h}");
+                Shutdown(0);
+            }
+            catch (Exception ex) { File.WriteAllText(e.Args[editAt + 2] + ".err", ex.ToString()); Shutdown(1); }
+            return;
+        }
+        int exportAt = Array.IndexOf(e.Args, "--export-docx");                           // (for checking the Word export from a script: --export-docx in.pdf out.docx)
         if (exportAt >= 0 && exportAt + 2 < e.Args.Length)
         {
             try

@@ -274,8 +274,90 @@ internal static class PdfTextRuns
         finally { if (tp != IntPtr.Zero) Pdfium.FPDFText_ClosePage(tp); }
     }
 
-    /// <summary>Writes new pieces of text that look like existing ones (call under Pdfium.Sync, before <see cref="Replace"/>: the donors must still be there).</summary>
-    public static void Place(IntPtr doc, IntPtr page, PageMapping map, IEnumerable<PdfPlaceTextMark> marks, Dictionary<string, IntPtr> fonts)
+    /// <summary>
+    /// The same changes as <see cref="Replace"/>, but the page is NOT touched: the new text (and the colour behind it) is put on <paramref name="overlay"/> (a page of its own that is
+    /// laid over the real page afterwards), the places of the pieces to take out of the page's own instructions come back in <paramref name="deletes"/>, and text that was only moved
+    /// comes back in <paramref name="moves"/> (page-space offset): it is moved in place, so its spacing and its font stay exactly as they were. False when a change can't be done this way.
+    /// </summary>
+    public static bool ReplaceOverlay(IntPtr doc, IntPtr page, IntPtr overlay, PageMapping map, IEnumerable<PdfReplaceTextMark> marks, Dictionary<string, IntPtr> fonts,
+                                      out List<int> deletes, out List<(int Index, double Dx, double Dy)> moves)
+    {
+        deletes = new List<int>(); moves = new List<(int, double, double)>();
+        IntPtr tp = Pdfium.FPDFText_LoadPage(page);
+        try
+        {
+            Dictionary<IntPtr, HashSet<char>>? letters = null;
+            foreach (var m in marks.OrderBy(x => x.Index))
+            {
+                IntPtr obj = Pdfium.FPDFPage_GetObject(page, m.Index);
+                if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetType(obj) != Pdfium.ObjText || TextOf(obj, tp) != m.OldText)
+                    throw new IOException("Page " + (m.Page + 1) + " isn't as it was when the text was changed. Open the PDF again and redo the change.");
+                string[] lines = m.NewText.Replace("\r\n", "\n").Split('\n');
+                bool hasBackdrop = m.Backdrop is Color && m.BackdropBox is Rect bbx && bbx.Width > 0 && bbx.Height > 0;
+                void Backdrop()
+                {
+                    if (!hasBackdrop) return;
+                    var bc = m.Backdrop!.Value; var bb = m.BackdropBox!.Value;
+                    var p1 = map.ToPage(bb.TopLeft); var p2 = map.ToPage(bb.TopRight); var p3 = map.ToPage(bb.BottomRight); var p4 = map.ToPage(bb.BottomLeft);
+                    IntPtr path = Pdfium.FPDFPageObj_CreateNewPath((float)p1.X, (float)p1.Y);
+                    if (path == IntPtr.Zero) return;
+                    Pdfium.FPDFPath_LineTo(path, (float)p2.X, (float)p2.Y); Pdfium.FPDFPath_LineTo(path, (float)p3.X, (float)p3.Y); Pdfium.FPDFPath_LineTo(path, (float)p4.X, (float)p4.Y);
+                    Pdfium.FPDFPath_Close(path);
+                    Pdfium.FPDFPageObj_SetFillColor(path, bc.R, bc.G, bc.B, bc.A);
+                    Pdfium.FPDFPath_SetDrawMode(path, Pdfium.FillWinding, 0);
+                    Pdfium.FPDFPage_InsertObject(overlay, path);
+                }
+                var origin = map.ToPage(new Point(0, 0)); var step = map.ToPage(new Point(m.Dx, m.Dy));
+                double moveX = step.X - origin.X, moveY = step.Y - origin.Y;
+                if (m.NewText.Trim().Length == 0) { deletes.Add(m.Index); Backdrop(); continue; }
+                bool fontChanged = m.Family != null || m.Bold != null;
+                bool restyled = fontChanged || m.Size != null || m.Color != null;
+                if (lines.Length == 1 && m.NewText == m.OldText && !restyled)
+                {
+                    if (hasBackdrop) return false;                                  // (a colour behind a text that only moved: the old way)
+                    if (moveX != 0 || moveY != 0) moves.Add((m.Index, moveX, moveY));
+                    continue;
+                }
+                IntPtr font = Pdfium.FPDFTextObj_GetFont(obj);
+                letters ??= LettersByFont(page, tp);
+                Pdfium.FPDFPageObj_GetMatrix(obj, out var matrix);
+                Pdfium.FPDFTextObj_GetFontSize(obj, out float fs);
+                Pdfium.FPDFPageObj_GetFillColor(obj, out uint r, out uint g, out uint b, out uint a);
+                bool ownFont = !fontChanged && letters.TryGetValue(font, out var has) && lines.All(l => l.All(c => has!.Contains(c)));
+                IntPtr useFont = font;
+                if (!ownFont)
+                {
+                    var (family, bold, italic) = Describe(font);
+                    useFont = Substitute(doc, m.Family ?? family, m.Bold ?? bold, m.Family == null && italic, m.NewText.Replace("\n", " "), fonts);
+                }
+                double up = Math.Sqrt(matrix.C * matrix.C + matrix.D * matrix.D);
+                double ux = up > 1e-9 ? matrix.C / up : 0, uy = up > 1e-9 ? matrix.D / up : 1;
+                double advance = m.LineAdvance > 0 ? m.LineAdvance : fs * up * 1.2;
+                if (m.Size is double wanted && up > 1e-9) fs = (float)(wanted / up);
+                if (m.Color is Color nc) { r = nc.R; g = nc.G; b = nc.B; a = nc.A; }
+                Backdrop();
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (lines[i].Length == 0) continue;
+                    IntPtr fresh = Pdfium.FPDFPageObj_CreateTextObj(doc, useFont, fs);
+                    if (fresh == IntPtr.Zero) throw new IOException("The changed text couldn't be written.");
+                    Pdfium.FPDFText_SetText(fresh, lines[i]);
+                    Pdfium.FPDFPageObj_SetFillColor(fresh, r, g, b, a);
+                    var line = matrix;
+                    line.E -= (float)(i * advance * ux); line.F -= (float)(i * advance * uy);
+                    Pdfium.FPDFPageObj_SetMatrix(fresh, ref line);
+                    if (moveX != 0 || moveY != 0) Pdfium.FPDFPageObj_Transform(fresh, 1, 0, 0, 1, moveX, moveY);
+                    Pdfium.FPDFPage_InsertObject(overlay, fresh);
+                }
+                deletes.Add(m.Index);
+            }
+            return true;
+        }
+        finally { if (tp != IntPtr.Zero) Pdfium.FPDFText_ClosePage(tp); }
+    }
+
+    /// <summary>Writes new pieces of text that look like existing ones (call under Pdfium.Sync, before <see cref="Replace"/>: the donors must still be there). With <paramref name="overlay"/> they go on that page instead.</summary>
+    public static void Place(IntPtr doc, IntPtr page, PageMapping map, IEnumerable<PdfPlaceTextMark> marks, Dictionary<string, IntPtr> fonts, IntPtr overlay = default)
     {
         IntPtr tp = Pdfium.FPDFText_LoadPage(page);
         try
@@ -307,7 +389,7 @@ internal static class PdfTextRuns
                 var place = matrix;                                  // (the donor's size, slant and direction; only where it starts changes)
                 place.E = (float)at.X; place.F = (float)at.Y;
                 Pdfium.FPDFPageObj_SetMatrix(fresh, ref place);
-                Pdfium.FPDFPage_InsertObject(page, fresh);
+                Pdfium.FPDFPage_InsertObject(overlay != IntPtr.Zero ? overlay : page, fresh);
             }
         }
         finally { if (tp != IntPtr.Zero) Pdfium.FPDFText_ClosePage(tp); }
