@@ -217,13 +217,33 @@ public sealed class PdfSignatureWindow : Window
             BitmapSource s = src;
             double big = Math.Max(s.PixelWidth, s.PixelHeight) / 1600.0;
             if (big > 1) s = new TransformedBitmap(s, new ScaleTransform(1 / big, 1 / big));
-            _picture = Crop(PaperToClear(s));
+            _picture = Crop(HasSeeThrough(s) ? SeeThroughAsIs(s) : PaperToClear(s));
             _picturePreview.Source = _picture;
         }
         catch (Exception e) when (e is IOException or NotSupportedException or FileFormatException or InvalidOperationException or UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.COMException)
         {
             UMessage.Show(this, "Couldn't read that picture: " + e.Message, Title);
         }
+    }
+
+    /// <summary>The picture already has a see-through background (a PNG / GIF / WebP saved without paper): its see-through pixels carry no colour to read paper from.</summary>
+    private static bool HasSeeThrough(BitmapSource s)
+    {
+        var b = new FormatConvertedBitmap(s, PixelFormats.Bgra32, null, 0);
+        int w = b.PixelWidth, h = b.PixelHeight, stride = w * 4;
+        var px = new byte[stride * h];
+        b.CopyPixels(px, stride, 0);
+        long clear = 0;
+        for (int i = 3; i < px.Length; i += 4) if (px[i] < 200) clear++;
+        return clear > (long)w * h / 50;                       // (at least a fiftieth of it is see-through)
+    }
+
+    /// <summary>A see-through picture is used as it is (only turned into plain BGRA).</summary>
+    private static BitmapSource SeeThroughAsIs(BitmapSource s)
+    {
+        var b = new FormatConvertedBitmap(s, PixelFormats.Bgra32, null, 0);
+        b.Freeze();
+        return b;
     }
 
     /// <summary>Light paper becomes see-through, the ink stays (a little darker, so a grey photo still looks like ink).</summary>
