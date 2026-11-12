@@ -74,6 +74,7 @@ public sealed class FanReply
     [JsonPropertyName("armoury")] public string? Armoury { get; set; }         // state of Armoury Crate's lighting service: "running" | "stopped" | "disabled" | "none"
     [JsonPropertyName("sensors")] public List<FanSensor>? Sensors { get; set; }
     [JsonPropertyName("emergency")] public bool Emergency { get; set; }
+    [JsonPropertyName("age")] public int AgeSeconds { get; set; }              // snapshot: how old the reading is (a sensor that is slow to answer makes it grow)
     [JsonPropertyName("note")] public string? Note { get; set; }
 }
 

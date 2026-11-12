@@ -181,24 +181,24 @@ public sealed class ArchiveDragData : System.Runtime.InteropServices.ComTypes.ID
     // ---------- the stream Explorer reads a file from ----------
     private sealed class TempFileStream : IStream
     {
-        private readonly FileStream _file;
+        private readonly FileStream? _file;       // (null when the file could not be opened: the finalizer still runs on that half-made object)
         public TempFileStream(string path) => _file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16);
 
         public void Read(byte[] pv, int cb, IntPtr pcbRead)
         {
-            int n = _file.Read(pv, 0, cb);
+            int n = _file!.Read(pv, 0, cb);
             if (pcbRead != IntPtr.Zero) Marshal.WriteInt32(pcbRead, n);
         }
 
         public void Seek(long dlibMove, int dwOrigin, IntPtr plibNewPosition)
         {
-            long p = _file.Seek(dlibMove, (SeekOrigin)dwOrigin);
+            long p = _file!.Seek(dlibMove, (SeekOrigin)dwOrigin);
             if (plibNewPosition != IntPtr.Zero) Marshal.WriteInt64(plibNewPosition, p);
         }
 
         public void Stat(out STATSTG pstatstg, int grfStatFlag)
         {
-            pstatstg = new STATSTG { type = 2, cbSize = _file.Length, grfMode = 0 };
+            pstatstg = new STATSTG { type = 2, cbSize = _file!.Length, grfMode = 0 };
         }
 
         public void Write(byte[] pv, int cb, IntPtr pcbWritten) => throw new COMException("", E_NOTIMPL);
@@ -209,7 +209,8 @@ public sealed class ArchiveDragData : System.Runtime.InteropServices.ComTypes.ID
         public void LockRegion(long libOffset, long cb, int dwLockType) => throw new COMException("", E_NOTIMPL);
         public void UnlockRegion(long libOffset, long cb, int dwLockType) => throw new COMException("", E_NOTIMPL);
         public void Clone(out IStream ppstm) => throw new COMException("", E_NOTIMPL);
-        ~TempFileStream() { _file.Dispose(); }
+        // A throw in a finalizer ends the whole program: this one did (NullReferenceException when the constructor had failed), and with it Utylix's connection to the fan helper.
+        ~TempFileStream() { try { _file?.Dispose(); } catch (Exception e) when (e is IOException or ObjectDisposedException) { } }
     }
 
     // ---------- starting the drag ----------

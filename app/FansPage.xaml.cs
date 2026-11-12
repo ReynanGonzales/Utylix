@@ -171,6 +171,7 @@ public partial class FansPage : UserControl
     // ---------- losing and finding the helper again ----------
     private DateTime? _lostAt;
     private bool _resuming;
+    private bool _restartedHelper;                       // (once per loss: the helper that does not listen was ended and a new one started)
 
     /// <summary>
     /// The helper stopped answering (a slow reading, the PC waking from sleep, a hiccup): ask for the connection again for up to 45 seconds and send the settings again, so
@@ -185,16 +186,29 @@ public partial class FansPage : UserControl
             if (_lostAt == null) { _lostAt = now; FanClient.Note("lost contact with the fan helper: " + FanSettings.Client.LastError); }
             if ((now - _lostAt.Value).TotalSeconds > 45)
             {
-                _lostAt = null;
+                _lostAt = null; _restartedHelper = false;
                 FanClient.Note("gave up after 45 s");
                 SetOff("Lost contact with the fan helper. Every fan is back under the PC's own control. (The reason is in fan-client.log in Utylix's data folder.)");
                 return;
             }
             StatusText.Text = "Lost contact for a moment: reconnecting to the fan helper… (the PC controls its fans meanwhile)";
-            if (!await FanSettings.Client.ConnectAsync(2500)) return;                 // (the next tick asks again)
-            if (_cards.Count == 0) { _lostAt = null; await FanSettings.Client.StopAsync(); return; }       // (Stop was pressed meanwhile: it stays stopped)
+            if (!await FanSettings.Client.ConnectAsync(2500))
+            {
+                // Still nobody listening after a while: the helper may be alive but stuck (the scheduled task runs only one copy, so a new one can't start while it is there).
+                // End it and start a fresh one, once, instead of waiting for the 45 s to run out. Only where the task is used (not for a helper started with a password prompt).
+                if (!_restartedHelper && (now - _lostAt.Value).TotalSeconds > 12 && FanTask.AccountCanElevate && _settings.AutoStart)
+                {
+                    _restartedHelper = true;
+                    FanClient.Note("the helper does not listen: ending it and starting a new one");
+                    await Task.Run(FanTask.EndStale);
+                    await Task.Delay(1500);
+                    await Task.Run(FanTask.RunNow);
+                }
+                return;                                                                // (the next tick asks again)
+            }
+            if (_cards.Count == 0) { _lostAt = null; _restartedHelper = false; await FanSettings.Client.StopAsync(); return; }       // (Stop was pressed meanwhile: it stays stopped)
             FanClient.Note("reconnected after " + (int)(DateTime.UtcNow - _lostAt.Value).TotalSeconds + " s");
-            _lostAt = null;
+            _lostAt = null; _restartedHelper = false;
             await PushAsync();
         }
         finally { _resuming = false; }
@@ -214,7 +228,7 @@ public partial class FansPage : UserControl
         {
             var reply = await FanSettings.Client.AskAsync(new FanRequest { Cmd = "snapshot" }, 20);        // (a slow reading is waited for: giving up on it would hand every fan back)
             if (reply?.Ok != true || reply.Sensors == null) { if (!_resuming) await ResumeOrGiveUpAsync(); return; }
-            if (_lostAt != null) { _lostAt = null; FanClient.Note("fan control is back"); }
+            if (_lostAt != null) { _lostAt = null; _restartedHelper = false; FanClient.Note("fan control is back"); }
             _sensors = reply.Sensors;
             StartBtn.Visibility = Visibility.Collapsed; StopBtn.Visibility = Visibility.Visible;
             bool readable = _sensors.Any(s => s.Kind is "cpu" or "board");
@@ -223,7 +237,9 @@ public partial class FansPage : UserControl
             Intro.Visibility = readable ? Visibility.Collapsed : Visibility.Visible;
             TempsCard.Visibility = SafetyCard.Visibility = Visibility.Visible;
             TempsTitle.Text = "Temperatures and memory";
-            StatusText.Text = reply.Emergency ? "Too hot: every controlled fan is at 100 %" : "Fan control is on";
+            StatusText.Text = reply.Emergency ? "Too hot: every controlled fan is at 100 %"
+                : reply.AgeSeconds >= 5 ? $"A sensor is slow to answer (the last reading is {reply.AgeSeconds} s old). Fan control carries on by itself when it answers."
+                : "Fan control is on";
             if (reply.Emergency) StatusText.Foreground = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)); else StatusText.Live(TextBlock.ForegroundProperty, "MutedBrush");
             string layout = string.Join("|", _sensors.Where(s => s.Type == "control").Select(s => s.Id)) + "#" + _settings.ShowUnused + "#" + string.Join(",", _sensors.Where(s => s.Type == "fan" && (s.Value ?? 0) > 0).Select(s => s.Id));
             if (layout != _layout) { _layout = layout; Rebuild(); }

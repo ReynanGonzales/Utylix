@@ -298,7 +298,7 @@ public sealed class ApiServer
     /// must never be able to make Utylix reach out to another computer. A server file is looked for a few times (a drive that is reconnecting answers late);
     /// with <paramref name="mustExist"/> false it is accepted anyway and the window that opens it says why it can't be read.
     /// </summary>
-    private static bool UsablePath(string? p, bool fromProgram, bool mustExist = true)
+    private static bool UsablePath([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? p, bool fromProgram, bool mustExist = true)
     {
         if (p == null || p.Length >= 32768 || !Path.IsPathFullyQualified(p)) return false;
         if (!p.StartsWith(@"\\", StringComparison.Ordinal)) return File.Exists(p);

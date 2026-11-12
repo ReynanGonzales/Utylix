@@ -23,16 +23,41 @@ namespace IdmClone;
 /// </summary>
 internal static class FanHelper
 {
-    private static readonly object Gate = new();          // the hardware library is not thread-safe
+    // The hardware library is not thread-safe: ONLY the loop thread reads or drives the hardware, and it holds Gate while it does.
+    private static readonly object Gate = new();
     private static Computer? _computer;
     private static readonly Dictionary<string, (ISensor Sensor, double Last)> Driven = new();   // controls we have taken over
     private static FanConfig _config = new();
-    private static bool _emergency;
+    private static volatile bool _emergency;
     private static long _lastContact = Environment.TickCount64;
     private static volatile bool _quit;
 
+    // What Utylix is told is the latest reading the loop thread made, never a reading made on the spot. A sensor that stalls (a busy graphics card, a driver
+    // that stops answering for 20 seconds) then only makes the numbers old; before, it made Utylix wait, give up and close the pipe, and the helper ended up
+    // alive but listening to nobody (the "fan control always disconnects" of 2026-11).
+    private static volatile List<FanSensor> _snapshot = new();
+    private static long _snapshotAt;                              // Environment.TickCount64 of that reading (0 = none yet)
+    private static FanConfig? _pendingConfig;                     // sent by Utylix, taken over by the loop thread
+    private static volatile bool _revertRequested;
+    private static readonly AutoResetEvent Wake = new(false);
+    private static volatile string _reading = "";                 // the hardware the loop thread is waiting for right now ("" = none), for the log
+    private static long _readingSince;
+    private static long _reportedSince;
+    private static string _lastFailure = "";
+
     public static int Run(string ownerSid)
     {
+        try { return RunCore(ownerSid); }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Log("the helper stopped because of an error: " + e);
+            return 3;
+        }
+    }
+
+    private static int RunCore(string ownerSid)
+    {
+        Log("the helper started");
         try
         {
             _computer = new Computer { IsCpuEnabled = true, IsGpuEnabled = true, IsMotherboardEnabled = true, IsControllerEnabled = true };
@@ -46,30 +71,42 @@ internal static class FanHelper
         AppDomain.CurrentDomain.ProcessExit += (_, _) => RevertAll();
         var worker = new Thread(Loop) { IsBackground = true, Name = "Utylix fan loop" };
         worker.Start();
+        using var watch = new Timer(_ => Watch(), null, 2000, 2000);       // says in the log which sensor a slow reading is waiting for
         try
         {
             while (!_quit)
             {
-                using var server = Create(ownerSid);
-                var wait = server.WaitForConnectionAsync();
-                while (!wait.Wait(1000))
+                try
                 {
-                    if (_quit) return 0;
-                    if (Driven.Count > 0 && Environment.TickCount64 - _lastContact > 10000) { RevertAll(); }
-                    if (Environment.TickCount64 - _lastContact > 60000) return 0;           // nobody came: no reason to keep running
+                    using var server = Create(ownerSid);
+                    var wait = server.WaitForConnectionAsync();
+                    while (!wait.Wait(1000))
+                    {
+                        if (_quit) return 0;
+                        if (Driven.Count > 0 && Environment.TickCount64 - _lastContact > 10000) RequestRevert();
+                        if (Environment.TickCount64 - _lastContact > 60000) return 0;       // nobody came: no reason to keep running
+                    }
+                    _lastContact = Environment.TickCount64;
+                    Serve(server);
                 }
-                _lastContact = Environment.TickCount64;
-                Serve(server);
-                RevertAll();                                                // Utylix went away: hand every fan back
+                catch (Exception e) when (e is IOException or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException or AggregateException)
+                {
+                    // whatever goes wrong with one connection must never end the helper (it would stay alive without a pipe, and the scheduled task would not start another)
+                    Log("the connection failed: " + e.GetType().Name + ": " + e.Message);
+                    Thread.Sleep(500);
+                }
+                RequestRevert();                                            // Utylix went away: hand every fan back
                 if (Environment.TickCount64 - _lastContact > 60000) break;
             }
         }
         finally
         {
             _quit = true;
+            Wake.Set();
             RevertAll();
             try { _computer.Close(); } catch (Exception) { /* ending anyway */ }
             try { _smbus?.Dispose(); } catch (Exception) { /* ending anyway */ }
+            Log("the helper ended");
         }
         return 0;
     }
@@ -84,23 +121,35 @@ internal static class FanHelper
 
     private static void Serve(NamedPipeServerStream pipe)
     {
-        using var reader = new StreamReader(pipe);
-        using var writer = new StreamWriter(pipe) { AutoFlush = true };
-        while (pipe.IsConnected && !_quit)
+        var reader = new StreamReader(pipe);
+        var writer = new StreamWriter(pipe) { AutoFlush = true };
+        try
         {
-            string? line;
-            try { line = reader.ReadLine(); } catch (IOException e) { Log("connection ended: " + e.Message); return; }
-            if (line == null) { Log("Utylix closed the connection"); return; }
-            _lastContact = Environment.TickCount64;
-            FanReply reply;
-            try
+            while (pipe.IsConnected && !_quit)
             {
-                var request = JsonSerializer.Deserialize<FanRequest>(line, FanJson.Options) ?? new FanRequest();
-                reply = Handle(request);
+                string? line;
+                try { line = reader.ReadLine(); } catch (Exception e) when (e is IOException or ObjectDisposedException) { Log("connection ended: " + e.Message); return; }
+                if (line == null) { Log("Utylix closed the connection"); return; }
+                _lastContact = Environment.TickCount64;
+                FanReply reply;
+                try
+                {
+                    var request = JsonSerializer.Deserialize<FanRequest>(line, FanJson.Options) ?? new FanRequest();
+                    reply = Handle(request);
+                }
+                catch (JsonException) { reply = new FanReply { Ok = false, Error = "bad request" }; }
+                catch (Exception e) when (e is not OutOfMemoryException) { Log("a request failed: " + e.GetType().Name + ": " + e.Message); reply = new FanReply { Ok = false, Error = e.Message }; }
+                try { writer.WriteLine(JsonSerializer.Serialize(reply, FanJson.Options)); }
+                catch (Exception e) when (e is IOException or ObjectDisposedException) { Log("could not answer: " + e.Message); return; }
+                if (_quit) return;
             }
-            catch (JsonException) { reply = new FanReply { Ok = false, Error = "bad request" }; }
-            try { writer.WriteLine(JsonSerializer.Serialize(reply, FanJson.Options)); } catch (IOException) { return; }
-            if (_quit) return;
+        }
+        finally
+        {
+            // Closing a pipe whose other end has already gone throws "Pipe is broken" again. That used to leave Serve with an exception, which ended the helper's
+            // main loop: the process stayed alive without a pipe, and the scheduled task ("run only one copy") could not start a new one.
+            try { writer.Dispose(); } catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+            try { reader.Dispose(); } catch (Exception e) when (e is IOException or ObjectDisposedException) { }
         }
     }
 
@@ -108,28 +157,18 @@ internal static class FanHelper
     {
         switch (request.Cmd)
         {
-            case "snapshot":
-            {
-                long started = Environment.TickCount64;
-                FanReply answer;
-                lock (Gate) answer = new FanReply { Ok = true, Sensors = Read(), Emergency = _emergency };
-                long took = Environment.TickCount64 - started;
-                if (took > 2500) Log($"slow reading: the sensors took {took} ms to answer");        // (Utylix waits 20 s; a slow graphics card or board shows up here)
-                return answer;
-            }
+            case "snapshot": return Snapshot();
             case "config":
-                lock (Gate)
-                {
-                    _config = Sanitize(request.Config ?? new FanConfig());
-                    Apply();
-                    return new FanReply { Ok = true, Emergency = _emergency };
-                }
+                Volatile.Write(ref _pendingConfig, Sanitize(request.Config ?? new FanConfig()));       // (the loop thread applies it within a moment)
+                Wake.Set();
+                return new FanReply { Ok = true, Emergency = _emergency };
             case "light-scan": return LightScan();
             case "light-set": return LightSet(request.Look ?? new LightLook());
             case "light-save": return LightSave();
             case "armoury": return Armoury(request.Flag);
             case "quit":
                 _quit = true;
+                Wake.Set();
                 return new FanReply { Ok = true };
             default:
                 return new FanReply { Ok = false, Error = "unknown command" };
@@ -170,12 +209,62 @@ internal static class FanHelper
         return "other";
     }
 
-    private static List<FanSensor> Read()
+    /// <summary>The answer to "snapshot": the latest reading of the loop thread, at once (see the fields at the top).</summary>
+    private static FanReply Snapshot()
+    {
+        long waited = Environment.TickCount64;
+        while (Volatile.Read(ref _snapshotAt) == 0 && Environment.TickCount64 - waited < 8000 && !_quit) Thread.Sleep(50);       // the very first reading is still being made
+        long at = Volatile.Read(ref _snapshotAt);
+        if (at == 0) return new FanReply { Ok = false, Error = "still reading the hardware" };
+        return new FanReply { Ok = true, Sensors = _snapshot, Emergency = _emergency, AgeSeconds = (int)((Environment.TickCount64 - at) / 1000) };
+    }
+
+    /// <summary>Reads every piece of hardware once (each can be slow on its own: the log says which one). Every other function here only looks at these values.</summary>
+    private static readonly long Started = Environment.TickCount64;
+    private static bool _testStalled;                              // (test only: UTYLIX_TEST_STALL_MS = one reading that hangs that long, 5 s after the start)
+
+    private static void UpdateAll()
+    {
+        if (!_testStalled && int.TryParse(Environment.GetEnvironmentVariable("UTYLIX_TEST_STALL_MS"), out int stall) && stall > 0 && Environment.TickCount64 - Started > 5000)
+        {
+            _testStalled = true;
+            _reading = "(test stall)"; Volatile.Write(ref _readingSince, Environment.TickCount64);
+            Thread.Sleep(stall);
+        }
+        List<string>? slow = null;
+        foreach (var h in AllHardware(_computer!.Hardware))
+        {
+            long started = Environment.TickCount64;
+            Volatile.Write(ref _readingSince, started);
+            _reading = h.Name;
+            try { h.Update(); }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                string why = h.Name + ": " + e.GetType().Name + ": " + e.Message;
+                if (why != _lastFailure) { _lastFailure = why; Log("could not read " + why); }
+            }
+            long took = Environment.TickCount64 - started;
+            if (took > 1500) (slow ??= new List<string>()).Add($"{h.Name} {took} ms");
+        }
+        _reading = "";
+        if (slow != null) Log("slow reading: " + string.Join(", ", slow));
+    }
+
+    /// <summary>Runs on a timer: when a reading has been waiting for one sensor for a while, the log says which (the one-line "slow reading" only comes when it is over).</summary>
+    private static void Watch()
+    {
+        string what = _reading;
+        long since = Volatile.Read(ref _readingSince);
+        if (what.Length == 0 || since == 0) return;
+        long waited = Environment.TickCount64 - since;
+        if (waited > 5000 && _reportedSince != since) { _reportedSince = since; Log($"still waiting for {what}: {waited / 1000} s so far"); }
+    }
+
+    private static List<FanSensor> Build()
     {
         var list = new List<FanSensor>();
         foreach (var h in AllHardware(_computer!.Hardware))
         {
-            h.Update();
             foreach (var s in h.Sensors)
             {
                 string type = s.SensorType switch { SensorType.Temperature => "temp", SensorType.Fan => "fan", SensorType.Control => "control", _ => "" };
@@ -200,13 +289,31 @@ internal static class FanHelper
 
     // ------------------------------------------------------------------------------------------ driving
 
+    /// <summary>The one thread that touches the hardware: once a second (or when Utylix sends something) it reads everything, drives the fans and keeps the snapshot.</summary>
     private static void Loop()
     {
         while (!_quit)
         {
-            Thread.Sleep(1000);
-            lock (Gate) { if (_config.Rules.Count > 0) Apply(); }
+            Wake.WaitOne(1000);
+            if (_quit) break;
+            try { lock (Gate) Pass(); }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                string why = "a pass failed: " + e.GetType().Name + ": " + e.Message;
+                if (why != _lastFailure) { _lastFailure = why; Log(why); }
+            }
         }
+    }
+
+    private static void Pass()
+    {
+        if (_revertRequested) { _revertRequested = false; RevertNow(); }              // (before the new settings: a connection that ended must not leave a fan driven)
+        var pending = Interlocked.Exchange(ref _pendingConfig, null);
+        if (pending != null) _config = pending;
+        UpdateAll();
+        if (_config.Rules.Count > 0 || Driven.Count > 0) Apply(); else _emergency = false;
+        _snapshot = Build();
+        Volatile.Write(ref _snapshotAt, Environment.TickCount64);
     }
 
     private static ISensor? Find(string id) =>
@@ -215,8 +322,7 @@ internal static class FanHelper
     private static double? Temp(string id)
     {
         var s = Find(id);
-        s?.Hardware.Update();
-        return s?.Value is float v && !float.IsNaN(v) ? v : null;
+        return s?.Value is float v && !float.IsNaN(v) ? v : null;                      // (UpdateAll has just read it)
     }
 
     private static bool Over(string kind, double limit)
@@ -224,7 +330,6 @@ internal static class FanHelper
         foreach (var h in AllHardware(_computer!.Hardware))
         {
             if (KindOf(h) != kind) continue;
-            h.Update();
             foreach (var s in h.Sensors)
                 if (s.SensorType == SensorType.Temperature && s.Value is float v && !float.IsNaN(v) && v >= limit && s.Name is not null &&
                     (kind == "gpu" ? s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) : s.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) || s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) || s.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase)))
@@ -288,13 +393,26 @@ internal static class FanHelper
         Driven.Remove(id);
     }
 
+    /// <summary>Utylix is gone (or silent): the loop thread hands every fan back on its next turn, and any settings that were still on their way are dropped.</summary>
+    private static void RequestRevert()
+    {
+        Interlocked.Exchange(ref _pendingConfig, null);
+        _revertRequested = true;
+        Wake.Set();
+    }
+
+    /// <summary>Hands every fan back now (the process is ending). It waits at most 3 s for the hardware: if the loop thread is stuck inside a slow sensor, ending must not hang with it.</summary>
     private static void RevertAll()
     {
-        lock (Gate)
-        {
-            foreach (var id in Driven.Keys.ToList()) Release(id);
-            _config = new FanConfig();
-        }
+        if (!Monitor.TryEnter(Gate, 3000)) { Log("could not hand the fans back: the sensors did not answer"); return; }
+        try { RevertNow(); }
+        finally { Monitor.Exit(Gate); }
+    }
+
+    private static void RevertNow()
+    {
+        foreach (var id in Driven.Keys.ToList()) Release(id);
+        _config = new FanConfig();
     }
 
     // ------------------------------------------------------------------------------------------ lights of the RAM

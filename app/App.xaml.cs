@@ -190,7 +190,13 @@ public partial class App : Application
         if (fanHelper >= 0 && fanHelper + 1 < e.Args.Length)
         {
             string owner = e.Args[fanHelper + 1];
-            _ = System.Threading.Tasks.Task.Run(() => { int code = FanHelper.Run(owner); Dispatcher.Invoke(() => Shutdown(code)); });
+            // (whatever happens, the process must END when the helper's loop ends: a helper that stays alive without listening blocks the scheduled task, which runs only one copy)
+            _ = System.Threading.Tasks.Task.Run(() =>
+            {
+                int code;
+                try { code = FanHelper.Run(owner); } catch (Exception) { code = 3; }
+                Dispatcher.Invoke(() => Shutdown(code));
+            });
             return;
         }
 
