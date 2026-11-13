@@ -282,7 +282,64 @@ public partial class PlayerWindow : Window
 
     // ---------- opening ----------
     private static IEnumerable<string> PlayableIn(string folder) =>
-        Directory.EnumerateFiles(folder).Where(PlayerMedia.IsPlayable).OrderBy(f => f, Comparer<string>.Create(StrCmpLogicalW));
+        Directory.EnumerateFiles(folder).Where(f => PlayerMedia.IsPlayable(f) && !IsUnfinishedDownload(f)).OrderBy(f => f, Comparer<string>.Create(EpisodeOrder));
+
+    /// <summary>A file that is still being downloaded ("Show.temp.mp4", "x.part.mp4"): not played as the next one.</summary>
+    private static bool IsUnfinishedDownload(string path)
+    {
+        string name = System.IO.Path.GetFileName(path);
+        return name.Contains(".temp.", StringComparison.OrdinalIgnoreCase) || name.Contains(".part.", StringComparison.OrdinalIgnoreCase) || name.Contains(".tmp.", StringComparison.OrdinalIgnoreCase)
+            || name.Contains(".ytdl", StringComparison.OrdinalIgnoreCase) || name.Contains(".crdownload", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex EpisodeMark = new(@"(?<![A-Za-z])(?:Episode|Ep|E)[ ._-]*0*(\d{1,3})(?!\d)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>The name without its episode mark ("The Rules 2026 E02" -> "The Rules 2026 "), and the episode number (-1 when there is none).</summary>
+    private static (string Show, int Episode) EpisodeOf(string path)
+    {
+        string name = System.IO.Path.GetFileNameWithoutExtension(path);
+        var m = EpisodeMark.Matches(name);
+        if (m.Count == 0) return (name, -1);
+        var last = m[^1];
+        return (name.Remove(last.Index, last.Length), int.Parse(last.Groups[1].Value));
+    }
+
+    /// <summary>Like Explorer's order, but the episodes of one show go by their number: "E02" comes before "Episode 3", and "Episode 1" before both (plain alphabetical order puts "E02" first, then "Episode 1").</summary>
+    private static int EpisodeOrder(string a, string b)
+    {
+        var (showA, epA) = EpisodeOf(a); var (showB, epB) = EpisodeOf(b);
+        if (epA >= 0 && epB >= 0)
+        {
+            int show = StrCmpLogicalW(showA.Trim(), showB.Trim());
+            if (show != 0) return show;
+            if (epA != epB) return epA.CompareTo(epB);
+        }
+        return StrCmpLogicalW(System.IO.Path.GetFileName(a), System.IO.Path.GetFileName(b));
+    }
+
+    private string? _autoFolder;                       // the folder the playlist was made from when ONE file was opened (null = the person chose the files)
+
+    /// <summary>A file opened alone plays on with the others of its folder; files that arrived in the folder since (the next episode finished downloading) are added in their place.</summary>
+    private void RefreshAutoFolder()
+    {
+        if (_autoFolder == null || _index < 0 || _index >= _list.Count || _list[_index].IsUrl) return;
+        try
+        {
+            if (!Directory.Exists(_autoFolder)) return;
+            var now = PlayableIn(_autoFolder).ToList();
+            if (now.Count > 2000) return;
+            var have = _list.Select(i => i.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (now.Count == _list.Count && now.All(have.Contains)) return;
+            string current = _list[_index].Path;
+            int at = now.FindIndex(f => string.Equals(f, current, StringComparison.OrdinalIgnoreCase));
+            if (at < 0) return;
+            _list.Clear();
+            foreach (var f in now) _list.Add(MakeItem(f));
+            _index = at;
+            _list[at].IsCurrent = true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
 
     /// <summary>Replace the playlist and play the first item. One file: the other media files of its folder follow it in the playlist.</summary>
     public void PlayFiles(IEnumerable<string> paths)
@@ -291,6 +348,7 @@ public partial class PlayerWindow : Window
         if (files.Count == 0) return;
         int start = 0;
         _list.Clear();
+        _autoFolder = null;
         if (files.Count == 1 && !IsUrl(files[0]))
         {
             string dir = Path.GetDirectoryName(files[0]) ?? "";
@@ -299,6 +357,7 @@ public partial class PlayerWindow : Window
             {
                 start = Math.Max(0, siblings.FindIndex(f => string.Equals(f, files[0], StringComparison.OrdinalIgnoreCase)));
                 files = siblings;
+                _autoFolder = dir;
             }
         }
         foreach (var f in files) _list.Add(MakeItem(f));
@@ -408,6 +467,7 @@ public partial class PlayerWindow : Window
     {
         if (_index >= 0 && _index < _list.Count && !_list[_index].IsUrl) { _state.Positions.Remove(_list[_index].Path); _state.Save(); }
         if (_repeat == Repeat.One) { PlayIndex(_index); return; }
+        RefreshAutoFolder();                                         // (the next episode may have finished downloading while this one played)
         int next = NextIndex();
         if (next >= 0) PlayIndex(next);
         else StopPlayback();
@@ -435,7 +495,7 @@ public partial class PlayerWindow : Window
         return _repeat == Repeat.All ? 0 : -1;
     }
 
-    private void Next() { int n = NextIndex(); if (n >= 0) PlayIndex(n); else Say("That was the last one."); }
+    private void Next() { RefreshAutoFolder(); int n = NextIndex(); if (n >= 0) PlayIndex(n); else Say("That was the last one."); }
 
     private DateTime _lastPrevious = DateTime.MinValue;
 
