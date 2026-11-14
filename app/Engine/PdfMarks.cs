@@ -98,7 +98,7 @@ public static class PdfMarkWriter
                             }
                         }
                         if (Pdfium.FPDFPage_GenerateContent(scratch) == 0) { LastAppendReason = "the new drawing couldn't be written"; return false; }
-                        jobs.Add(new PdfContentMerge.Job(group.Key, baseCount + jobs.Count, count, deletes, moves));
+                        jobs.Add(new PdfContentMerge.Job(group.Key, baseCount + jobs.Count, count, deletes, moves, size.Width * size.Height));
                     }
                     finally { if (scratch != IntPtr.Zero) Pdfium.FPDF_ClosePage(scratch); Pdfium.FPDF_ClosePage(page); }
                 }

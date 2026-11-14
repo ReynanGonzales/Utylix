@@ -19,11 +19,11 @@ public sealed partial class PdfFile
         if (IsProtected || objectIndices.Count == 0) return false;
         try
         {
-            int count; double[]? matrix = null;
+            int count; double[]? matrix = null; double pageArea = 0;
             lock (Pdfium.Sync)
             {
                 ThrowIfClosed();
-                Pdfium.FPDF_GetPageSizeByIndexF(_doc, pageIndex, out var size);
+                Pdfium.FPDF_GetPageSizeByIndexF(_doc, pageIndex, out var size); pageArea = size.Width * size.Height;
                 IntPtr page = LoadPageOrThrow(pageIndex);
                 try
                 {
@@ -51,7 +51,7 @@ public sealed partial class PdfFile
                 }
             }
             if (content.Length == 0) return false;
-            byte[]? edited = PdfContentEditor.Apply(content.ToArray(), count, objectIndices, matrix);
+            byte[]? edited = PdfContentEditor.Apply(content.ToArray(), count, objectIndices, matrix, pageArea);
             if (edited == null)
             {
                 try { File.AppendAllText(System.IO.Path.Combine(App.DataDir, "pdf-open.log"), $"{DateTime.Now:s}  in-place edit declined on page {pageIndex + 1}: {PdfContentEditor.LastReason}{Environment.NewLine}"); }

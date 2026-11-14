@@ -21,7 +21,7 @@ internal static class PdfContentMerge
     /// <param name="ObjectCount">how many objects PDFium counts on the real page (the instructions must agree)</param>
     /// <param name="Deletes">objects to take out of the page's instructions</param>
     /// <param name="Moves">objects to move in place (offset in page space)</param>
-    public sealed record Job(int PageIndex, int ScratchIndex, int ObjectCount, IReadOnlyList<int> Deletes, IReadOnlyList<(int Index, double Dx, double Dy)> Moves);
+    public sealed record Job(int PageIndex, int ScratchIndex, int ObjectCount, IReadOnlyList<int> Deletes, IReadOnlyList<(int Index, double Dx, double Dy)> Moves, double PageArea = 0);
 
     public static string LastReason { get; private set; } = "";
 
@@ -44,13 +44,13 @@ internal static class PdfContentMerge
                 byte[] content = original;
                 foreach (var move in job.Moves)
                 {
-                    var moved = PdfContentEditor.Apply(content, job.ObjectCount, new[] { move.Index }, new[] { 1, 0, 0, 1, move.Dx, move.Dy });
+                    var moved = PdfContentEditor.Apply(content, job.ObjectCount, new[] { move.Index }, new[] { 1, 0, 0, 1, move.Dx, move.Dy }, job.PageArea);
                     if (moved == null) { LastReason = "a move: " + PdfContentEditor.LastReason; return null; }
                     content = moved;
                 }
                 if (job.Deletes.Count > 0)
                 {
-                    var cut = PdfContentEditor.Apply(content, job.ObjectCount, job.Deletes, null);
+                    var cut = PdfContentEditor.Apply(content, job.ObjectCount, job.Deletes, null, job.PageArea);
                     if (cut == null) { LastReason = "a removal: " + PdfContentEditor.LastReason; return null; }
                     content = cut;
                 }

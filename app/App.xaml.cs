@@ -27,6 +27,8 @@ public partial class App : Application
 
     public static bool IsDarkTheme { get; private set; }
 
+    private static string WriteTemp(byte[] bytes, string prefix) { string path = prefix + ".scan.tmp.pdf"; File.WriteAllBytes(path, bytes); return path; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -35,7 +37,87 @@ public partial class App : Application
         EventManager.RegisterClassHandler(typeof(System.Windows.Controls.Primitives.ScrollBar), System.Windows.Controls.ContextMenuService.ContextMenuOpeningEvent,
                                           new System.Windows.Controls.ContextMenuEventHandler((_, args) => args.Handled = true), true);
         if (e.Args.Contains("--selftest")) { Shutdown(SelfTest.Run()); return; }         // (the build checks that the program folder starts)
-        int editAt = Array.IndexOf(e.Args, "--edit-test");                                 // (for checking text editing: --edit-test in.pdf out-prefix page "old words" "new words")
+        int dumpAt = Array.IndexOf(e.Args, "--dump-content");                              // (for checking: --dump-content in.pdf out.txt page)
+        if (dumpAt >= 0 && dumpAt + 3 < e.Args.Length)
+        {
+            try
+            {
+                using var ms = new MemoryStream(File.ReadAllBytes(e.Args[dumpAt + 1]));
+                var doc = PdfSharp.Pdf.IO.PdfReader.Open(ms, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
+                var page = doc.Pages[int.Parse(e.Args[dumpAt + 3]) - 1];
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < page.Contents.Elements.Count; i++)
+                    if (page.Contents.Elements[i] is PdfSharp.Pdf.Advanced.PdfReference r && r.Value is PdfSharp.Pdf.PdfDictionary d && d.Stream != null) sb.AppendLine(System.Text.Encoding.Latin1.GetString(d.Stream.UnfilteredValue)).AppendLine("%%%% next stream");
+                File.WriteAllText(e.Args[dumpAt + 2], sb.ToString(), System.Text.Encoding.Latin1);
+                Shutdown(0);
+            }
+            catch (Exception ex) { File.WriteAllText(e.Args[dumpAt + 2] + ".err", ex.ToString()); Shutdown(1); }
+            return;
+        }
+        int moveAt = Array.IndexOf(e.Args, "--move-pic");                                 // (for checking: --move-pic in.pdf out-prefix page [object-number] [dx dy]  moves a picture and writes before / after pictures)
+        if (moveAt >= 0 && moveAt + 3 < e.Args.Length)
+        {
+            try
+            {
+                string input = e.Args[moveAt + 1], prefix = e.Args[moveAt + 2];
+                int pageNo = int.Parse(e.Args[moveAt + 3]) - 1;
+                using var pdf = PdfFile.Open(input, null);
+                var size = pdf.PageSize(pageNo);
+                int w = (int)(size.Width * 1.5), h = (int)(size.Height * 1.5);
+                var before = pdf.Render(pageNo, w, h, 0, forScreen: false);
+                var objects = pdf.GetPageObjects(pageNo);
+                File.WriteAllLines(prefix + ".objects.txt", objects.Select(o => $"{o.Index}\tkind={o.Kind}\t{o.Box.X:0.#},{o.Box.Y:0.#} {o.Box.Width:0.#}x{o.Box.Height:0.#}\thollow={o.Hollow}"));
+                if (e.Args.Contains("--scan"))                                               // every picture of the page in turn: how much changes away from the picture's old and new place
+                {
+                    var lines = new List<string>();
+                    foreach (var o in objects.Where(o => o.Kind == Pdfium.ObjImage).Take(40))
+                    {
+                        using var copy = PdfFile.Open(input, null);
+                        copy.MovePageObjects(pageNo, new[] { o.Index }, new System.Windows.Vector(70, 50));
+                        using var re = PdfFile.Open(copy.SaveToBytes() is var by ? WriteTemp(by, prefix) : prefix, null);
+                        var s2 = re.Render(pageNo, w, h, 0, forScreen: false);
+                        int stride = w * 4; var a = new byte[stride * h]; var b = new byte[stride * h];
+                        before.CopyPixels(a, stride, 0); s2.CopyPixels(b, stride, 0);
+                        var r1 = new System.Windows.Rect(o.Box.X, o.Box.Y, o.Box.Width, o.Box.Height); var r2 = new System.Windows.Rect(o.Box.X + 70, o.Box.Y + 50, o.Box.Width, o.Box.Height);
+                        int changed = 0;
+                        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                        {
+                            double px = x / 1.5, py = y / 1.5;
+                            if (r1.Contains(new System.Windows.Point(px, py)) || r2.Contains(new System.Windows.Point(px, py))) continue;
+                            int q = y * stride + x * 4;
+                            if (Math.Abs(a[q] - b[q]) + Math.Abs(a[q + 1] - b[q + 1]) + Math.Abs(a[q + 2] - b[q + 2]) > 90) changed++;
+                        }
+                        lines.Add($"object {o.Index} box {o.Box.X:0},{o.Box.Y:0} {o.Box.Width:0}x{o.Box.Height:0}: {changed} pixels changed outside its old and new place");
+                    }
+                    File.WriteAllLines(prefix + ".scan.txt", lines);
+                    Shutdown(0); return;
+                }
+                int want = e.Args.Length > moveAt + 4 && int.TryParse(e.Args[moveAt + 4], out int n) ? n : objects.First(o => o.Kind == Pdfium.ObjImage).Index;
+                double dx = e.Args.Length > moveAt + 5 ? double.Parse(e.Args[moveAt + 5]) : 80, dy = e.Args.Length > moveAt + 6 ? double.Parse(e.Args[moveAt + 6]) : 60;
+                if (e.Args.Contains("--backdrop"))                                           // a colour behind the picture first, as the editor's Background button does, then the pair moves together
+                {
+                    int now = pdf.AddPictureBackdrop(pageNo, want, System.Windows.Media.Colors.Red);
+                    pdf.MovePageObjects(pageNo, new[] { now, now - 1 }, new System.Windows.Vector(dx, dy));
+                    File.WriteAllText(prefix + ".backdrop.txt", $"picture is now object {now}");
+                }
+                else
+                pdf.MovePageObjects(pageNo, new[] { want }, new System.Windows.Vector(dx, dy));
+                byte[] saved = pdf.SaveToBytes();
+                File.WriteAllBytes(prefix + ".pdf", saved);
+                using var after = PdfFile.Open(prefix + ".pdf", null);
+                var shot = after.Render(pageNo, w, h, 0, forScreen: false);
+                foreach (var (name, bmp) in new[] { ("before", before), ("after", shot) })
+                {
+                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+                    using var fs = File.Create($"{prefix}-{name}.png"); enc.Save(fs);
+                }
+                Shutdown(0);
+            }
+            catch (Exception ex) { File.WriteAllText(e.Args[moveAt + 2] + ".err", ex.ToString()); Shutdown(1); }
+            return;
+        }
+        int editAt = Array.IndexOf(e.Args, "--edit-test");                                // (for checking text editing: --edit-test in.pdf out-prefix page "old words" "new words")
         if (editAt >= 0 && editAt + 5 < e.Args.Length)
         {
             try

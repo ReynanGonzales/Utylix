@@ -30,6 +30,7 @@ internal static class PdfContentEditor
     {
         public int FirstOp, Op;                       // the first instruction of it (a path's first segment) and its painting instruction
         public bool Text, Unsafe;
+        public int ClipOuter = -1;                    // the q (its instruction number) of the outermost frame round it that has a clipping path of its own; -2 = a clipping path outside any q; -1 = none
         public double[] Ctm = Identity();             // the drawing matrix where it starts
         public int BlockOpen = -1, BlockClose = -1;   // the q and Q round it, when it is the only thing in them
         public double[] BlockCtm = Identity();
@@ -71,7 +72,7 @@ internal static class PdfContentEditor
     /// <param name="indices">the objects (PDFium's numbers) to change</param>
     /// <param name="matrix">where things go, in page coordinates, as a PDF matrix a b c d e f; null = take them away</param>
     /// <returns>the new instructions, or null when it can't be done safely (nothing is changed then)</returns>
-    public static byte[]? Apply(byte[] content, int objectCount, IReadOnlyList<int> indices, double[]? matrix)
+    public static byte[]? Apply(byte[] content, int objectCount, IReadOnlyList<int> indices, double[]? matrix, double pageArea = 0)
     {
         LastReason = "";
         var toks = new List<PdfSpacingBake.Tok>();
@@ -99,6 +100,23 @@ internal static class PdfContentEditor
         var stack = new Stack<(double[] Ctm, int Open, int Units)>();
         int pathStart = -1; bool clip = false, inText = false; int btOp = -1, unitsAtBt = 0; double[] btCtm = Identity();
         double[] tlm = Identity(); double leading = 0; bool positioned = false; Unit? lastShow = null;
+        // clipping paths: a picture drawn as "q <box> re W n q <matrix> cm /Im Do Q Q" is clipped to its box; moving only the inner q would leave the box behind and cut the picture off.
+        // Each frame (q) that has a clipping path of its own is remembered; a clip that covers (nearly) the whole page is not one that matters.
+        var clipOpens = new List<int>(); bool topClip = false;
+        double[]? pathRect = null; int pathOps = 0;
+        int ClipNow() => clipOpens.Count > 0 ? clipOpens.Min() : topClip ? -2 : -1;
+        void InstallClip()
+        {
+            if (pageArea > 0 && pathRect != null && pathOps == 1)
+            {
+                var a = new[] { pathRect[0], pathRect[1], 1.0 }; var b = new[] { pathRect[0] + pathRect[2], pathRect[1] + pathRect[3], 1.0 };
+                double x0 = a[0] * ctm[0] + a[1] * ctm[2] + ctm[4], y0 = a[0] * ctm[1] + a[1] * ctm[3] + ctm[5];
+                double x1 = b[0] * ctm[0] + b[1] * ctm[2] + ctm[4], y1 = b[0] * ctm[1] + b[1] * ctm[3] + ctm[5];
+                if (Math.Abs((x1 - x0) * (y1 - y0)) >= pageArea * 0.8) return;                 // (a page-wide clip: nothing is cut off by it)
+            }
+            if (stack.Count > 0) { int open = stack.Peek().Open; if (!clipOpens.Contains(open)) clipOpens.Add(open); }
+            else topClip = true;
+        }
         for (int i = 0; i < ops.Count; i++)
         {
             var op = ops[i];
@@ -110,7 +128,9 @@ internal static class PdfContentEditor
                     {
                         var f = stack.Pop();
                         ctm = f.Ctm;
-                        if (units.Count - f.Units == 1 && units[f.Units].BlockOpen < 0) { var only = units[f.Units]; only.BlockOpen = f.Open; only.BlockClose = i; only.BlockCtm = f.Ctm; }
+                        clipOpens.Remove(f.Open);
+                        // (the outermost frame that holds only this thing wins: the clip of a picture sits in the frame round its own q)
+                        if (units.Count - f.Units == 1) { var only = units[f.Units]; only.BlockOpen = f.Open; only.BlockClose = i; only.BlockCtm = f.Ctm; }
                     }
                     break;
                 case "cm":
@@ -119,9 +139,10 @@ internal static class PdfContentEditor
                     break;
                 case "m": case "l": case "c": case "v": case "y": case "h": case "re":
                     if (pathStart < 0) pathStart = i;
+                    pathOps++; pathRect = op.Name == "re" && op.Nums.Count == 4 && pathOps == 1 ? op.Nums.ToArray() : null;
                     break;
                 case "W": case "W*": clip = true; break;
-                case "n": pathStart = -1; clip = false; break;
+                case "n": if (clip) InstallClip(); pathStart = -1; clip = false; pathRect = null; pathOps = 0; break;
                 case "BT": inText = true; btOp = i; unitsAtBt = units.Count; btCtm = ctm; tlm = Identity(); positioned = true; lastShow = null; break;
                 case "Tm": if (op.Nums.Count == 6) tlm = op.Nums.ToArray(); positioned = true; break;
                 case "Td": if (op.Nums.Count == 2) tlm = Mul(new[] { 1, 0, 0, 1, op.Nums[0], op.Nums[1] }, tlm); positioned = true; break;
@@ -145,19 +166,20 @@ internal static class PdfContentEditor
                     {
                         bool own = op.Name is "'" or "\"";                               // (these two move to the next line themselves)
                         if (own) tlm = Mul(new[] { 1, 0, 0, 1, 0, -leading }, tlm);
-                        var unit = new Unit { FirstOp = i, Op = i, Text = true, Ctm = ctm, InBt = true, BtIndex = btOp, ShowTlm = tlm, FirstOnLine = own || positioned };
+                        var unit = new Unit { FirstOp = i, Op = i, Text = true, Ctm = ctm, InBt = true, BtIndex = btOp, ShowTlm = tlm, FirstOnLine = own || positioned, ClipOuter = ClipNow() };
                         if (lastShow != null) lastShow.NextPositioned = own || positioned;
                         units.Add(unit); lastShow = unit; positioned = false;
                     }
                     break;
                 case "Do": case "sh": case "BI":
-                    units.Add(new Unit { FirstOp = i, Op = i, Ctm = ctm });
+                    units.Add(new Unit { FirstOp = i, Op = i, Ctm = ctm, ClipOuter = ClipNow() });
                     break;
                 default:
                     if (IsPaint(op.Name))
                     {
-                        units.Add(new Unit { FirstOp = pathStart < 0 ? i : pathStart, Op = i, Ctm = ctm, Unsafe = clip });
-                        pathStart = -1; clip = false;
+                        units.Add(new Unit { FirstOp = pathStart < 0 ? i : pathStart, Op = i, Ctm = ctm, Unsafe = clip, ClipOuter = ClipNow() });
+                        if (clip) InstallClip();
+                        pathStart = -1; clip = false; pathRect = null; pathOps = 0;
                     }
                     break;
             }
@@ -172,6 +194,7 @@ internal static class PdfContentEditor
             if (index < 0 || index >= units.Count) return No("an object number out of range");
             var u = units[index];
             if (u.Unsafe) return No("a thing drawn together with a clipping path");
+            if (u.ClipOuter == -2 || (u.ClipOuter >= 0 && !(u.BlockOpen >= 0 && u.BlockOpen <= u.ClipOuter))) return No("a clipping path that would stay where the thing was");
             var edits = new List<Edit>();
             int start, end;
             if (u.BlockOpen >= 0)
