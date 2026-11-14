@@ -101,7 +101,8 @@ public sealed partial class PdfWindow
         /// <summary>How far the line is turned on the page as shown (degrees clockwise): 0, 90 (reads downward), 180 or 270 (reads upward).</summary>
         public double TurnDegrees => Run.Turn * 90;
         /// <summary>Where the line is now (moved, and taller when it has more lines).</summary>
-        private Rect Moved => new(Run.Box.X + Offset.X, Run.Box.Y + Offset.Y, Math.Max(Run.Box.Width, 4), Run.Box.Height + (LineCount - 1) * LineAdvance);
+        // (the frame of the line as it is now: as wide as the person made it when the frame was dragged, and as tall as its lines)
+        private Rect Moved => new(Run.Box.X + Offset.X, Run.Box.Y + Offset.Y, WrapSet && WrapRight > 0 && Run.Turn == 0 ? Math.Max(10, WrapRight - Run.Box.X - Offset.X + 2) : Math.Max(Run.Box.Width, 4), Run.Box.Height + (LineCount - 1) * LineAdvance);
         public override Rect Bounds => Moved;
         public override bool Hit(Point p) => Inflate(Moved, 1).Contains(p);
         public override EditItem Clone() => (RunEditItem)MemberwiseClone();
