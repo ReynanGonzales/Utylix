@@ -359,7 +359,9 @@ public sealed partial class PdfWindow
         if (item.WrapRight > 0 && run.Turn == 0)
         {
             box.TextWrapping = TextWrapping.Wrap;                       // (words that pass the right edge of the block go to the next line, as they will in the PDF)
-            box.Width = Math.Max(run.Box.Width + 4, item.WrapRight - (run.Baseline.X + item.Offset.X) + 4);
+            double room = item.WrapRight - (run.Baseline.X + item.Offset.X) + 4;
+            box.Width = item.WrapSet ? Math.Max(10, room) : Math.Max(run.Box.Width + 4, room);          // (a frame the person made narrower stays narrower when the line is opened again)
+            if (item.WrapSet) box.MinWidth = 10;
         }
         System.Windows.Automation.AutomationProperties.SetAutomationId(box, "PdfRunBox");
         Canvas.SetLeft(box, run.Baseline.X + item.Offset.X - 2); Canvas.SetTop(box, item.Top + item.Offset.Y);
@@ -386,7 +388,7 @@ public sealed partial class PdfWindow
         ApplySpacingToBox();
         RenderItems(item.Page);
         UpdateEditButtons(); UpdateProperties();
-        Dispatcher.BeginInvoke(() => { box.Focus(); box.SelectAll(); }, System.Windows.Threading.DispatcherPriority.Input);
+        Dispatcher.BeginInvoke(() => { box.Focus(); box.SelectAll(); if (_runBox == box) RenderItems(item.Page); }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
     /// <summary>The font, bold, size or colour of the line being typed changed: the box and the line behind it follow.</summary>
@@ -433,7 +435,8 @@ public sealed partial class PdfWindow
     {
         if (_runBox == null || _runTyping == null || _runTyping.WrapRight <= 0 || _runTyping.Run.Turn != 0) return Rect.Empty;
         double left = Canvas.GetLeft(_runBox), top = Canvas.GetTop(_runBox);
-        double h = _runBox.ActualHeight > 0 ? _runBox.ActualHeight : _runTyping.EffSize * 1.3;
+        // (the height from the number of lines the words wrap into: the box is not measured yet right after it is opened)
+        double h = Math.Max(_runBox.ActualHeight, _runTyping.Bounds.Height);
         double right = Math.Max(_runTyping.WrapRight + 2, left + Math.Max(_runBox.ActualWidth, 20));
         return new Rect(left - 3, top - 3, right - left + 6, h + 6);
     }
