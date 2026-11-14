@@ -142,9 +142,23 @@ public sealed partial class PdfWindow
             return list;
         }
 
+        /// <summary>Only what hides the old words where they were (drawn under the typing box: a narrower box must not let the end of the old line show).</summary>
+        public FrameworkElement BuildCover()
+        {
+            var canvas = new Canvas { IsHitTestVisible = false };
+            AddCover(canvas);
+            return canvas;
+        }
+
         public override FrameworkElement Build()
         {
             var canvas = new Canvas();
+            AddCover(canvas);
+            return BuildRest(canvas);
+        }
+
+        private void AddCover(Canvas canvas)
+        {
             if (CoverPicture != null)
             {
                 var clean = new Image { Source = CoverPicture, Width = CoverArea.Width, Height = CoverArea.Height, Stretch = Stretch.Fill };      // (hides the original where it was: the page itself without the old words)
@@ -158,6 +172,10 @@ public sealed partial class PdfWindow
                 Canvas.SetLeft(cover, Run.Box.X - 0.6); Canvas.SetTop(cover, Run.Box.Y - 0.6);
                 canvas.Children.Add(cover);
             }
+        }
+
+        private FrameworkElement BuildRest(Canvas canvas)
+        {
             if (BackColor is Color back)
             {
                 var b = BackBox;
@@ -462,7 +480,7 @@ public sealed partial class PdfWindow
     private void RenderRunExtras(int page, Canvas overlay)
     {
         if (_fieldEditor != null && _fieldEditing?.Page == page && _fieldEditor.Parent == null) overlay.Children.Add(_fieldEditor);
-        if (_runBox != null && _runTyping?.Page == page) overlay.Children.Add(_runBox);
+        if (_runBox != null && _runTyping?.Page == page) { overlay.Children.Add(_runTyping.BuildCover()); overlay.Children.Add(_runBox); }      // (the old words are hidden under the box, however narrow it is)
         if (_runBox != null && _runTyping?.Page == page && RunFrame() is { IsEmpty: false } box)
         {
             // like a text box in Word: a frame round the text with squares on its right edge; dragging a square makes the text block wider or narrower and the words flow again
