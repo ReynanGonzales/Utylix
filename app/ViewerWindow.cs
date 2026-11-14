@@ -252,7 +252,8 @@ public sealed class ViewerWindow : Window
 
         // ---- context menu ----
         var menu = new ContextMenu();
-        void Item(string text, Action a) { var m = new MenuItem { Header = text }; m.Click += (_, _) => a(); menu.Items.Add(m); }
+        void Item(string text, Action a) { var m = new MenuItem { Header = text, Style = (Style)Application.Current.FindResource("ThemedMenuItem") }; m.Click += (_, _) => a(); menu.Items.Add(m); }
+        menu.Style = (Style)Application.Current.FindResource("ThemedMenu");          // (the dark window gives a stock menu white text on its light background: unreadable)
         Item("Copy", CopyPicture); Item("Show in its folder", ShowInFolder); Item("Rotate right", () => Rotate(90)); Item("Rotate left", () => Rotate(-90));
         Item("Move to the Recycle Bin", DeleteCurrent);
         _stage.ContextMenu = menu;

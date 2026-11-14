@@ -45,11 +45,16 @@ public partial class SnipWindow : Window
     private bool _busy;
     private CancellationTokenSource? _cts;
     private CaptureOverlay? _overlay;
+    private readonly System.Windows.Threading.DispatcherTimer _autoCopy = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private bool _loadingPicture;                               // (a new picture clears the marks: that is not an edit)
     private Int32Rect? _placeAt;                                // where on the screen the last snip was taken: the window opens there
 
     private SnipWindow(Manager manager)
     {
         InitializeComponent();
+        // every change of the marks (a stroke drawn, erased, undone) puts the picture with its marks on the clipboard again, a moment after the last change
+        _autoCopy.Tick += (_, _) => { _autoCopy.Stop(); if (_image != null) TryCopyImage(Composite(), quiet: true); };
+        Ink.Strokes.StrokesChanged += (_, _) => { if (_image == null || _loadingPicture) return; _autoCopy.Stop(); _autoCopy.Start(); };
         WindowTheme.DarkTitleBar(this);
         _manager = manager;
         foreach (var (name, hex) in Colors)
@@ -229,7 +234,7 @@ public partial class SnipWindow : Window
         Preview.Margin = new Thickness(Margin);
         Surface.Width = image.PixelWidth + 2 * Margin;
         Surface.Height = image.PixelHeight + 2 * Margin;
-        Ink.Strokes.Clear();
+        _loadingPicture = true; try { Ink.Strokes.Clear(); } finally { _loadingPicture = false; _autoCopy.Stop(); }
         Message.Visibility = Visibility.Collapsed;
         PictureHost.Visibility = Visibility.Visible;
         EditBar.Visibility = Visibility.Visible;
@@ -333,14 +338,14 @@ public partial class SnipWindow : Window
         if (TryCopyImage(Composite())) App.Notify("Copied", "The picture is on the clipboard.", null);
     }
 
-    private static bool TryCopyImage(BitmapSource picture)
+    private static bool TryCopyImage(BitmapSource picture, bool quiet = false)
     {
         for (int attempt = 0; attempt < 5; attempt++)
         {
             try { Clipboard.SetImage(picture); return true; }
             catch (System.Runtime.InteropServices.COMException) { Thread.Sleep(80); }    // another program has the clipboard for a moment
         }
-        App.Notify("Couldn't copy", "Another program is using the clipboard. Try again.", null);
+        if (!quiet) App.Notify("Couldn't copy", "Another program is using the clipboard. Try again.", null);
         return false;
     }
 
