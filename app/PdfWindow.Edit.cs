@@ -37,6 +37,8 @@ public sealed partial class PdfWindow
         public abstract void MoveBy(Vector d);
         public abstract void ResizeTo(Rect r);
         public virtual bool KeepAspect => false;
+        /// <summary>A second square in the middle of the right edge: dragging it changes only the width (text blocks).</summary>
+        public virtual bool EdgeHandle => false;
         /// <summary>Items that can be turned (stamps): the angle in degrees, clockwise, around the middle of <see cref="Bounds"/>.</summary>
         public virtual bool CanRotate => false;
         public virtual double Angle => 0;
@@ -1376,6 +1378,7 @@ public sealed partial class PdfWindow
         ClearGroup();
         var old = _selected;
         if (old is TableItem leftTable && !ReferenceEquals(old, item)) { CloseCellEditor(commit: true); leftTable.ClearSel(); }       // (the chosen cells go when another thing is chosen)
+        if (old is ParagraphItem choosenOnly && !choosenOnly.Touched && !ReferenceEquals(old, item)) _items.Remove(choosenOnly);      // (a paragraph that was only chosen, never changed: nothing to keep)
         _selected = item;
         if (old != null) RenderItems(old.Page);
         if (item != null && item.Page != old?.Page) RenderItems(item.Page);
@@ -1439,6 +1442,12 @@ public sealed partial class PdfWindow
             var handle = new Rectangle { Width = 9 * k, Height = 9 * k, Fill = Brushes.White, Stroke = blue, StrokeThickness = 1.5 * k, IsHitTestVisible = false };
             Canvas.SetLeft(handle, r.Right + 3 * k - 4.5 * k); Canvas.SetTop(handle, r.Bottom + 3 * k - 4.5 * k);
             group.Children.Add(handle);
+            if (_selected.EdgeHandle)
+            {
+                var edge = new Rectangle { Width = 9 * k, Height = 9 * k, Fill = Brushes.White, Stroke = blue, StrokeThickness = 1.5 * k, IsHitTestVisible = false };
+                Canvas.SetLeft(edge, r.Right + 3 * k - 4.5 * k); Canvas.SetTop(edge, r.Y + r.Height / 2 - 4.5 * k);
+                group.Children.Add(edge);
+            }
             if (_selected.CanRotate)
             {
                 double cx = r.X + r.Width / 2;
@@ -1454,6 +1463,16 @@ public sealed partial class PdfWindow
     private const double RotateStem = 22;            // (screen pixels from the frame to the round turning handle)
 
     private Point CentreOf(Rect r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
+
+    private bool _dragEdgeOnly;                      // (the square in the middle of the right edge was taken: only the width changes)
+
+    private bool OnEdgeHandle(PageView pv, Point p)
+    {
+        if (_selected == null || !_selected.EdgeHandle || _selected.Page != pv.Index) return false;
+        double k = 1 / Math.Max(0.01, pv.OverlayScale.ScaleX);
+        var r = _selected.Bounds;
+        return (p - new Point(r.Right + 3 * k, r.Y + r.Height / 2)).Length <= 9 * k;
+    }
 
     private bool OnHandle(PageView pv, Point p)
     {
@@ -1500,7 +1519,7 @@ public sealed partial class PdfWindow
         _dragPage = pv; _dragStart = p; _dragSnapshotTaken = false;
         ResetSnap();
         // the handles of the selected item (it can be turned and resized while the tool that placed it is still on)
-        if (_tool is EditTool.Select or EditTool.Stamp or EditTool.Text or EditTool.Date or EditTool.Signature or EditTool.Image or EditTool.TextField or EditTool.CheckField && _selected != null)
+        if (_tool is EditTool.Select or EditTool.Stamp or EditTool.Text or EditTool.Date or EditTool.Signature or EditTool.Image or EditTool.TextField or EditTool.CheckField or EditTool.Paragraph && _selected != null)
         {
             if (OnRotateHandle(pv, p))
             {
@@ -1509,7 +1528,8 @@ public sealed partial class PdfWindow
                 pv.Overlay.CaptureMouse();
                 return;
             }
-            if (_tool != EditTool.Select && OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected.Bounds; pv.Overlay.CaptureMouse(); return; }
+            if (_tool != EditTool.Select && OnEdgeHandle(pv, p)) { _dragEdgeOnly = true; _drag = DragMode.Resize; _dragBox = _selected.Bounds; pv.Overlay.CaptureMouse(); return; }
+            if (_tool != EditTool.Select && OnHandle(pv, p)) { _dragEdgeOnly = false; _drag = DragMode.Resize; _dragBox = _selected.Bounds; pv.Overlay.CaptureMouse(); return; }
         }
         switch (_tool)
         {
@@ -1517,7 +1537,12 @@ public sealed partial class PdfWindow
             {
                 // a click anywhere in a paragraph of the PDF (or in one already laid out again here) opens it as one text
                 _dragPage = null;
-                if (_items.OfType<ParagraphItem>().Any(i => i.Page == pv.Index && i.Hit(p)) || RunNear(pv.Index, p) != null) EditParagraphAt(pv, p);
+                if (e.ClickCount >= 2 && (_items.OfType<ParagraphItem>().Any(i => i.Page == pv.Index && i.Hit(p)) || RunNear(pv.Index, p) != null)) EditParagraphAt(pv, p);
+                else if (_items.OfType<ParagraphItem>().Any(i => i.Page == pv.Index && i.Hit(p)) || RunNear(pv.Index, p) != null)
+                {
+                    SelectParagraphAt(pv, p);                                      // (chosen: its frame has the squares; moving is done with the Select tool)
+                    return;
+                }
                 else Toast("Click on a paragraph that is already in the PDF (not on empty paper or a picture)");
                 return;
             }
@@ -1541,7 +1566,8 @@ public sealed partial class PdfWindow
                 if (e.ClickCount == 2 && _selected is PageObjectItem chosenComment && chosenComment.Page == pv.Index && chosenComment.Box.Contains(p) && TryChosenFreeText(out _)) { _dragPage = null; EditFreeTextComment(); return; }      // (double-click on a callout of the PDF: change its words)
                 if ((Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Control)) != 0 && !(_selected is TableItem shiftTable && shiftTable.Page == pv.Index && shiftTable.Hit(p)) && ExtendChoice(pv, p)) { _dragPage = null; return; }       // (Shift / Ctrl + click: add to what is chosen; on the chosen table Shift + click chooses more cells)
                 if (_group.Count > 0 && (_group.Any(g => g.Page == pv.Index && g.Hit(p)) || (ItemAt(pv.Index, p) == null && InGroupFrame(pv.Index, p)))) { _drag = DragMode.GroupMove; _groupLast = p; break; }      // (several chosen: they all follow the mouse, also when the pointer is between them)
-                if (OnHandle(pv, p)) { _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
+                if (OnEdgeHandle(pv, p)) { _dragEdgeOnly = true; _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
+                if (OnHandle(pv, p)) { _dragEdgeOnly = false; _drag = DragMode.Resize; _dragBox = _selected!.Bounds; break; }
                 if (_selected is PageObjectItem chosenSaved && ItemAt(pv.Index, p) == null && SavedChoiceUnder(pv.Index, p, chosenSaved)) { _drag = DragMode.Move; _dragBox = chosenSaved.Bounds; break; }      // (things already in the PDF chosen: a drag on any of them, or between them, moves them all)
                 var item = ItemAt(pv.Index, p);
                 if (item != null && item.GroupId != 0 && e.ClickCount < 2) { ChooseItem(item); _drag = DragMode.GroupMove; _groupLast = p; break; }      // (a grouped thing: the whole group is chosen and follows the mouse)
@@ -1672,7 +1698,7 @@ public sealed partial class PdfWindow
                 var c0 = CentreOf(_dragBox);
                 var corner = angle == 0 ? _dragBox.TopLeft : Rot(_dragBox.TopLeft, c0, angle);
                 var along = angle == 0 ? p - corner : Rot(p, corner, -angle) - corner;
-                double w = Math.Max(4, along.X), h = Math.Max(4, along.Y);
+                double w = Math.Max(4, along.X), h = _dragEdgeOnly ? _dragBox.Height : Math.Max(4, along.Y);
                 if (_selected.KeepAspect && _dragBox.Width > 0) h = w * _dragBox.Height / _dragBox.Width;
                 if (angle == 0)
                 {

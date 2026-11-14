@@ -410,20 +410,28 @@ public sealed partial class PdfWindow
         public List<PdfTextRun> Looks = new();
         public double FirstStart, Left, Right, FirstBaseline, Advance;
         public Vector Offset;
+        /// <summary>The paragraph as the PDF has it (its edges and line step): a paragraph that is only chosen, not changed, stays exactly as it is in the PDF (nothing is drawn, nothing saved).</summary>
+        public double OrigLeft, OrigRight, OrigAdvance;
+        public bool Touched => Text != OriginalText || Math.Abs(Right - OrigRight) > 0.01 || Math.Abs(Left - OrigLeft) > 0.01 || Math.Abs(Advance - OrigAdvance) > 0.01 || Offset != default;
+        /// <summary>The frame has a square in the middle of its right edge: dragging it makes the paragraph wider or narrower and the words flow again.</summary>
+        public override bool EdgeHandle => true;
 
+        /// <summary>The frame of the paragraph: from its left edge to its right edge (so there is room to the right of a short last line), and from its first line to its last.</summary>
         public override Rect Bounds
         {
             get
             {
                 var r = Rect.Empty;
-                foreach (var h in Hide) r.Union(h.Box);
-                foreach (var s in Segs)
-                {
-                    var f = RunEditItem.Family(s.Look);
-                    r.Union(new Rect(s.X, s.Baseline - f.Baseline * s.Look.Size, Math.Max(4, MeasureFor(s.Look)(s.Text)), f.LineSpacing * s.Look.Size));
-                }
+                if (!Touched) foreach (var h in Hide) r.Union(h.Box);
+                else
+                    foreach (var s in Segs)
+                    {
+                        var f = RunEditItem.Family(s.Look);
+                        r.Union(new Rect(s.X, s.Baseline - f.Baseline * s.Look.Size, Math.Max(4, MeasureFor(s.Look)(s.Text)), f.LineSpacing * s.Look.Size));
+                    }
                 if (r.IsEmpty) return new Rect(0, 0, 4, 4);
-                r.Offset(Offset);
+                if (Right > Left) r.Union(new Rect(Left, r.Top, Right - Left, Math.Max(1, r.Height)));
+                if (Touched) r.Offset(Offset);
                 return r;
             }
         }
@@ -432,6 +440,7 @@ public sealed partial class PdfWindow
         public override FrameworkElement Build()
         {
             var canvas = new Canvas();
+            if (!Touched) return canvas;                                          // (only chosen: the PDF's own lines are shown as they are)
             foreach (var h in Hide)
             {
                 if (h.Picture != null)
@@ -461,6 +470,7 @@ public sealed partial class PdfWindow
         }
         public override IEnumerable<PdfMark> Marks()
         {
+            if (!Touched) yield break;
             foreach (var src in Sources)
                 foreach (var part in src.Parts ?? new[] { src })
                     yield return new PdfReplaceTextMark(Page, part.Index, part.Text, "");
@@ -471,7 +481,15 @@ public sealed partial class PdfWindow
             }
         }
         public override void MoveBy(Vector d) => Offset += d;
-        public override void ResizeTo(Rect r) { }
+
+        /// <summary>The edge was dragged: only the width counts; the words are laid out again between the new edges.</summary>
+        public override void ResizeTo(Rect r)
+        {
+            double newLeft = r.X - (Touched ? Offset.X : 0), newRight = newLeft + Math.Max(40, r.Width);
+            FirstStart += newLeft - Left;
+            Left = newLeft; Right = newRight;
+            Segs = Layout(Text, Looks, FirstStart, Left, Right, FirstBaseline, Advance, Align);
+        }
     }
 
     /// <param name="spacing">how the line spacing changes (1 = as it is now; 1.15 = a little more; 0.9 = tighter)</param>
@@ -575,6 +593,7 @@ public sealed partial class PdfWindow
         {
             Page = pv.Index, Sources = para.Pieces.ToList(), Segs = segs, OriginalText = oldText, Text = newText, Looks = newLooks,
             FirstStart = firstStart, Left = para.Left, Right = para.Right, FirstBaseline = para.FirstBaseline, Advance = advance, Align = para.Align,
+            OrigLeft = para.Left, OrigRight = para.Right, OrigAdvance = para.Advance,
         };
         foreach (var src in item.Sources) item.Hide.Add(new HideBox { Box = src.Box, Cover = CoverColour(pv, src.Box), Area = Grow(src.Box, 1.2) });
         var crops = CleanCrops(pv.Index, item.Sources.SelectMany(ObjectsOf), item.Hide.Select(h => h.Area).ToList());
@@ -585,6 +604,36 @@ public sealed partial class PdfWindow
         RenderItems(pv.Index);
         int lineCount = segs.Select(s => s.Baseline).Distinct().Count();
         Toast($"Paragraph laid out again: {lineCount} line{(lineCount == 1 ? "" : "s")} (was {para.Lines.Count}). Undo takes it back; Save writes it");
+    }
+
+    /// <summary>
+    /// A click on a paragraph of the PDF chooses it as a block: a frame from its left edge to its right edge with a square in the middle of the right edge. Drag that square (or the corner one)
+    /// and the words flow again between the new edges; drag inside to move it; double-click to change its words. Nothing changes in the PDF until the block is dragged or changed.
+    /// </summary>
+    private void SelectParagraphAt(PageView pv, Point p)
+    {
+        var again = _items.OfType<ParagraphItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
+        if (again != null) { Select(again); return; }
+        var run = RunNear(pv.Index, p);
+        if (run == null) { Toast("Click on a line of a paragraph (turned text can't be changed)"); return; }
+        var para = FindParagraph(pv.Index, run);
+        if (para == null) { EditTextAt(pv, p); Toast("That line stands on its own: change it here. A paragraph has several lines one under the other"); return; }
+        CloseTextBox(commit: true);
+        var (oldText, looks) = JoinParagraph(para.Lines);
+        var segs = Layout(oldText, looks, para.FirstStart, para.Left, para.Right, para.FirstBaseline, para.Advance, para.Align);
+        var item = new ParagraphItem
+        {
+            Page = pv.Index, Sources = para.Pieces.ToList(), Segs = segs, OriginalText = oldText, Text = oldText, Looks = looks,
+            FirstStart = para.FirstStart, Left = para.Left, Right = para.Right, FirstBaseline = para.FirstBaseline, Advance = para.Advance, Align = para.Align,
+            OrigLeft = para.Left, OrigRight = para.Right, OrigAdvance = para.Advance,
+        };
+        foreach (var src in item.Sources) item.Hide.Add(new HideBox { Box = src.Box, Cover = CoverColour(pv, src.Box), Area = Grow(src.Box, 1.2) });
+        var crops = CleanCrops(pv.Index, item.Sources.SelectMany(ObjectsOf), item.Hide.Select(h => h.Area).ToList());
+        for (int k = 0; k < item.Hide.Count; k++) item.Hide[k].Picture = crops[k];
+        _items.Add(item);
+        ClearTextSelection();
+        Select(item);
+        Toast("Drag the square on the right edge to change the width (the words flow again); double-click to change the words");
     }
 
     private void ReopenParagraph(PageView pv, ParagraphItem item)
