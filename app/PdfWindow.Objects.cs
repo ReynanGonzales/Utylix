@@ -72,7 +72,7 @@ public sealed partial class PdfWindow
     /// <summary>The top thing drawn at this spot, or null. Comments of the PDF (callouts, clouds, strike-outs) lie on top of the page, so they are met first.</summary>
     private PageObjectItem? PickPageObject(int page, Point p)
     {
-        var hit = PageObjects(page).LastOrDefault(o => !IsBackdrop(o, page) && o.Box.Width + o.Box.Height > 1 && HitsObject(o, p));
+        var hit = PageObjects(page).LastOrDefault(o => !IsBackdrop(o, page) && !o.Blank && o.Box.Width + o.Box.Height > 1 && HitsObject(o, p));
         if (hit == null) return null;
         if (hit.Kind == Pdfium.ObjText && !PdfFile.IsAnnotation(hit.Index)) return PickTextLine(page, hit);
         return new PageObjectItem { Page = page, Indices = { hit.Index }, Box = hit.Box, Original = hit.Box };

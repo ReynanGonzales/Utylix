@@ -13,7 +13,7 @@ namespace IdmClone.Engine;
 /// A comment of the PDF (callout text, revision cloud, strike-out ...) is listed after the drawn things with Index = <see cref="PdfFile.AnnotationBase"/> + its place in the page's annotations and
 /// Kind = <see cref="PdfFile.AnnotationKind"/> + its subtype. <paramref name="Hollow"/>: an outline with nothing inside (a cloud round a picture): it is picked by its edge, not by what is inside it.
 /// </summary>
-public sealed record PdfPageObject(int Index, int Kind, Rect Box, bool Hollow = false);
+public sealed record PdfPageObject(int Index, int Kind, Rect Box, bool Hollow = false, bool Blank = false);
 
 /// <summary>The text of a callout (free text comment) of a PDF, as far as it can be read: where it is, the words, size and colour.</summary>
 public sealed record PdfFreeText(Rect Box, string Text, double Size, Color Color);
@@ -41,6 +41,15 @@ public sealed partial class PdfFile
         return page;
     }
 
+    /// <summary>A shape that shows nothing on a page: filled with white (or see-through) and not outlined, or neither filled nor outlined. Picking skips it: a click on empty paper must not pick it.</summary>
+    private static bool IsBlankPath(IntPtr obj)
+    {
+        if (Pdfium.FPDFPageObj_GetType(obj) != Pdfium.ObjPath || Pdfium.FPDFPath_GetDrawMode(obj, out int fill, out int stroke) == 0) return false;
+        if (stroke != 0) return false;
+        if (fill == 0) return true;
+        return Pdfium.FPDFPageObj_GetFillColor(obj, out uint r, out uint g, out uint b, out uint a) != 0 && (a == 0 || (r >= 250 && g >= 250 && b >= 250));
+    }
+
     /// <summary>Everything drawn on the page, bottom to top, with where it is; then the comments (callouts, clouds, strike-outs ...) of the PDF, which lie on top of all of it.</summary>
     public List<PdfPageObject> GetPageObjects(int pageIndex)
     {
@@ -58,7 +67,7 @@ public sealed partial class PdfFile
                 {
                     IntPtr obj = Pdfium.FPDFPage_GetObject(page, i);
                     if (obj == IntPtr.Zero || Pdfium.FPDFPageObj_GetBounds(obj, out float l, out float b, out float r, out float t) == 0) continue;
-                    list.Add(new PdfPageObject(i, Pdfium.FPDFPageObj_GetType(obj), map.ToShown(l, b, r, t)));
+                    list.Add(new PdfPageObject(i, Pdfium.FPDFPageObj_GetType(obj), map.ToShown(l, b, r, t), Blank: IsBlankPath(obj)));
                 }
                 int annots = Pdfium.FPDFPage_GetAnnotCount(page);
                 for (int i = 0; i < annots; i++)

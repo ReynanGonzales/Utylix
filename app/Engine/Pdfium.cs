@@ -103,6 +103,7 @@ internal static class Pdfium
     [DllImport(Dll)] public static extern int FPDFPath_BezierTo(IntPtr path, float x1, float y1, float x2, float y2, float x3, float y3);
     [DllImport(Dll)] public static extern int FPDFPath_Close(IntPtr path);
     [DllImport(Dll)] public static extern int FPDFPath_SetDrawMode(IntPtr path, int fillMode, int stroke);
+    [DllImport(Dll)] public static extern int FPDFPath_GetDrawMode(IntPtr path, out int fillMode, out int stroke);
     [DllImport(Dll)] public static extern int FPDFImageObj_SetBitmap(IntPtr pages, int count, IntPtr imageObj, IntPtr bitmap);
     [DllImport(Dll)] public static extern int FPDFPage_GetRotation(IntPtr page);
     [DllImport(Dll)] public static extern void FPDFPage_SetRotation(IntPtr page, int rotate);
