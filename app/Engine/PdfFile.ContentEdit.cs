@@ -14,9 +14,16 @@ public sealed partial class PdfFile
     /// drawing instructions in place (see <see cref="PdfContentEditor"/>). Nothing else on the page is written again, so soft shadows, gradients and blends stay.
     /// </summary>
     /// <returns>true when it was done; false when it could not be done safely (the document is then untouched and the caller uses the other way).</returns>
+    private static void LogDecline(int pageIndex, string why)
+    {
+        try { File.AppendAllText(System.IO.Path.Combine(App.DataDir, "pdf-open.log"), $"{DateTime.Now:s}  in-place edit declined on page {pageIndex + 1}: {why}{Environment.NewLine}"); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
     internal bool EditPageContent(int pageIndex, IReadOnlyList<int> objectIndices, Func<PageMapping, double[]>? matrixFor)
     {
-        if (IsProtected || objectIndices.Count == 0) return false;
+        if (IsProtected) { LogDecline(pageIndex, "the PDF is password-protected"); return false; }
+        if (objectIndices.Count == 0) return false;
         try
         {
             int count; double[]? matrix = null; double pageArea = 0;
@@ -28,7 +35,7 @@ public sealed partial class PdfFile
                 try
                 {
                     count = Pdfium.FPDFPage_CountObjects(page);
-                    if (objectIndices.Any(i => i < 0 || i >= count)) return false;
+                    if (objectIndices.Any(i => i < 0 || i >= count)) { LogDecline(pageIndex, "an object number is outside the page (" + string.Join(",", objectIndices) + " of " + count + ")"); return false; }
                     if (matrixFor != null) matrix = matrixFor(new PageMapping(page, size.Width, size.Height));
                 }
                 finally { Pdfium.FPDF_ClosePage(page); }
@@ -45,12 +52,12 @@ public sealed partial class PdfFile
                 if (contents.Elements[i] is PdfSharp.Pdf.Advanced.PdfReference r && r.Value is PdfDictionary d && d.Stream != null)
                 {
                     var b = d.Stream.UnfilteredValue;
-                    if (b == null || b.Length == 0) return false;
+                    if (b == null || b.Length == 0) { LogDecline(pageIndex, "a content stream of the page can not be read"); return false; }
                     content.Write(b, 0, b.Length);
                     content.WriteByte(10);
                 }
             }
-            if (content.Length == 0) return false;
+            if (content.Length == 0) { LogDecline(pageIndex, "the page has no content stream"); return false; }
             byte[]? edited = PdfContentEditor.Apply(content.ToArray(), count, objectIndices, matrix, pageArea);
             if (edited == null)
             {

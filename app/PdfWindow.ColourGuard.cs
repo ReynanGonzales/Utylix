@@ -20,6 +20,15 @@ public sealed partial class PdfWindow
         public Size Page;
     }
 
+    /// <summary>What the last <see cref="LooksTheSame"/> found (written to the log when a change is taken back).</summary>
+    private string LastLookReport = "";
+
+    private void LogTakenBack(int page, string what)
+    {
+        try { System.IO.File.AppendAllText(System.IO.Path.Combine(IdmClone.App.DataDir, "pdf-open.log"), $"{DateTime.Now:s}  a change was taken back on page {page + 1} ({what}): {LastLookReport}{Environment.NewLine}"); }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { }
+    }
+
     private PageLook? LookOf(int page)
     {
         try
@@ -56,6 +65,7 @@ public sealed partial class PdfWindow
                 int d = Math.Abs(before.Pixels[i] - after.Pixels[i]) + Math.Abs(before.Pixels[i + 1] - after.Pixels[i + 1]) + Math.Abs(before.Pixels[i + 2] - after.Pixels[i + 2]);
                 if (d > 150) different++;
             }
+        LastLookReport = $"{different} of {outside} pixels differ ({(outside == 0 ? 0 : 100.0 * different / outside):0.00}%) outside {changed.Left:0},{changed.Top:0} {changed.Width:0}x{changed.Height:0}";
         return outside == 0 || different < outside * 0.004;
     }
 

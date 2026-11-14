@@ -70,15 +70,17 @@ public partial class App : Application
                 if (e.Args.Contains("--scan"))                                               // every picture of the page in turn: how much changes away from the picture's old and new place
                 {
                     var lines = new List<string>();
-                    foreach (var o in objects.Where(o => o.Kind == Pdfium.ObjImage).Take(40))
+                    int scanKind = e.Args.Contains("--kind") ? int.Parse(e.Args[Array.IndexOf(e.Args, "--kind") + 1]) : Pdfium.ObjImage;
+                    foreach (var o in objects.Where(o => o.Kind == scanKind).Take(60))
                     {
                         using var copy = PdfFile.Open(input, null);
-                        copy.MovePageObjects(pageNo, new[] { o.Index }, new System.Windows.Vector(70, 50));
+                        if (e.Args.Contains("--scale")) copy.ScalePageObjects(pageNo, new[] { o.Index }, o.Box, new System.Windows.Rect(o.Box.X, o.Box.Y, o.Box.Width * 1.4 + 1, o.Box.Height * 1.4 + 1));
+                        else copy.MovePageObjects(pageNo, new[] { o.Index }, new System.Windows.Vector(70, 50));
                         using var re = PdfFile.Open(copy.SaveToBytes() is var by ? WriteTemp(by, prefix) : prefix, null);
                         var s2 = re.Render(pageNo, w, h, 0, forScreen: false);
                         int stride = w * 4; var a = new byte[stride * h]; var b = new byte[stride * h];
                         before.CopyPixels(a, stride, 0); s2.CopyPixels(b, stride, 0);
-                        var r1 = new System.Windows.Rect(o.Box.X, o.Box.Y, o.Box.Width, o.Box.Height); var r2 = new System.Windows.Rect(o.Box.X + 70, o.Box.Y + 50, o.Box.Width, o.Box.Height);
+                        var r1 = new System.Windows.Rect(o.Box.X, o.Box.Y, o.Box.Width, o.Box.Height); var r2 = e.Args.Contains("--scale") ? new System.Windows.Rect(o.Box.X, o.Box.Y, o.Box.Width * 1.4 + 1, o.Box.Height * 1.4 + 1) : new System.Windows.Rect(o.Box.X + 70, o.Box.Y + 50, o.Box.Width, o.Box.Height);
                         int changed = 0;
                         for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
                         {

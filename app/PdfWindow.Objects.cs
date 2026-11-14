@@ -163,7 +163,7 @@ public sealed partial class PdfWindow
         var look = LookOf(page);
         bool done = PageOp(p => { if (moved) p.MovePageObjects(page, indices, to.TopLeft - from.TopLeft); else p.ScalePageObjects(page, indices, from, to); },
                            new[] { page }, moved ? "Moved. Undo puts it back" : "Resized. Undo puts it back", keepView: true);
-        if (done && !LooksTheSame(page, look, Rect.Union(from, to))) { TakeBackBrokenChange(); OfferPictureMove(page, from, to); return; }
+        if (done && !LooksTheSame(page, look, Rect.Union(from, to))) { LogTakenBack(page, (moved ? "moved " : "resized ") + indices.Count + " thing(s)"); TakeBackBrokenChange(); OfferPictureMove(page, from, to); return; }
         if (done) Select(new PageObjectItem { Page = page, Indices = po.Indices.ToList(), Box = to, Original = to });      // (still chosen, where it is now)
         else Select(null);
     }
@@ -175,7 +175,7 @@ public sealed partial class PdfWindow
         Select(null);
         var look = LookOf(page);
         bool deleted = PageOp(p => p.RemovePageObjects(page, indices), new[] { page }, "Deleted. Undo brings it back", keepView: true);
-        if (deleted && !LooksTheSame(page, look, po.Box)) { TakeBackBrokenChange(); OfferPictureMove(page, po.Box, null); }
+        if (deleted && !LooksTheSame(page, look, po.Box)) { LogTakenBack(page, "deleted " + indices.Count + " thing(s)"); TakeBackBrokenChange(); OfferPictureMove(page, po.Box, null); }
     }
 
     // ---------- saved text boxes and check boxes ----------
