@@ -24,6 +24,8 @@ public sealed partial class PdfWindow
         public string NewText = "";
         /// <summary>Where the words must stop (page points, as shown): the right edge of the block the line is in, or of the text on the page. 0 = no limit. Words that would pass it go to the next line by themselves.</summary>
         public double WrapRight;
+        /// <summary>The frame was dragged: the words flow to it even when they were not changed.</summary>
+        public bool WrapSet;
         private string _wrapKey = "", _wrapped = "";
 
         /// <summary>The words as they are written: <see cref="NewText"/>, with a line break where a word would pass <see cref="WrapRight"/>.</summary>
@@ -31,7 +33,7 @@ public sealed partial class PdfWindow
         {
             get
             {
-                if (WrapRight <= 0 || Run.Turn != 0 || NewText == Run.Text) return NewText;
+                if (WrapRight <= 0 || Run.Turn != 0 || (NewText == Run.Text && !WrapSet)) return NewText;
                 string key = $"{NewText}|{WrapRight:0.##}|{Offset.X:0.##}|{EffSize:0.##}|{EffBold}|{FontOverride}|{Run.Italic}";
                 if (key == _wrapKey) return _wrapped;
                 double room = WrapRight - (Run.Baseline.X + Offset.X);
@@ -191,7 +193,7 @@ public sealed partial class PdfWindow
         }
         public override IEnumerable<PdfMark> Marks()
         {
-            if (NewText == Run.Text && Offset.X == 0 && Offset.Y == 0 && !Styled && !HasBack) yield break;
+            if (Shown == Run.Text && Offset.X == 0 && Offset.Y == 0 && !Styled && !HasBack) yield break;
             Color? back = BackColor; Rect? backBox = back != null ? BackBox : null;
             if (JustifiedWords() is { } spread)
             {
@@ -205,7 +207,7 @@ public sealed partial class PdfWindow
             }
             if (Run.Parts == null) { yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, Shown, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride, back, backBox); yield break; }
             // a line the PDF keeps in bits: unchanged words, every bit moves; changed words (or a changed look), the first bit takes them all and the others go
-            bool same = NewText == Run.Text && !Styled;
+            bool same = Shown == Run.Text && !Styled;
             for (int i = 0; i < Run.Parts.Count; i++)
             {
                 var part = Run.Parts[i];
@@ -394,7 +396,7 @@ public sealed partial class PdfWindow
         var item = _runTyping;
         item.NewText = _runBox.Text;
         _runBox = null; _runTyping = null;
-        if (item.NewText == item.Run.Text && !item.Styled && !item.HasBack)          // (a line that was only moved was moved before: opening it again changed nothing)
+        if (item.NewText == item.Run.Text && !item.Styled && !item.HasBack && !item.WrapSet)         // (a line that was only moved was moved before: opening it again changed nothing)
         {
             // unchanged: undo the opening (and drop the item)
             if (_undo.Count > 0) { var before = _undo.Pop(); _items.Clear(); _items.AddRange(before); }
@@ -404,6 +406,41 @@ public sealed partial class PdfWindow
         RenderItems(item.Page);
         UpdateEditButtons(); UpdateProperties();
         _scroll.Focus();
+    }
+
+    // ---------- the frame of the line being typed in (like a text box in Word) ----------
+    /// <summary>The frame round the line being typed in: from where it starts to the right edge it flows to, as tall as the box now is (page points).</summary>
+    private Rect RunFrame()
+    {
+        if (_runBox == null || _runTyping == null || _runTyping.WrapRight <= 0 || _runTyping.Run.Turn != 0) return Rect.Empty;
+        double left = Canvas.GetLeft(_runBox), top = Canvas.GetTop(_runBox);
+        double h = _runBox.ActualHeight > 0 ? _runBox.ActualHeight : _runTyping.EffSize * 1.3;
+        double right = Math.Max(_runTyping.WrapRight + 2, left + Math.Max(_runBox.ActualWidth, 20));
+        return new Rect(left - 3, top - 3, right - left + 6, h + 6);
+    }
+
+    /// <summary>The squares of that frame: the middle of the right edge and the lower right corner. Both change the width.</summary>
+    private bool OnRunWrapHandle(PageView pv, Point p)
+    {
+        var f = RunFrame();
+        if (f.IsEmpty) return false;
+        double k = 1 / Math.Max(0.01, pv.OverlayScale.ScaleX);
+        return (p - new Point(f.Right, f.Top + f.Height / 2)).Length <= 9 * k || (p - new Point(f.Right, f.Bottom)).Length <= 9 * k;
+    }
+
+    /// <summary>The frame was dragged to <paramref name="x"/>: the words flow again between its edges (also the ones that were not typed).</summary>
+    private void RunWrapTo(PageView pv, double x)
+    {
+        if (_runBox == null || _runTyping == null) return;
+        var item = _runTyping;
+        double left = Canvas.GetLeft(_runBox);
+        item.WrapRight = Math.Max(x - 2, left + item.EffSize * 3 + 2);
+        item.WrapSet = true;
+        _runBox.MinWidth = 10;
+        _runBox.TextWrapping = TextWrapping.Wrap;
+        _runBox.Width = Math.Max(10, item.WrapRight - left + 4);
+        _dirty = true; UpdateTitle();
+        RenderItems(item.Page);
     }
 
     /// <summary>With "Edit text", the line under the pointer gets a frame (and the I-beam).</summary>
@@ -425,6 +462,21 @@ public sealed partial class PdfWindow
     {
         if (_fieldEditor != null && _fieldEditing?.Page == page && _fieldEditor.Parent == null) overlay.Children.Add(_fieldEditor);
         if (_runBox != null && _runTyping?.Page == page) overlay.Children.Add(_runBox);
+        if (_runBox != null && _runTyping?.Page == page && RunFrame() is { IsEmpty: false } box)
+        {
+            // like a text box in Word: a frame round the text with squares on its right edge; dragging a square makes the text block wider or narrower and the words flow again
+            double k = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);
+            var blue = new SolidColorBrush(Color.FromRgb(0x2F, 0x6B, 0xEA));
+            var frame = new Rectangle { Width = box.Width, Height = box.Height, Stroke = blue, StrokeThickness = 1.2 * k, IsHitTestVisible = false };
+            Canvas.SetLeft(frame, box.X); Canvas.SetTop(frame, box.Y);
+            overlay.Children.Add(frame);
+            foreach (var (hx, hy) in new[] { (box.Right, box.Top + box.Height / 2), (box.Right, box.Bottom) })
+            {
+                var square = new Rectangle { Width = 9 * k, Height = 9 * k, Fill = Brushes.White, Stroke = blue, StrokeThickness = 1.5 * k, IsHitTestVisible = false };
+                Canvas.SetLeft(square, hx - 4.5 * k); Canvas.SetTop(square, hy - 4.5 * k);
+                overlay.Children.Add(square);
+            }
+        }
         if (_editing && _tool is EditTool.EditText or EditTool.Paragraph && _runBox == null && _hoverRun is { } h && h.Page == page)
         {
             double k = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);

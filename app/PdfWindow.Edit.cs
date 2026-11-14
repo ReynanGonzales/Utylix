@@ -597,7 +597,7 @@ public sealed partial class PdfWindow
     private bool _bold;
 
     // dragging
-    private enum DragMode { None, Move, Resize, Draw, Ink, Rotate, RunMove, Marquee, GroupMove, TableCol, TableRow, TableSel }
+    private enum DragMode { None, Move, Resize, Draw, Ink, Rotate, RunMove, Marquee, GroupMove, TableCol, TableRow, TableSel, RunWrap }
     private readonly List<EditItem> _group = new();                     // several items chosen with a box (Select tool): they move / delete together
     private Rect? _marquee;                                             // the box being dragged to choose them
     private int _marqueePage;
@@ -1511,6 +1511,7 @@ public sealed partial class PdfWindow
     {
         if (!_editing || e.OriginalSource is DependencyObject d && IsInside(d, _textBox)) return;
         var p = e.GetPosition(pv.Overlay);
+        if (_runBox != null && _runTyping != null && _runTyping.Page == pv.Index && OnRunWrapHandle(pv, p)) { _dragPage = pv; _dragStart = p; _drag = DragMode.RunWrap; pv.Overlay.CaptureMouse(); e.Handled = true; return; }      // (the square on the frame of the line being typed in: the width of the block)
         if (_ghost != null && _ghostPage == pv.Index && PlacesOnClick(_tool) && _ghostSnap != default && (Keyboard.Modifiers & ModifierKeys.Alt) == 0) p += _ghostSnap;      // (the click lands where the guide showed)
         HideGhost();
         bool wasTyping = _typing != null || _runTyping != null;
@@ -1711,6 +1712,9 @@ public sealed partial class PdfWindow
                 RenderItems(pv.Index);
                 break;
             }
+            case DragMode.RunWrap:
+                RunWrapTo(pv, p.X);
+                break;
             case DragMode.RunMove:
             {
                 if (!_runDragMoved && (p - _dragStart).Length < 4) return;              // (a click that wobbles a little is still a click)
@@ -1823,6 +1827,7 @@ public sealed partial class PdfWindow
         var drawn = _drawing;
         _drawing = null;
         var mode = _drag;
+        if (mode == DragMode.RunWrap) { _drag = DragMode.None; _runBox?.Focus(); return; }
         _drag = DragMode.None;
         if (mode == DragMode.RunMove)
         {
