@@ -1728,6 +1728,7 @@ public sealed partial class PdfWindow
                         _items.Add(_runDragItem);
                     }
                     _runDragMoved = true;
+                    _hoverRun = null;                                         // (the hover frame belongs to the old place: it goes while the line is dragged)
                     pv.Overlay.Cursor = Cursors.SizeAll;
                 }
                 if (_runDragItem == null) return;

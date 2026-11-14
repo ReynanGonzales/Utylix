@@ -34,9 +34,9 @@ public sealed partial class PdfWindow
             get
             {
                 if (WrapRight <= 0 || Run.Turn != 0 || (NewText == Run.Text && !WrapSet)) return NewText;
-                string key = $"{NewText}|{WrapRight:0.##}|{Offset.X:0.##}|{EffSize:0.##}|{EffBold}|{FontOverride}|{Run.Italic}";
+                string key = $"{NewText}|{WrapRight:0.##}|{EffSize:0.##}|{EffBold}|{FontOverride}|{Run.Italic}";
                 if (key == _wrapKey) return _wrapped;
-                double room = WrapRight - (Run.Baseline.X + Offset.X);
+                double room = WrapRight - Run.Baseline.X;                   // (the width of the block stays the same when the line is moved: moving never makes the words flow again)
                 string result = NewText;
                 if (room >= EffSize * 3)
                 {
@@ -102,7 +102,7 @@ public sealed partial class PdfWindow
         public double TurnDegrees => Run.Turn * 90;
         /// <summary>Where the line is now (moved, and taller when it has more lines).</summary>
         // (the frame of the line as it is now: as wide as the person made it when the frame was dragged, and as tall as its lines)
-        private Rect Moved => new(Run.Box.X + Offset.X, Run.Box.Y + Offset.Y, WrapSet && WrapRight > 0 && Run.Turn == 0 ? Math.Max(10, WrapRight - Run.Box.X - Offset.X + 2) : Math.Max(Run.Box.Width, 4), Run.Box.Height + (LineCount - 1) * LineAdvance);
+        private Rect Moved => new(Run.Box.X + Offset.X, Run.Box.Y + Offset.Y, WrapSet && WrapRight > 0 && Run.Turn == 0 ? Math.Max(10, WrapRight - Run.Box.X + 2) : Math.Max(Run.Box.Width, 4), Run.Box.Height + (LineCount - 1) * LineAdvance);
         public override Rect Bounds => Moved;
         public override bool Hit(Point p) => Inflate(Moved, 1).Contains(p);
         public override EditItem Clone() => (RunEditItem)MemberwiseClone();
@@ -359,7 +359,7 @@ public sealed partial class PdfWindow
         if (item.WrapRight > 0 && run.Turn == 0)
         {
             box.TextWrapping = TextWrapping.Wrap;                       // (words that pass the right edge of the block go to the next line, as they will in the PDF)
-            double room = item.WrapRight - (run.Baseline.X + item.Offset.X) + 4;
+            double room = item.WrapRight - run.Baseline.X + 4;
             box.Width = item.WrapSet ? Math.Max(10, room) : Math.Max(run.Box.Width + 4, room);          // (a frame the person made narrower stays narrower when the line is opened again)
             if (item.WrapSet) box.MinWidth = 10;
         }
@@ -437,7 +437,7 @@ public sealed partial class PdfWindow
         double left = Canvas.GetLeft(_runBox), top = Canvas.GetTop(_runBox);
         // (the height from the number of lines the words wrap into: the box is not measured yet right after it is opened)
         double h = Math.Max(_runBox.ActualHeight, _runTyping.Bounds.Height);
-        double right = Math.Max(_runTyping.WrapRight + 2, left + Math.Max(_runBox.ActualWidth, 20));
+        double right = Math.Max(_runTyping.WrapRight + _runTyping.Offset.X + 2, left + Math.Max(_runBox.ActualWidth, 20));
         return new Rect(left - 3, top - 3, right - left + 6, h + 6);
     }
 
@@ -456,11 +456,11 @@ public sealed partial class PdfWindow
         if (_runBox == null || _runTyping == null) return;
         var item = _runTyping;
         double left = Canvas.GetLeft(_runBox);
-        item.WrapRight = Math.Max(x - 2, left + item.EffSize * 3 + 2);
+        item.WrapRight = Math.Max(x - 2 - item.Offset.X, item.Run.Baseline.X + item.EffSize * 3 + 2);
         item.WrapSet = true;
         _runBox.MinWidth = 10;
         _runBox.TextWrapping = TextWrapping.Wrap;
-        _runBox.Width = Math.Max(10, item.WrapRight - left + 4);
+        _runBox.Width = Math.Max(10, item.WrapRight + item.Offset.X - left + 4);
         _dirty = true; UpdateTitle();
         RenderItems(item.Page);
     }
