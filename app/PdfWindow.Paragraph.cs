@@ -466,8 +466,10 @@ public sealed partial class PdfWindow
         public override void ResizeTo(Rect r) { }
     }
 
-    private string? AskParagraphText(int pageNumber, int lineCount, string text, out bool accepted)
+    /// <param name="spacing">how the line spacing changes (1 = as it is now; 1.15 = a little more; 0.9 = tighter)</param>
+    private string? AskParagraphText(int pageNumber, int lineCount, string text, out bool accepted, out double spacing)
     {
+        double chosenSpacing = 1;
         var dlg = MakeDialog("Edit paragraph", 580);
         var box = new TextBox { Text = text, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 230, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top, Padding = new Thickness(6), Margin = new Thickness(0, 6, 0, 0) };
         Id("PdfParaText", box);
@@ -484,6 +486,20 @@ public sealed partial class PdfWindow
                    "Enter makes a line break of its own. A longer text grows downwards, so look at what is under it afterwards.",
             Opacity = 0.7, FontSize = 12, Margin = new Thickness(0, 10, 0, 0), TextWrapping = TextWrapping.Wrap,
         });
+        // line spacing: as it is now, or tighter / looser (every line of the paragraph moves with it)
+        root.Children.Add(new TextBlock { Text = "Line spacing", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 4) });
+        var spacingRow = new WrapPanel();
+        bool first = true;
+        foreach (var (label, factor) in new[] { ("As it is", 1.0), ("Tighter", 0.9), ("A little more", 1.15), ("More", 1.5), ("Double", 2.0) })
+        {
+            var chip = new RadioButton { Content = label, GroupName = "paraspacing", IsChecked = first, Style = (Style)Application.Current.FindResource("ChipButton") };
+            Id("PdfParaSpacing" + factor.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture), chip);
+            double f = factor;
+            chip.Checked += (_, _) => chosenSpacing = f;
+            spacingRow.Children.Add(chip);
+            first = false;
+        }
+        root.Children.Add(spacingRow);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
         buttons.Children.Add(ok); buttons.Children.Add(cancel);
         root.Children.Add(buttons);
@@ -491,6 +507,7 @@ public sealed partial class PdfWindow
         dlg.Loaded += (_, _) => { box.Focus(); box.CaretIndex = box.Text.Length; };
         dlg.ShowDialog();
         accepted = done;
+        spacing = done ? chosenSpacing : 1;
         return done ? box.Text.Replace("\r\n", "\n").Replace('\r', '\n') : null;
     }
 
@@ -500,7 +517,7 @@ public sealed partial class PdfWindow
     private void HoverParagraph(PageView pv, Point p)
     {
         var laid = _items.OfType<ParagraphItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
-        var run = laid == null ? RunAt(pv.Index, p) : null;
+        var run = laid == null ? RunNear(pv.Index, p) : null;
         if (laid == null && run != null && ReferenceEquals(run, _hoverParaRun) && _hoverRun is { } same && same.Page == pv.Index) return;      // (still on the same line: nothing to work out again)
         _hoverParaRun = run;
         Rect? box = null;
@@ -531,24 +548,25 @@ public sealed partial class PdfWindow
         var again = _items.OfType<ParagraphItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
         if (again != null) { ReopenParagraph(pv, again); return; }
 
-        var run = RunAt(pv.Index, p);
+        var run = RunNear(pv.Index, p);
         if (run == null) { Toast("Click on a line of a paragraph (turned text can't be changed)"); return; }
         var para = FindParagraph(pv.Index, run);
         if (para == null) { EditTextAt(pv, p); Toast("That line stands on its own: change it here. A paragraph has several lines one under the other"); return; }
         CloseTextBox(commit: true);
 
         var (oldText, looks) = JoinParagraph(para.Lines);
-        string? newText = AskParagraphText(pv.Index + 1, para.Lines.Count, oldText, out bool accepted);
-        if (!accepted || newText == null || newText == oldText) return;
+        string? newText = AskParagraphText(pv.Index + 1, para.Lines.Count, oldText, out bool accepted, out double spacing);
+        if (!accepted || newText == null || (newText == oldText && Math.Abs(spacing - 1) < 0.001)) return;
         var newLooks = Restyle(oldText, looks, newText);
         double firstStart = para.FirstStart;
-        var segs = Layout(newText, newLooks, firstStart, para.Left, para.Right, para.FirstBaseline, para.Advance, para.Align);
+        double advance = para.Advance * spacing;
+        var segs = Layout(newText, newLooks, firstStart, para.Left, para.Right, para.FirstBaseline, advance, para.Align);
 
         Snapshot();
         var item = new ParagraphItem
         {
             Page = pv.Index, Sources = para.Pieces.ToList(), Segs = segs, OriginalText = oldText, Text = newText, Looks = newLooks,
-            FirstStart = firstStart, Left = para.Left, Right = para.Right, FirstBaseline = para.FirstBaseline, Advance = para.Advance, Align = para.Align,
+            FirstStart = firstStart, Left = para.Left, Right = para.Right, FirstBaseline = para.FirstBaseline, Advance = advance, Align = para.Align,
         };
         foreach (var src in item.Sources) item.Hide.Add(new HideBox { Box = src.Box, Cover = CoverColour(pv, src.Box), Area = Grow(src.Box, 1.2) });
         var crops = CleanCrops(pv.Index, item.Sources.SelectMany(ObjectsOf), item.Hide.Select(h => h.Area).ToList());
@@ -564,14 +582,15 @@ public sealed partial class PdfWindow
     private void ReopenParagraph(PageView pv, ParagraphItem item)
     {
         CloseTextBox(commit: true);
-        string? newText = AskParagraphText(pv.Index + 1, item.Segs.Select(s => s.Baseline).Distinct().Count(), item.Text, out bool accepted);
-        if (!accepted || newText == null || newText == item.Text) return;
+        string? newText = AskParagraphText(pv.Index + 1, item.Segs.Select(s => s.Baseline).Distinct().Count(), item.Text, out bool accepted, out double spacing);
+        if (!accepted || newText == null || (newText == item.Text && Math.Abs(spacing - 1) < 0.001)) return;
         var newLooks = Restyle(item.Text, item.Looks, newText);
-        var segs = Layout(newText, newLooks, item.FirstStart, item.Left, item.Right, item.FirstBaseline, item.Advance, item.Align);
+        double advance = item.Advance * spacing;
+        var segs = Layout(newText, newLooks, item.FirstStart, item.Left, item.Right, item.FirstBaseline, advance, item.Align);
         Snapshot();
         int at = _items.IndexOf(item);
         var changed = (ParagraphItem)item.Clone();
-        changed.Segs = segs; changed.Text = newText; changed.Looks = newLooks;
+        changed.Segs = segs; changed.Text = newText; changed.Looks = newLooks; changed.Advance = advance;
         if (at >= 0) _items[at] = changed;
         _dirty = true; UpdateTitle(); UpdateEditButtons();
         ClearTextSelection();

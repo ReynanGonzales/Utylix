@@ -885,6 +885,7 @@ public sealed partial class PdfWindow
         _fontRow.Children.Add(FontPickerButton());
         _fontRow.Children.Insert(0, StyleButton());                      // (first: the font chips can be cut off in a narrow window, and Style holds the direction, box and alignment)
         _fontRow.Children.Add(RunBackButton());
+        _fontRow.Children.Add(RunSpacingButton());
         _fontButtons[PdfFontKind.Sans].IsChecked = true;
 
         // undo, delete, save
@@ -1122,6 +1123,7 @@ public sealed partial class PdfWindow
         if (_tableAlignButton != null) _tableAlignButton.Visibility = item is TableItem ? Visibility.Visible : Visibility.Collapsed;
         if (_blurButton != null) _blurButton.Visibility = item is BlurItem || (item == null && _tool == EditTool.Blur) ? Visibility.Visible : Visibility.Collapsed;
         if (_runBackButton != null) _runBackButton.Visibility = typingRun != null ? Visibility.Visible : Visibility.Collapsed;
+        if (_runSpacingButton != null) _runSpacingButton.Visibility = typingRun != null ? Visibility.Visible : Visibility.Collapsed;
         foreach (var chip in _fontButtons.Values) chip.Visibility = typingRun != null ? Visibility.Collapsed : Visibility.Visible;      // (a line of the PDF: its own font is kept; the list picks another - this makes room for "Background")
         if (_fillButton != null) _fillButton.Visibility = item is ShapeItem { Kind: ShapeKind.Rectangle or ShapeKind.Ellipse } || (item == null && _tool is EditTool.Shapes && _shapeKind is ShapeKind.Rectangle or ShapeKind.Ellipse) ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)_sizeLabel.Parent).Visibility = text || line || mark ? Visibility.Visible : Visibility.Collapsed;
@@ -1515,7 +1517,7 @@ public sealed partial class PdfWindow
             {
                 // a click anywhere in a paragraph of the PDF (or in one already laid out again here) opens it as one text
                 _dragPage = null;
-                if (_items.OfType<ParagraphItem>().Any(i => i.Page == pv.Index && i.Hit(p)) || RunAt(pv.Index, p) != null) EditParagraphAt(pv, p);
+                if (_items.OfType<ParagraphItem>().Any(i => i.Page == pv.Index && i.Hit(p)) || RunNear(pv.Index, p) != null) EditParagraphAt(pv, p);
                 else Toast("Click on a paragraph that is already in the PDF (not on empty paper or a picture)");
                 return;
             }

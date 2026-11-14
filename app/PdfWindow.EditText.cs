@@ -55,7 +55,9 @@ public sealed partial class PdfWindow
         public Vector Offset;                                   // how far the person moved the line (points, as shown)
         /// <summary>One line down, as the font spaces its lines (points), or as the paragraph this line was part of spaced them.</summary>
         public double? AdvanceOverride;
-        public double LineAdvance => AdvanceOverride ?? EffFamily.LineSpacing * EffSize;
+        /// <summary>How the person set the line spacing of a line with several lines: a multiple of the font's own spacing (null = the font's own, or the paragraph's).</summary>
+        public double? Spacing;
+        public double LineAdvance => Spacing is double s ? EffFamily.LineSpacing * EffSize * s : AdvanceOverride ?? EffFamily.LineSpacing * EffSize;
         private int LineCount => Math.Max(1, NewText.Replace("\r\n", "\n").Split('\n').Length);
 
         public double Top => Run.Baseline.Y - EffFamily.Baseline * EffSize;
@@ -141,8 +143,9 @@ public sealed partial class PdfWindow
                 FontWeight = EffBold ? FontWeights.Bold : FontWeights.Normal, FontStyle = Run.Italic && FontOverride == null ? FontStyles.Italic : FontStyles.Normal,
             };
             double lift = 0;
-            if (AdvanceOverride is double advance && LineCount > 1)             // (lines spaced like the paragraph they came from; the first line stays on its baseline)
+            if ((AdvanceOverride != null || Spacing != null) && LineCount > 1)             // (lines spaced like the paragraph they came from, or as the person chose; the first line stays on its baseline)
             {
+                double advance = LineAdvance;
                 text.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; text.LineHeight = advance;
                 lift = (advance - EffFamily.LineSpacing * EffSize) / 2;
             }
@@ -200,13 +203,38 @@ public sealed partial class PdfWindow
         return Runs(page).LastOrDefault(r => { var b = r.Box; b.Inflate(1, 1); return !edited.Contains(r.Index) && b.Contains(p); });
     }
 
+    /// <summary>
+    /// For "Edit text" and "Paragraph": the line under the pointer, or - when the click missed the letters by a little (between two lines, just above or below a line, just before its first
+    /// letter or after its last) - the nearest line, as long as it is close. The room grows when the page is zoomed out, so a click is never asked to be exact to a pixel or two.
+    /// </summary>
+    private PdfTextRun? RunNear(int page, Point p)
+    {
+        var exact = RunAt(page, p);
+        if (exact != null) return exact;
+        double perPixel = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);               // points on the page for one pixel on the screen
+        var edited = EditedRunIndices(page);
+        PdfTextRun? best = null; double bestScore = double.MaxValue;
+        foreach (var r in Runs(page))
+        {
+            if (edited.Contains(r.Index)) continue;
+            var b = r.Box;
+            double tolY = Math.Max(b.Height * 0.6, 9 * perPixel), tolX = Math.Max(b.Height * 2.0, 22 * perPixel);
+            double dx = p.X < b.Left ? b.Left - p.X : p.X > b.Right ? p.X - b.Right : 0;
+            double dy = p.Y < b.Top ? b.Top - p.Y : p.Y > b.Bottom ? p.Y - b.Bottom : 0;
+            if (dx > tolX || dy > tolY) continue;
+            double score = (dx / tolX) * (dx / tolX) + (dy / tolY) * (dy / tolY);
+            if (score < bestScore) { bestScore = score; best = r; }
+        }
+        return best;
+    }
+
     private void EditTextAt(PageView pv, Point p, bool quiet = false)
     {
         var existing = _items.OfType<RunEditItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
         if (existing != null) { EditRun(existing, isNew: false); return; }
         var laidOut = _items.OfType<ParagraphItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
         if (laidOut != null) { ReopenParagraph(pv, laidOut); return; }               // (a paragraph that was laid out again: change it again)
-        var run = RunAt(pv.Index, p);
+        var run = quiet ? RunAt(pv.Index, p) : RunNear(pv.Index, p);
         if (run == null)
         {
             if (quiet) return;
@@ -279,6 +307,7 @@ public sealed partial class PdfWindow
             Dispatcher.BeginInvoke(() => { if (_runBox == box && !box.IsKeyboardFocusWithin && _fontPopup?.IsOpen != true && !_runMenuOpen) CloseRunBox(); });
         };
         _runBox = box;
+        ApplySpacingToBox();
         RenderItems(item.Page);
         UpdateEditButtons(); UpdateProperties();
         Dispatcher.BeginInvoke(() => { box.Focus(); box.SelectAll(); }, System.Windows.Threading.DispatcherPriority.Input);
@@ -294,6 +323,7 @@ public sealed partial class PdfWindow
         _runBox.FontStyle = item.Run.Italic && item.FontOverride == null ? FontStyles.Italic : FontStyles.Normal;
         _runBox.Foreground = new SolidColorBrush(item.EffColor);
         _runBox.Background = RunBoxBrush(item);
+        ApplySpacingToBox();
         Canvas.SetTop(_runBox, item.Top + item.Offset.Y);
         if (item.Run.Turn != 0) _runBox.RenderTransform = new RotateTransform(item.TurnDegrees, 2, item.EffFamily.Baseline * item.EffSize);
         _dirty = true; UpdateTitle();
@@ -325,7 +355,7 @@ public sealed partial class PdfWindow
     private void HoverRun(PageView pv, Point p)
     {
         var existing = _items.OfType<RunEditItem>().LastOrDefault(i => i.Page == pv.Index && i.Hit(p));
-        var run = existing == null ? RunAt(pv.Index, p) : null;
+        var run = existing == null ? RunNear(pv.Index, p) : null;
         (int, Rect)? now = existing != null ? (pv.Index, existing.Bounds) : run == null ? null : (pv.Index, run.Box);
         pv.Overlay.Cursor = now != null ? Cursors.IBeam : Cursors.Arrow;
         if (now == _hoverRun) return;
