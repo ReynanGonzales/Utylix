@@ -22,6 +22,41 @@ public sealed partial class PdfWindow
     {
         public PdfTextRun Run = null!;
         public string NewText = "";
+        /// <summary>Where the words must stop (page points, as shown): the right edge of the block the line is in, or of the text on the page. 0 = no limit. Words that would pass it go to the next line by themselves.</summary>
+        public double WrapRight;
+        private string _wrapKey = "", _wrapped = "";
+
+        /// <summary>The words as they are written: <see cref="NewText"/>, with a line break where a word would pass <see cref="WrapRight"/>.</summary>
+        public string Shown
+        {
+            get
+            {
+                if (WrapRight <= 0 || Run.Turn != 0 || NewText == Run.Text) return NewText;
+                string key = $"{NewText}|{WrapRight:0.##}|{Offset.X:0.##}|{EffSize:0.##}|{EffBold}|{FontOverride}|{Run.Italic}";
+                if (key == _wrapKey) return _wrapped;
+                double room = WrapRight - (Run.Baseline.X + Offset.X);
+                string result = NewText;
+                if (room >= EffSize * 3)
+                {
+                    var typeface = new Typeface(EffFamily, Run.Italic && FontOverride == null ? FontStyles.Italic : FontStyles.Normal, EffBold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
+                    double Width(string s) => new FormattedText(s, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, EffSize, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace;
+                    var lines = new List<string>();
+                    foreach (var paragraph in NewText.Replace("\r\n", "\n").Split((char)10))
+                    {
+                        string line = "";
+                        foreach (var word in paragraph.Split((char)32))
+                        {
+                            string trial = line.Length == 0 ? word : line + " " + word;
+                            if (line.Length > 0 && Width(trial) > room) { lines.Add(line); line = word; } else line = trial;
+                        }
+                        lines.Add(line);
+                    }
+                    result = string.Join("\n", lines);
+                }
+                _wrapKey = key; _wrapped = result;
+                return result;
+            }
+        }
         public Color Cover = Colors.White;
         /// <summary>The page as it looks without the old words, under where they were (a watermark or a coloured cell stays); null = the solid <see cref="Cover"/> colour is used.</summary>
         public System.Windows.Media.Imaging.BitmapSource? CoverPicture;
@@ -58,7 +93,7 @@ public sealed partial class PdfWindow
         /// <summary>How the person set the line spacing of a line with several lines: a multiple of the font's own spacing (null = the font's own, or the paragraph's).</summary>
         public double? Spacing;
         public double LineAdvance => Spacing is double s ? EffFamily.LineSpacing * EffSize * s : AdvanceOverride ?? EffFamily.LineSpacing * EffSize;
-        private int LineCount => Math.Max(1, NewText.Replace("\r\n", "\n").Split('\n').Length);
+        private int LineCount => Math.Max(1, Shown.Replace("\r\n", "\n").Split('\n').Length);
 
         public double Top => Run.Baseline.Y - EffFamily.Baseline * EffSize;
         /// <summary>How far the line is turned on the page as shown (degrees clockwise): 0, 90 (reads downward), 180 or 270 (reads upward).</summary>
@@ -75,7 +110,7 @@ public sealed partial class PdfWindow
             get
             {
                 var box = Moved;
-                var lines = NewText.Replace("\r\n", "\n").Split('\n');
+                var lines = Shown.Replace("\r\n", "\n").Split('\n');
                 double widest = 0;
                 var typeface = new Typeface(EffFamily, Run.Italic && FontOverride == null ? FontStyles.Italic : FontStyles.Normal, EffBold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
                 foreach (var line in lines)
@@ -139,7 +174,7 @@ public sealed partial class PdfWindow
             }
             var text = new TextBlock
             {
-                Text = NewText, FontFamily = EffFamily, FontSize = EffSize, Foreground = new SolidColorBrush(EffColor),
+                Text = Shown, FontFamily = EffFamily, FontSize = EffSize, Foreground = new SolidColorBrush(EffColor),
                 FontWeight = EffBold ? FontWeights.Bold : FontWeights.Normal, FontStyle = Run.Italic && FontOverride == null ? FontStyles.Italic : FontStyles.Normal,
             };
             double lift = 0;
@@ -168,14 +203,14 @@ public sealed partial class PdfWindow
                 foreach (var (word, x) in spread) yield return new PdfPlaceTextMark(Page, donor.Index, donor.Text, word, x, Run.Baseline.Y + Offset.Y);
                 yield break;
             }
-            if (Run.Parts == null) { yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, NewText, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride, back, backBox); yield break; }
+            if (Run.Parts == null) { yield return new PdfReplaceTextMark(Page, Run.Index, Run.Text, Shown, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride, back, backBox); yield break; }
             // a line the PDF keeps in bits: unchanged words, every bit moves; changed words (or a changed look), the first bit takes them all and the others go
             bool same = NewText == Run.Text && !Styled;
             for (int i = 0; i < Run.Parts.Count; i++)
             {
                 var part = Run.Parts[i];
                 if (same) yield return new PdfReplaceTextMark(Page, part.Index, part.Text, part.Text, Offset.X, Offset.Y, LineAdvance, Backdrop: i == 0 ? back : null, BackdropBox: i == 0 ? backBox : null);
-                else if (i == 0) yield return new PdfReplaceTextMark(Page, part.Index, part.Text, NewText, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride, back, backBox);
+                else if (i == 0) yield return new PdfReplaceTextMark(Page, part.Index, part.Text, Shown, Offset.X, Offset.Y, LineAdvance, FontOverride, BoldOverride, SizeOverride, ColorOverride, back, backBox);
                 else yield return new PdfReplaceTextMark(Page, part.Index, part.Text, "");
             }
         }
@@ -218,7 +253,7 @@ public sealed partial class PdfWindow
         {
             if (edited.Contains(r.Index)) continue;
             var b = r.Box;
-            double tolY = Math.Max(b.Height * 0.6, 9 * perPixel), tolX = Math.Max(b.Height * 2.0, 22 * perPixel);
+            double tolY = Math.Max(Math.Max(b.Height * 0.6, 9 * perPixel), 8), tolX = Math.Max(b.Height * 2.0, 22 * perPixel);
             double dx = p.X < b.Left ? b.Left - p.X : p.X > b.Right ? p.X - b.Right : 0;
             double dy = p.Y < b.Top ? b.Top - p.Y : p.Y > b.Bottom ? p.Y - b.Bottom : 0;
             if (dx > tolX || dy > tolY) continue;
@@ -226,6 +261,21 @@ public sealed partial class PdfWindow
             if (score < bestScore) { bestScore = score; best = r; }
         }
         return best;
+    }
+
+    /// <summary>Where the words of this line must stop: the right edge of the paragraph (or centred title) it belongs to, else of the text on the page (about its right margin). 0 for turned text.</summary>
+    private double WrapRightFor(int page, PdfTextRun run)
+    {
+        if (run.Turn != 0) return 0;
+        double right;
+        var para = FindParagraph(page, run);
+        if (para != null) right = para.Right;
+        else
+        {
+            var rights = Runs(page).Where(r => r.Turn == 0 && r.Box.Width > 20).Select(r => r.Box.Right).OrderBy(x => x).ToList();
+            right = rights.Count == 0 ? 0 : rights[Math.Min(rights.Count - 1, (int)(rights.Count * 0.95))];
+        }
+        return Math.Max(right, run.Box.Right + 1);
     }
 
     private void EditTextAt(PageView pv, Point p, bool quiet = false)
@@ -241,7 +291,7 @@ public sealed partial class PdfWindow
             Toast(Text(pv.Index)?.Text.Length > 0 ? "Click on a line of text to change it (turned text can't be changed)" : "This page has no text to change: it's probably a scanned picture (use Text and White-out instead)");
             return;
         }
-        var fresh = new RunEditItem { Page = pv.Index, Run = run, NewText = run.Text, Cover = CoverColour(pv, run.Box) };
+        var fresh = new RunEditItem { Page = pv.Index, Run = run, NewText = run.Text, Cover = CoverColour(pv, run.Box), WrapRight = WrapRightFor(pv.Index, run) };
         AttachRunCovers(pv.Index, new[] { fresh });
         EditRun(fresh, isNew: true);
     }
@@ -285,6 +335,11 @@ public sealed partial class PdfWindow
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='TextBox'>" +
                 "<Border Background='{TemplateBinding Background}' BorderBrush='#CC2F6BEA' BorderThickness='0.8'><ScrollViewer x:Name='PART_ContentHost' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Margin='0' Padding='0' Focusable='False' HorizontalScrollBarVisibility='Hidden' VerticalScrollBarVisibility='Hidden' /></Border></ControlTemplate>"),
         };
+        if (item.WrapRight > 0 && run.Turn == 0)
+        {
+            box.TextWrapping = TextWrapping.Wrap;                       // (words that pass the right edge of the block go to the next line, as they will in the PDF)
+            box.Width = Math.Max(run.Box.Width + 4, item.WrapRight - (run.Baseline.X + item.Offset.X) + 4);
+        }
         System.Windows.Automation.AutomationProperties.SetAutomationId(box, "PdfRunBox");
         Canvas.SetLeft(box, run.Baseline.X + item.Offset.X - 2); Canvas.SetTop(box, item.Top + item.Offset.Y);
         if (run.Turn != 0) box.RenderTransform = new RotateTransform(item.TurnDegrees, 2, item.EffFamily.Baseline * item.EffSize);
@@ -373,7 +428,8 @@ public sealed partial class PdfWindow
         if (_editing && _tool is EditTool.EditText or EditTool.Paragraph && _runBox == null && _hoverRun is { } h && h.Page == page)
         {
             double k = 1 / Math.Max(0.01, _pages[page].OverlayScale.ScaleX);
-            var frame = new Rectangle { Width = h.Box.Width + 4 * k, Height = h.Box.Height + 4 * k, Stroke = new SolidColorBrush(Color.FromRgb(0x2F, 0x6B, 0xEA)), StrokeThickness = 1 * k, StrokeDashArray = new DoubleCollection { 3, 2 }, IsHitTestVisible = false };
+            // (room round the words, a little more on the right and below: the frame is also the place to click, so it is not asked to be exact)
+            var frame = new Rectangle { Width = h.Box.Width + 14 * k, Height = h.Box.Height + 12 * k, Stroke = new SolidColorBrush(Color.FromRgb(0x2F, 0x6B, 0xEA)), StrokeThickness = 1 * k, StrokeDashArray = new DoubleCollection { 3, 2 }, IsHitTestVisible = false };
             Canvas.SetLeft(frame, h.Box.X - 2 * k); Canvas.SetTop(frame, h.Box.Y - 2 * k);
             overlay.Children.Add(frame);
         }

@@ -136,8 +136,10 @@ public sealed partial class PdfWindow
         for (var cur = startLine; ;)
         {
             double lo = firstStep ? margin - 3.5 * em : margin - 0.7 * em, hi = margin + 0.7 * em;
+            double Mid(ParaLine l) => (l.BodyLeft + l.BodyRight) / 2;
+            bool Centred(ParaLine l, ParaLine to) => Math.Abs(Mid(l) - Mid(to)) <= Math.Max(0.6 * em, 4) && Math.Abs(Mid(l) - Mid(startLine)) <= Math.Max(0.6 * em, 4);
             var next = all.Where(l => l != cur && !l.HasLabel && l.Baseline > cur.Baseline + 0.8 * em && l.Baseline <= cur.Baseline + 2.3 * em
-                                      && Math.Abs(l.Size - startLine.Size) <= 1.5 && l.BodyLeft >= lo && l.BodyLeft <= hi && l.Right > margin)
+                                      && Math.Abs(l.Size - startLine.Size) <= 1.5 && ((l.BodyLeft >= lo && l.BodyLeft <= hi && l.Right > margin) || Centred(l, cur)))
                           .OrderBy(l => l.Baseline).ThenBy(l => Math.Abs(l.BodyLeft - margin)).FirstOrDefault();
             if (next == null) break;
             double g = next.Baseline - cur.Baseline;
@@ -149,8 +151,10 @@ public sealed partial class PdfWindow
         // up: the first line may start further in, or have a number in front (then it is the first line: stop there)
         for (var cur = chain[0]; !cur.HasLabel;)
         {
+            double Mid(ParaLine l) => (l.BodyLeft + l.BodyRight) / 2;
+            bool Centred(ParaLine l, ParaLine to) => Math.Abs(Mid(l) - Mid(to)) <= Math.Max(0.6 * em, 4) && Math.Abs(Mid(l) - Mid(startLine)) <= Math.Max(0.6 * em, 4);
             var prev = all.Where(l => l != cur && l.Baseline < cur.Baseline - 0.8 * em && l.Baseline >= cur.Baseline - 2.3 * em
-                                      && Math.Abs(l.Size - startLine.Size) <= 1.5 && l.BodyLeft - margin <= 3.5 * em && l.BodyLeft - margin >= -0.7 * em && l.Right > margin)
+                                      && Math.Abs(l.Size - startLine.Size) <= 1.5 && ((l.BodyLeft - margin <= 3.5 * em && l.BodyLeft - margin >= -0.7 * em && l.Right > margin) || Centred(l, cur)))
                           .OrderByDescending(l => l.Baseline).ThenBy(l => Math.Abs(l.BodyLeft - margin)).FirstOrDefault();
             if (prev == null) break;
             double g = cur.Baseline - prev.Baseline;
@@ -159,10 +163,14 @@ public sealed partial class PdfWindow
             if (chain.Count > 80) break;
         }
         if (chain.Count < 2) return null;
-        double left = chain.Skip(1).Min(l => l.BodyLeft), right = chain.Max(l => l.BodyRight);
+        double MidOfLine(ParaLine l) => (l.BodyLeft + l.BodyRight) / 2;
+        // a centred title: every line is centred on the same middle and the lines are not all the same width (the lines belong together however they were broken)
+        bool centredGroup = chain.All(l => Math.Abs(MidOfLine(l) - MidOfLine(chain[0])) <= Math.Max(0.6 * em, 4)) && chain.Max(l => l.BodyLeft) - chain.Min(l => l.BodyLeft) > Math.Max(0.6 * em, 4);
+        double left = centredGroup ? chain.Min(l => l.BodyLeft) : chain.Skip(1).Min(l => l.BodyLeft), right = chain.Max(l => l.BodyRight);
         // a line flows into the next one when the next line's first word would not have fitted on it (ragged or justified, the same test); a line that had room for it ended on purpose
         bool Flows(int k)
         {
+            if (centredGroup) return true;
             var nextFirst = chain[k + 1].Body.FirstOrDefault();
             if (nextFirst == null) return false;
             var measure = MeasureFor(nextFirst);
@@ -176,7 +184,7 @@ public sealed partial class PdfWindow
         while (to < chain.Count - 1 && Flows(to)) to++;
         var lines = chain.GetRange(from, to - from + 1);
         if (lines.Count < 2 || lines.Any(l => l.Body.Count == 0)) return null;
-        double paraLeft = lines.Count > 1 ? lines.Skip(1).Min(l => l.BodyLeft) : lines[0].BodyLeft;
+        double paraLeft = centredGroup ? left : lines.Count > 1 ? lines.Skip(1).Min(l => l.BodyLeft) : lines[0].BodyLeft;
         return new Paragraph(lines, paraLeft, right, gap > 0 ? gap : em * 1.2, DetectAlign(lines, paraLeft, right));
     }
 
@@ -192,7 +200,7 @@ public sealed partial class PdfWindow
         bool flushLeft = lines.Skip(1).All(l => Math.Abs(l.BodyLeft - left) <= tol);
         if (flushRight && flushLeft && (full.Count >= 2 || StretchedSpaces(full[0]))) return 3;
         double leftSpread = lines.Max(l => l.BodyLeft) - lines.Min(l => l.BodyLeft);
-        if (lines.Count >= 3 && leftSpread > 3 * tol)
+        if (lines.Count >= 2 && leftSpread > 3 * tol)
         {
             var centres = lines.Select(l => (l.BodyLeft + l.BodyRight) / 2).ToList();
             if (centres.All(c => Math.Abs(c - centres[0]) <= tol * 1.5)) return 1;
